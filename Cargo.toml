@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-k9 = "0.12.0"
-logos = "0.14.2"
+logos = { version = "0.14.2", features = [] }
+
+[dev-dependencies]
+insta = "1.40.0"

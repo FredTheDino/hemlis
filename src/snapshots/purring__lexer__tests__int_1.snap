@@ -1,0 +1,5 @@
+---
+source: src/lexer.rs
+expression: "p(\"1_111_1\")"
+---
+Ok(Int("1_111_1"))

@@ -1,0 +1,5 @@
+---
+source: src/lexer.rs
+expression: "p(\"12.3\")"
+---
+Ok(Number("12.3"))
