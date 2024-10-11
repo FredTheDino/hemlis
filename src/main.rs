@@ -1,5 +1,22 @@
+use std::{env, fs};
+
 mod lexer;
 
 fn main() {
-    println!("Hello, world!");
+    for arg in env::args().skip(1) {
+        match fs::read_to_string(&arg) {
+            Err(e) => println!("ERR: {} {:?}", arg, e),
+            Ok(f) => {
+                if lexer::contains_lex_errors(&f) {
+                    if true {
+                        println!("{}", arg);
+                    } else {
+                        for i in lexer::lex(&f) {
+                            println!("{:?}", i);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
