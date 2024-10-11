@@ -1,0 +1,13 @@
+---
+source: src/lexer.rs
+expression: "p(\"a = ?foo 1 2\")"
+---
+Ok(Lower("a"))
+Ok(Whitespace(" "))
+Ok(Symbol("="))
+Ok(Whitespace(" "))
+Ok(Hole("?foo"))
+Ok(Whitespace(" "))
+Ok(Number("1"))
+Ok(Whitespace(" "))
+Ok(Number("2"))

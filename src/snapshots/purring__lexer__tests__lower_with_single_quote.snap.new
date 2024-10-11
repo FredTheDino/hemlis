@@ -1,0 +1,6 @@
+---
+source: src/lexer.rs
+assertion_line: 258
+expression: "p(\"myFunction'\")"
+---
+Ok(Lower("myFunction'"))

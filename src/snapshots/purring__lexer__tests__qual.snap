@@ -1,0 +1,19 @@
+---
+source: src/lexer.rs
+expression: "p(\"A.B.Unit A.B.var A.B.### A.B....\")"
+---
+Ok(Qual("A."))
+Ok(Qual("B."))
+Ok(Upper("Unit"))
+Ok(Whitespace(" "))
+Ok(Qual("A."))
+Ok(Qual("B."))
+Ok(Lower("var"))
+Ok(Whitespace(" "))
+Ok(Qual("A."))
+Ok(Qual("B."))
+Ok(Symbol("###"))
+Ok(Whitespace(" "))
+Ok(Qual("A."))
+Ok(Qual("B."))
+Ok(Symbol("..."))

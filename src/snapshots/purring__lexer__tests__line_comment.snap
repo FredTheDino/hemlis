@@ -1,0 +1,10 @@
+---
+source: src/lexer.rs
+expression: "p(\"a + -- this is a comment\\nb\")"
+---
+Ok(Lower("a"))
+Ok(Whitespace(" "))
+Ok(Symbol("+"))
+Ok(Whitespace(" "))
+Ok(LineComment("-- this is a comment\n"))
+Ok(Lower("b"))

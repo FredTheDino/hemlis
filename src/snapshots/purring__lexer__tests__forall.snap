@@ -1,0 +1,24 @@
+---
+source: src/lexer.rs
+expression: "p(\"forall f. Monad f => f a -> f Unit\")"
+---
+Ok(Forall)
+Ok(Whitespace(" "))
+Ok(Lower("f"))
+Ok(Symbol("."))
+Ok(Whitespace(" "))
+Ok(Upper("Monad"))
+Ok(Whitespace(" "))
+Ok(Lower("f"))
+Ok(Whitespace(" "))
+Ok(RightFatArrow)
+Ok(Whitespace(" "))
+Ok(Lower("f"))
+Ok(Whitespace(" "))
+Ok(Lower("a"))
+Ok(Whitespace(" "))
+Ok(RightArrow)
+Ok(Whitespace(" "))
+Ok(Lower("f"))
+Ok(Whitespace(" "))
+Ok(Upper("Unit"))
