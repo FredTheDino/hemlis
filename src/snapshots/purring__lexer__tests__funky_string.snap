@@ -1,6 +1,5 @@
 ---
 source: src/lexer.rs
-assertion_line: 264
 expression: "p(\"\\\"\\\"\")"
 ---
 Ok(String("\"\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\u{f61a}\""))

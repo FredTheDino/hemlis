@@ -1,0 +1,6 @@
+---
+source: src/lexer.rs
+assertion_line: 301
+expression: "p(\"-\")"
+---
+Ok(Symbol("-"))

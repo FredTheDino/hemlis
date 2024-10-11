@@ -2,6 +2,7 @@ use logos::Logos;
 
 // TODO: Count indent and offset
 // TODO: Might not support unicode?
+// TODO: Understand indentation 
 
 fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"") {
@@ -61,7 +62,7 @@ pub enum Token<'t> {
     RightSquare,
     #[token("<-")]
     LeftArrow,
-    #[token("->")]
+    #[token("->", priority=10000)]
     RightArrow,
     #[token("=>")]
     RightFatArrow,
@@ -71,14 +72,12 @@ pub enum Token<'t> {
     Tick,
     #[token(",")]
     Comma,
-    #[token("(->)")]
-    SymbolArr,
-    #[token("(..)")]
-    SymbolName,
 
     #[token("forall")]
     Forall,
 
+    // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
+    // ourselves here.
     #[regex("[A-Z][[:alnum:]]*\\.")]
     Qual(&'t str),
 
@@ -88,7 +87,7 @@ pub enum Token<'t> {
     #[regex("[A-Z][[:alnum:]]*", priority=200000)]
     Upper(&'t str),
 
-    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|-|~|:]+")]
+    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:]+")]
     Symbol(&'t str),
 
     #[regex("\\?[_a-z][[:alnum:]]*")]
@@ -97,13 +96,13 @@ pub enum Token<'t> {
     #[regex("0x[[:xdigit:]]+")]
     HexInt(&'t str),
 
-    #[regex("[[:digit:]][[:digit:]|_]+")]
-    Int(&'t str),
-
-    #[regex(r"([+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?|[+-]?|[+-]?)")]
+    // contains e or . => Number, otherwise => Int 
+    #[regex(r"([\d][\d|_]*|([\d]+\.[\d]*|[\d]*\.[\d]+))|[\d]+e(-|\+)?[\d]+")]
     Number(&'t str),
 
-    #[regex(r"'[(.)|(\\x[:xdigit:])]'")]
+    // TODO: We need to parse this with a custom function, I have trubble expressing this with
+    // regex 
+    #[regex(r"'.{1,4}'")]
     Char(&'t str),
 
     #[regex("\"", |lex| parse_string(lex))]
@@ -260,5 +259,45 @@ mod tests {
     #[test]
     fn funky_string() {
         assert_snapshot!(p("\"\""))
+    }
+
+    #[test]
+    fn char_dash() {
+        assert_snapshot!(p("'-'"))
+    }
+
+    #[test]
+    fn char_a() {
+        assert_snapshot!(p("'A'"))
+    }
+
+    #[test]
+    fn char_hex() {
+        assert_snapshot!(p(r"'\x00'"))
+    }
+
+    #[test]
+    fn simple_int() {
+        assert_snapshot!(p(r"1"))
+    }
+
+    #[test]
+    fn simple_number() {
+        assert_snapshot!(p(r"1.0"))
+    }
+
+    #[test]
+    fn symbol_paren_plus() {
+        assert_snapshot!(p("(+)"))
+    }
+
+    #[test]
+    fn symbol_paren_minus() {
+        assert_snapshot!(p("(-)"))
+    }
+
+    #[test]
+    fn symbol_minus() {
+        assert_snapshot!(p("-"))
     }
 }
