@@ -1,6 +1,5 @@
 ---
 source: src/lexer.rs
-assertion_line: 296
 expression: "p(\"(-)\")"
 ---
 Ok(LeftParen)

@@ -81,10 +81,11 @@ pub enum Token<'t> {
     #[regex("[A-Z][[:alnum:]]*\\.")]
     Qual(&'t str),
 
-    #[regex("[_a-z][[:alnum:]']*")]
+    // TODO: Might be too much of a wuzz when only extending the uncide with swedish
+    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ]*")]
     Lower(&'t str),
 
-    #[regex("[A-Z][[:alnum:]]*", priority=200000)]
+    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", priority=200000)]
     Upper(&'t str),
 
     #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:]+")]
@@ -299,5 +300,15 @@ mod tests {
     #[test]
     fn symbol_minus() {
         assert_snapshot!(p("-"))
+    }
+
+    #[test]
+    fn swedish_lower() {
+        assert_snapshot!(p("överförning"))
+    }
+
+    #[test]
+    fn swedish_upper() {
+        assert_snapshot!(p("Överförning"))
     }
 }
