@@ -13,11 +13,10 @@ fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
             Some("\\\"") => {
                 lex.bump(at + 1);
             }
-            Some(_) => {
+            _ => {
                 lex.bump(at + 1);
                 return Some(lex.slice());
             }
-            None => return None,
         }
     }
     None
@@ -25,7 +24,7 @@ fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
 
 fn parse_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"\"\"") {
-        match dbg!(lex.remainder().get(at+3..at + 4)) {
+        match lex.remainder().get(at+3..at + 4) {
             Some("\"") => {
                 lex.bump(at + 1);
             }
@@ -34,6 +33,14 @@ fn parse_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str
                 return Some(lex.slice());
             }
         }
+    }
+    None
+}
+
+fn parse_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
+    if let Some(at) = lex.remainder().find("-}") {
+        lex.bump(at + 2);
+        return Some(lex.slice());
     }
     None
 }
@@ -72,19 +79,19 @@ pub enum Token<'t> {
     #[token("forall")]
     Forall,
 
-    #[regex("([A-Z][[:alnum:]]*\\.)+")]
+    #[regex("[A-Z][[:alnum:]]*\\.")]
     Qual(&'t str),
 
-    #[regex("[_a-z][[:alnum:]]*")]
+    #[regex("[_a-z][[:alnum:]']*")]
     Lower(&'t str),
 
-    #[regex("[A-Z][:alnum:]*")]
+    #[regex("[A-Z][[:alnum:]]*", priority=200000)]
     Upper(&'t str),
 
     #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|-|~|:]+")]
     Symbol(&'t str),
 
-    #[regex("\\?[_a-z][:alnum:]*")]
+    #[regex("\\?[_a-z][[:alnum:]]*")]
     Hole(&'t str),
 
     #[regex("0x[[:xdigit:]]+")]
@@ -108,13 +115,21 @@ pub enum Token<'t> {
     #[regex("--.*\n")]
     LineComment(&'t str),
 
-    #[regex(r"\{-.*-\}")]
+    #[regex(r"\{-", |lex| parse_block_comment(lex))]
     BlockComment(&'t str),
 
     #[regex(r"\s+")]
     Whitespace(&'t str),
 }
 
+pub fn contains_lex_errors(content: &str) -> bool {
+    lex(content).any(|x| x.is_err())
+}
+
+
+pub fn lex<'s>(content: &'s str) -> logos::Lexer<'s, Token<'s>> {
+    Token::lexer(content)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +210,55 @@ mod tests {
     #[test]
     fn number_2() {
         assert_snapshot!(p("1e+10"))
+    }
+
+    #[test]
+    fn line_comment() {
+        assert_snapshot!(p("a + -- this is a comment\nb"))
+    }
+
+    #[test]
+    fn block_comment() {
+        assert_snapshot!(p("a + {- this\n is\n a\n comment\n -} b"))
+    }
+
+    #[test]
+    fn block_comment2() {
+        assert_snapshot!(p("a +{- this\n is\n a\n comment\n -}b"))
+    }
+
+    #[test]
+    fn symbol() {
+        assert_snapshot!(p("<#>"))
+    }
+
+    #[test]
+    fn hole() {
+        assert_snapshot!(p("a = ?foo 1 2"))
+    }
+
+    #[test]
+    fn forall() {
+        assert_snapshot!(p("forall f. Monad f => f a -> f Unit"))
+    }
+
+    #[test]
+    fn upper() {
+        assert_snapshot!(p("Unit"))
+    }
+
+    #[test]
+    fn qual() {
+        assert_snapshot!(p("A.B.Unit A.B.var A.B.### A.B...."))
+    }
+
+    #[test]
+    fn lower_with_single_quote() {
+        assert_snapshot!(p("myFunction'"))
+    }
+
+    #[test]
+    fn funky_string() {
+        assert_snapshot!(p("\"\""))
     }
 }
