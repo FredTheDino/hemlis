@@ -88,7 +88,7 @@ pub enum Token<'t> {
     #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", priority=200000)]
     Upper(&'t str),
 
-    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:]+")]
+    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+")]
     Symbol(&'t str),
 
     #[regex("\\?[_a-z][[:alnum:]]*")]
@@ -103,7 +103,7 @@ pub enum Token<'t> {
 
     // TODO: We need to parse this with a custom function, I have trubble expressing this with
     // regex 
-    #[regex(r"'.{1,4}'")]
+    #[regex(r#"'.'|'\\x.{1,8}'|'\\[trn"\\]'"#)]
     Char(&'t str),
 
     #[regex("\"", |lex| parse_string(lex))]
@@ -296,6 +296,17 @@ mod tests {
     fn symbol_paren_minus() {
         assert_snapshot!(p("(-)"))
     }
+
+    #[test]
+    fn this_wacky_thing_is_an_opperator() {
+        assert_snapshot!(p("¤"))
+    }
+
+    #[test]
+    fn some_char_special_cases() {
+        assert_snapshot!(p(r#"'\n''\r''\t''\"''\\''\xF00'"#))
+    }
+
 
     #[test]
     fn symbol_minus() {

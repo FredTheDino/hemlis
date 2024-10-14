@@ -8,11 +8,11 @@ fn main() {
             Err(e) => println!("ERR: {} {:?}", arg, e),
             Ok(f) => {
                 if lexer::contains_lex_errors(&f) {
-                    if true {
+                    if false {
                         println!("{}", arg);
                     } else {
                         for i in lexer::lex(&f) {
-                            println!("{:?}", i);
+                            println!("{}:: {:?}", arg, i);
                         }
                     }
                 }
