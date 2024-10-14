@@ -2,8 +2,8 @@
 source: src/lexer.rs
 expression: "p(\"a +{- this\\n is\\n a\\n comment\\n -}b\")"
 ---
-Ok(Lower("a"))
+Ok(Lower((0, "a")))
 Ok(Whitespace(" "))
 Ok(Symbol("+"))
 Ok(BlockComment("{- this\n is\n a\n comment\n -}"))
-Ok(Lower("b"))
+Ok(Lower((3, "b")))

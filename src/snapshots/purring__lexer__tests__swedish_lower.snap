@@ -2,4 +2,4 @@
 source: src/lexer.rs
 expression: "p(\"överförning\")"
 ---
-Ok(Lower("överförning"))
+Ok(Lower((0, "överförning")))

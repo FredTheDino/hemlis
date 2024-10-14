@@ -2,4 +2,4 @@
 source: src/lexer.rs
 expression: "p(\"Överförning\")"
 ---
-Ok(Upper("Överförning"))
+Ok(Upper((0, "Överförning")))

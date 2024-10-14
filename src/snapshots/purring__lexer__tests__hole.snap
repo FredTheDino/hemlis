@@ -2,7 +2,7 @@
 source: src/lexer.rs
 expression: "p(\"a = ?foo 1 2\")"
 ---
-Ok(Lower("a"))
+Ok(Lower((0, "a")))
 Ok(Whitespace(" "))
 Ok(Symbol("="))
 Ok(Whitespace(" "))

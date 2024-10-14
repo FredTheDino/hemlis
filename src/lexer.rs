@@ -1,13 +1,12 @@
 use logos::Logos;
 
-// TODO: Count indent and offset
-// TODO: Might not support unicode?
-// TODO: Understand indentation 
+// NOTE: Might not support unicode?
 
 fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"") {
         if at == 0 {
             lex.bump(at + 1);
+            update_newline(lex);
             return Some(lex.slice());
         }
         match lex.remainder().get(at - 1..at + 1) {
@@ -16,6 +15,7 @@ fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
             }
             _ => {
                 lex.bump(at + 1);
+                update_newline(lex);
                 return Some(lex.slice());
             }
         }
@@ -25,12 +25,13 @@ fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
 
 fn parse_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"\"\"") {
-        match lex.remainder().get(at+3..at + 4) {
+        match lex.remainder().get(at + 3..at + 4) {
             Some("\"") => {
                 lex.bump(at + 1);
             }
             _ => {
                 lex.bump(at + 3);
+                update_newline(lex);
                 return Some(lex.slice());
             }
         }
@@ -41,12 +42,22 @@ fn parse_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str
 fn parse_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     if let Some(at) = lex.remainder().find("-}") {
         lex.bump(at + 2);
+        update_newline(lex);
         return Some(lex.slice());
     }
     None
 }
 
+fn with_indent<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> (usize, &'t str) {
+    (lex.span().start - lex.extras, lex.slice())
+}
+
+fn update_newline<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) {
+    lex.extras = lex.span().start + lex.slice().rfind("\n").unwrap_or(0) + 1;
+}
+
 #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy)]
+#[logos(extras = usize)]
 pub enum Token<'t> {
     #[token("(")]
     LeftParen,
@@ -62,7 +73,7 @@ pub enum Token<'t> {
     RightSquare,
     #[token("<-")]
     LeftArrow,
-    #[token("->", priority=10000)]
+    #[token("->", priority = 10000)]
     RightArrow,
     #[token("=>")]
     RightFatArrow,
@@ -78,15 +89,15 @@ pub enum Token<'t> {
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.
-    #[regex("[A-Z][[:alnum:]]*\\.")]
-    Qual(&'t str),
+    #[regex("[A-Z][[:alnum:]]*\\.", with_indent)]
+    Qual((usize, &'t str)),
 
     // TODO: Might be too much of a wuzz when only extending the uncide with swedish
-    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ]*")]
-    Lower(&'t str),
+    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ]*", with_indent)]
+    Lower((usize, &'t str)),
 
-    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", priority=200000)]
-    Upper(&'t str),
+    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", with_indent, priority = 200000)]
+    Upper((usize, &'t str)),
 
     #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+")]
     Symbol(&'t str),
@@ -97,12 +108,10 @@ pub enum Token<'t> {
     #[regex("0x[[:xdigit:]]+")]
     HexInt(&'t str),
 
-    // contains e or . => Number, otherwise => Int 
+    // contains e or . => Number, otherwise => Int
     #[regex(r"([\d][\d|_]*|([\d]+\.[\d]*|[\d]*\.[\d]+))|[\d]+e(-|\+)?[\d]+")]
     Number(&'t str),
 
-    // TODO: We need to parse this with a custom function, I have trubble expressing this with
-    // regex 
     #[regex(r#"'.'|'\\x.{1,8}'|'\\[trn"\\]'"#)]
     Char(&'t str),
 
@@ -118,6 +127,9 @@ pub enum Token<'t> {
     #[regex(r"\{-", |lex| parse_block_comment(lex))]
     BlockComment(&'t str),
 
+    #[token("\n", update_newline, priority = 10)]
+    Newline,
+
     #[regex(r"\s+")]
     Whitespace(&'t str),
 }
@@ -125,7 +137,6 @@ pub enum Token<'t> {
 pub fn contains_lex_errors(content: &str) -> bool {
     lex(content).any(|x| x.is_err())
 }
-
 
 pub fn lex<'s>(content: &'s str) -> logos::Lexer<'s, Token<'s>> {
     Token::lexer(content)
@@ -307,7 +318,6 @@ mod tests {
         assert_snapshot!(p(r#"'\n''\r''\t''\"''\\''\xF00'"#))
     }
 
-
     #[test]
     fn symbol_minus() {
         assert_snapshot!(p("-"))
@@ -321,5 +331,15 @@ mod tests {
     #[test]
     fn swedish_upper() {
         assert_snapshot!(p("Överförning"))
+    }
+
+    #[test]
+    fn knows_if_start_of_line() {
+        assert_snapshot!(p(r#"
+import A as A
+
+foo :: Int
+foo = bar + baz
+        "#))
     }
 }

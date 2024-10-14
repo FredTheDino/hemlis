@@ -2,4 +2,4 @@
 source: src/lexer.rs
 expression: "p(\"variable\")"
 ---
-Ok(Lower("variable"))
+Ok(Lower((0, "variable")))
