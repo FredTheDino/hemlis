@@ -1,10 +1,15 @@
 use std::{env, fs};
 
+use rayon::prelude::*;
+
 mod lexer;
 
 fn main() {
-    for arg in env::args().skip(1) {
-        match fs::read_to_string(&arg) {
+    env::args()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .par_iter()
+        .for_each(|arg| match fs::read_to_string(&arg) {
             Err(e) => println!("ERR: {} {:?}", arg, e),
             Ok(f) => {
                 if lexer::contains_lex_errors(&f) {
@@ -17,6 +22,5 @@ fn main() {
                     }
                 }
             }
-        }
-    }
+        })
 }
