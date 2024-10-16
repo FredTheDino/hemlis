@@ -1,0 +1,9 @@
+---
+source: src/lexer.rs
+assertion_line: 353
+expression: "p(\"a + -- this is a comment\\nb\")"
+---
+Ok(Lower("a"))
+Ok(Symbol("+"))
+Ok(LineComment("-- this is a comment\n"))
+Ok(Lower("b"))

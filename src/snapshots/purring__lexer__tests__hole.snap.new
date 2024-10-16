@@ -1,0 +1,10 @@
+---
+source: src/lexer.rs
+assertion_line: 373
+expression: "p(\"a = ?foo 1 2\")"
+---
+Ok(Lower("a"))
+Ok(Symbol("="))
+Ok(Hole("?foo"))
+Ok(Number("1"))
+Ok(Number("2"))

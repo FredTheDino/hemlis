@@ -3,6 +3,8 @@ use std::{env, fs};
 use rayon::prelude::*;
 
 mod lexer;
+mod parser;
+mod ast;
 
 fn main() {
     env::args()
@@ -12,13 +14,10 @@ fn main() {
         .for_each(|arg| match fs::read_to_string(&arg) {
             Err(e) => println!("ERR: {} {:?}", arg, e),
             Ok(f) => {
-                if lexer::contains_lex_errors(&f) {
-                    if false {
-                        println!("{}", arg);
-                    } else {
-                        for i in lexer::lex(&f) {
-                            println!("{}:: {:?}", arg, i);
-                        }
+                for i in lexer::lex(&f) {
+                    match i {
+                        Ok(lexer::Token::Lower(n)) => println!("def: {}", n),
+                        _ => {}
                     }
                 }
             }

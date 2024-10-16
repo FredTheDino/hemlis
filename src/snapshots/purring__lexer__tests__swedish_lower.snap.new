@@ -1,0 +1,6 @@
+---
+source: src/lexer.rs
+assertion_line: 453
+expression: "p(\"överförning\")"
+---
+Ok(Lower("överförning"))

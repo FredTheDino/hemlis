@@ -1,8 +1,9 @@
-use logos::Logos;
+use std::iter::Peekable;
 
+use logos::{FilterResult, Logos, Source};
 // NOTE: Might not support unicode?
 
-fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
+fn lex_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"") {
         if at == 0 {
             lex.bump(at + 1);
@@ -23,7 +24,7 @@ fn parse_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     None
 }
 
-fn parse_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
+fn lex_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"\"\"") {
         match lex.remainder().get(at + 3..at + 4) {
             Some("\"") => {
@@ -39,7 +40,7 @@ fn parse_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str
     None
 }
 
-fn parse_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
+fn lex_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     if let Some(at) = lex.remainder().find("-}") {
         lex.bump(at + 2);
         update_newline(lex);
@@ -48,17 +49,75 @@ fn parse_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t 
     None
 }
 
-fn with_indent<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> (usize, &'t str) {
-    (lex.span().start - lex.extras, lex.slice())
+fn lex_line_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
+    if let Some(at) = lex.remainder().find("\n") {
+        lex.bump(at + 1);
+        update_newline(lex);
+        return Some(lex.slice());
+    }
+    None
+}
+
+fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
+    use self::Lay::*;
+    use FilterResult::*;
+
+    let at = lex.slice().rfind("\n").unwrap_or(0);
+    let indent = lex.span().end - lex.span().start - at - 1;
+
+    dbg!(lex.slice(), indent);
+    update_newline(lex);
+    if indent == 0 && lex.remainder().starts_with(|c: char| c.is_lowercase()) {
+        lex.extras.1 = Vec::new();
+        return Emit(Top);
+    }
+    let implies_start = lex
+        .source()
+        .slice(0..lex.span().start)
+        .map(|s| {
+            s.ends_with(".do")
+                || s.ends_with(" do")
+                || s.ends_with(" ado")
+                || s.ends_with(".ado")
+                || s.ends_with(" where")
+                || s.ends_with(" let")
+        })
+        .unwrap_or(false);
+    if indent > lex.extras.1.last().copied().unwrap_or(0) && implies_start {
+        update_newline(lex);
+        lex.extras.1.push(indent);
+        return Emit(Begin(lex.extras.1.len()));
+    }
+    if indent < lex.extras.1.last().copied().unwrap_or(0) {
+        update_newline(lex);
+        while indent < lex.extras.1.last().copied().unwrap_or(0) {
+            lex.extras.1.pop();
+        }
+        return Emit(End(lex.extras.1.len()));
+    }
+    if indent == lex.extras.1.last().copied().unwrap_or(0) {
+        update_newline(lex);
+        return Emit(Sep(lex.extras.1.len()));
+    }
+    Skip
 }
 
 fn update_newline<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) {
-    lex.extras = lex.span().start + lex.slice().rfind("\n").unwrap_or(0) + 1;
+    lex.extras.0 = lex.span().start + lex.slice().rfind("\n").unwrap_or(0) + 1;
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Lay {
+    Top,
+    Sep(usize),
+    Begin(usize),
+    End(usize),
 }
 
 #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy)]
-#[logos(extras = usize)]
+#[logos(extras = (usize, Vec<usize>))]
 pub enum Token<'t> {
+    #[regex("\\s+", logos::skip, priority = 11)]
     #[token("(")]
     LeftParen,
     #[token(")")]
@@ -89,15 +148,15 @@ pub enum Token<'t> {
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.
-    #[regex("[A-Z][[:alnum:]]*\\.", with_indent)]
-    Qual((usize, &'t str)),
+    #[regex("[A-Z][[:alnum:]]*\\.")]
+    Qual(&'t str),
 
     // TODO: Might be too much of a wuzz when only extending the uncide with swedish
-    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ]*", with_indent)]
-    Lower((usize, &'t str)),
+    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ]*")]
+    Lower(&'t str),
 
-    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", with_indent, priority = 200000)]
-    Upper((usize, &'t str)),
+    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", priority = 20)]
+    Upper(&'t str),
 
     #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+")]
     Symbol(&'t str),
@@ -115,39 +174,105 @@ pub enum Token<'t> {
     #[regex(r#"'.'|'\\x.{1,8}'|'\\[trn"\\]'"#)]
     Char(&'t str),
 
-    #[regex("\"", |lex| parse_string(lex))]
+    #[regex("\"", |lex| lex_string(lex))]
     String(&'t str),
 
-    #[regex("\"\"\"", |lex| parse_raw_string(lex))]
+    #[regex("\"\"\"", |lex| lex_raw_string(lex))]
     RawString(&'t str),
 
-    #[regex("--.*\n")]
+    #[token("--", |lex| lex_line_comment(lex))]
     LineComment(&'t str),
 
-    #[regex(r"\{-", |lex| parse_block_comment(lex))]
+    #[token("{-", |lex| lex_block_comment(lex))]
     BlockComment(&'t str),
 
-    #[token("\n", update_newline, priority = 10)]
-    Newline,
-
-    #[regex(r"\s+")]
-    Whitespace(&'t str),
+    #[regex("\\s*\n\\s*", lex_lay, priority = 12)]
+    Lay(Lay),
 }
 
 pub fn contains_lex_errors(content: &str) -> bool {
-    lex(content).any(|x| x.is_err())
+    let mut state = 0;
+    Token::lexer(content)
+        .map(|x| match x {
+            Ok(ok) => spread(&mut state, ok)
+                .into_iter()
+                .map(|y| Ok::<_, ()>(y))
+                .collect::<Vec<_>>(),
+            e => [e].into_iter().collect(),
+        })
+        .flatten()
+        .any(|x| x.is_err())
 }
 
-pub fn lex<'s>(content: &'s str) -> logos::Lexer<'s, Token<'s>> {
+pub fn lex<'s>(content: &'s str) -> Vec<Result<Token<'s>, ()>> {
+    let mut state = 0;
     Token::lexer(content)
+        .map(|x| match x {
+            Ok(ok) => spread(&mut state, ok)
+                .into_iter()
+                .map(|y| Ok::<_, ()>(y))
+                .collect::<Vec<_>>(),
+            e => [e].into_iter().collect(),
+        })
+        .flatten()
+        .collect::<Vec<_>>()
 }
+
+fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
+    use self::Lay::*;
+    match match t {
+        Token::Lay(l) => l,
+        x => return vec![x],
+    } {
+        Top => {
+            let out = (1..=*prev)
+                .rev()
+                .into_iter()
+                .map(|x| Token::Lay(End(x)))
+                .chain([Token::Lay(Top)].into_iter())
+                .collect();
+            *prev = 0;
+            out
+        }
+        End(n) => {
+            let out = (n + 1..=*prev)
+                .rev()
+                .into_iter()
+                .map(|x| Token::Lay(End(x)))
+                .chain([Token::Lay(Sep(n))].into_iter())
+                .collect();
+            *prev = n;
+            out
+        }
+        Begin(x) => {
+            assert!(x == *prev + 1, "A");
+            *prev = x;
+            vec![t]
+        }
+        Sep(x) => {
+            assert!(x == *prev, "B");
+            *prev = x;
+            vec![t]
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use insta::assert_snapshot;
 
     fn p(s: &'static str) -> String {
+        let mut state = 0;
         Token::lexer(s)
+            .map(|x| match x {
+                Ok(ok) => spread(&mut state, ok)
+                    .into_iter()
+                    .map(|y| Ok::<_, ()>(y))
+                    .collect::<Vec<_>>(),
+                e => [e].into_iter().collect(),
+            })
+            .flatten()
             .map(|x| format!("{:?}", x))
             .collect::<Vec<_>>()
             .join("\n")
@@ -339,6 +464,21 @@ mod tests {
 import A as A
 
 foo :: Int
+foo = bar + baz
+        "#))
+    }
+
+    #[test]
+    fn tricky_do_notation() {
+        assert_snapshot!(p(r#"
+f = 
+    do
+        do
+            a <- f b
+            do
+                x <- y
+        e v
+
 foo = bar + baz
         "#))
     }
