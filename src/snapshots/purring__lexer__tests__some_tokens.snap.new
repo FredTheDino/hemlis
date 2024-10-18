@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 288
+assertion_line: 272
 expression: "p(\"module A where (a, b, c)\\nimport B as B\\nfoo = 1 + B.t\")"
 ---
 Ok(Lower("module"))

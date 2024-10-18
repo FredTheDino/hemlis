@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 393
+assertion_line: 377
 expression: "p(\"myFunction'\")"
 ---
 Ok(Lower("myFunction'"))

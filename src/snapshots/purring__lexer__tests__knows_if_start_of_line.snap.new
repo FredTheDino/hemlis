@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 463
+assertion_line: 447
 expression: "p(r#\"\nimport A as A\n\nfoo :: Int\nfoo = bar + baz\n        \"#)"
 ---
 Ok(Lay(Top))

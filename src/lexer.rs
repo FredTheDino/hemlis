@@ -1,4 +1,4 @@
-use std::iter::Peekable;
+use std::{iter::Peekable, ops::Range};
 
 use logos::{FilterResult, Logos, Source};
 // NOTE: Might not support unicode?
@@ -117,7 +117,7 @@ pub enum Lay {
 #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy)]
 #[logos(extras = (usize, Vec<usize>))]
 pub enum Token<'t> {
-    #[regex("\\s+", logos::skip, priority = 11)]
+    #[regex("\\s+", logos::skip)]
     #[token("(")]
     LeftParen,
     #[token(")")]
@@ -191,30 +191,22 @@ pub enum Token<'t> {
 }
 
 pub fn contains_lex_errors(content: &str) -> bool {
-    let mut state = 0;
-    Token::lexer(content)
-        .map(|x| match x {
-            Ok(ok) => spread(&mut state, ok)
-                .into_iter()
-                .map(|y| Ok::<_, ()>(y))
-                .collect::<Vec<_>>(),
-            e => [e].into_iter().collect(),
-        })
-        .flatten()
-        .any(|x| x.is_err())
+    lex(content).into_iter().any(|x| x.0.is_err())
 }
 
-pub fn lex<'s>(content: &'s str) -> Vec<Result<Token<'s>, ()>> {
+pub fn lex<'s>(content: &'s str) -> Vec<(Result<Token<'s>, ()>, Range<usize>)> {
     let mut state = 0;
     Token::lexer(content)
-        .map(|x| match x {
+        .spanned()
+        .map(|(x, s)| match x {
             Ok(ok) => spread(&mut state, ok)
                 .into_iter()
-                .map(|y| Ok::<_, ()>(y))
+                .map(|y| (Ok::<_, ()>(y), s.clone()))
                 .collect::<Vec<_>>(),
-            e => [e].into_iter().collect(),
+            _ => [(x, s)].into_iter().collect(),
         })
         .flatten()
+        .filter(|(x, _)| !matches!(x, Ok(Token::LineComment(_) | Token::BlockComment(_))))
         .collect::<Vec<_>>()
 }
 
@@ -263,17 +255,9 @@ mod tests {
     use insta::assert_snapshot;
 
     fn p(s: &'static str) -> String {
-        let mut state = 0;
-        Token::lexer(s)
-            .map(|x| match x {
-                Ok(ok) => spread(&mut state, ok)
-                    .into_iter()
-                    .map(|y| Ok::<_, ()>(y))
-                    .collect::<Vec<_>>(),
-                e => [e].into_iter().collect(),
-            })
-            .flatten()
-            .map(|x| format!("{:?}", x))
+        lex(s)
+            .iter()
+            .map(|x| format!("{:?}", x.0))
             .collect::<Vec<_>>()
             .join("\n")
     }

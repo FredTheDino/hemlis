@@ -15,7 +15,7 @@ fn main() {
             Err(e) => println!("ERR: {} {:?}", arg, e),
             Ok(f) => {
                 for i in lexer::lex(&f) {
-                    match i {
+                    match i.0 {
                         Ok(lexer::Token::Lower(n)) => println!("def: {}", n),
                         _ => {}
                     }

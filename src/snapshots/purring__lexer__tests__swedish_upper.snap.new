@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 458
+assertion_line: 442
 expression: "p(\"Överförning\")"
 ---
 Ok(Upper("Överförning"))

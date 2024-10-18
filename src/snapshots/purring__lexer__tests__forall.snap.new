@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 378
+assertion_line: 362
 expression: "p(\"forall f. Monad f => f a -> f Unit\")"
 ---
 Ok(Forall)

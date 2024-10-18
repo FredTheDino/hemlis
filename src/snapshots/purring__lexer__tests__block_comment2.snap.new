@@ -1,9 +1,8 @@
 ---
 source: src/lexer.rs
-assertion_line: 363
+assertion_line: 347
 expression: "p(\"a +{- this\\n is\\n a\\n comment\\n -}b\")"
 ---
 Ok(Lower("a"))
 Ok(Symbol("+"))
-Ok(BlockComment("{- this\n is\n a\n comment\n -}"))
 Ok(Lower("b"))

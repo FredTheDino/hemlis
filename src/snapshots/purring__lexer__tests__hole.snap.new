@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 373
+assertion_line: 357
 expression: "p(\"a = ?foo 1 2\")"
 ---
 Ok(Lower("a"))

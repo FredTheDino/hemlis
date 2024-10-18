@@ -1,6 +1,6 @@
 ---
 source: src/lexer.rs
-assertion_line: 388
+assertion_line: 372
 expression: "p(\"A.B.Unit A.B.var A.B.### A.B....\")"
 ---
 Ok(Qual("A."))
