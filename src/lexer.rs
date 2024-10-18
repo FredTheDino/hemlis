@@ -65,7 +65,6 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
     let at = lex.slice().rfind("\n").unwrap_or(0);
     let indent = lex.span().end - lex.span().start - at - 1;
 
-    dbg!(lex.slice(), indent);
     update_newline(lex);
     if indent == 0 && lex.remainder().starts_with(|c: char| c.is_lowercase()) {
         lex.extras.1 = Vec::new();
