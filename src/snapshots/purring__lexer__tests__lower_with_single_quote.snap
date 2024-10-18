@@ -2,4 +2,4 @@
 source: src/lexer.rs
 expression: "p(\"myFunction'\")"
 ---
-Ok(Lower((0, "myFunction'")))
+Ok(Lower("myFunction'"))

@@ -1,6 +1,0 @@
----
-source: src/lexer.rs
-assertion_line: 437
-expression: "p(\"överförning\")"
----
-Ok(Lower("överförning"))

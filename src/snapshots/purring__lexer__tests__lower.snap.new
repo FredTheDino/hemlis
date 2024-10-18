@@ -1,6 +1,0 @@
----
-source: src/lexer.rs
-assertion_line: 277
-expression: "p(\"variable\")"
----
-Ok(Lower("variable"))

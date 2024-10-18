@@ -1,6 +1,0 @@
----
-source: src/lexer.rs
-assertion_line: 367
-expression: "p(\"Unit\")"
----
-Ok(Upper("Unit"))

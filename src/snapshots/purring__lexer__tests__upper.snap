@@ -2,4 +2,4 @@
 source: src/lexer.rs
 expression: "p(\"Unit\")"
 ---
-Ok(Upper((0, "Unit")))
+Ok(Upper("Unit"))

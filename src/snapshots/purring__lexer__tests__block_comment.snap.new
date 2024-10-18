@@ -1,8 +1,0 @@
----
-source: src/lexer.rs
-assertion_line: 342
-expression: "p(\"a + {- this\\n is\\n a\\n comment\\n -} b\")"
----
-Ok(Lower("a"))
-Ok(Symbol("+"))
-Ok(Lower("b"))
