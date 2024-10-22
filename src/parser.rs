@@ -31,7 +31,6 @@ mod tests {
     }
 
     gen_parser!(p_header, HeaderParser);
-    gen_parser!(p_import, ImportParser);
 
     #[test]
     fn empty_string() {
@@ -57,6 +56,8 @@ import A.B.C hiding (foo)
         "#));
     }
 
+    gen_parser!(p_import, ImportParser);
+
     #[test]
     fn simple_import() {
         assert_snapshot!(p_import("import A as A"))
@@ -65,5 +66,17 @@ import A.B.C hiding (foo)
     #[test]
     fn import_with_newlines() {
         assert_snapshot!(p_import("import A (foo\n , bar\n , baz)"))
+    }
+
+    gen_parser!(p_worstacase, WorstCaseParser);
+
+    #[test]
+    fn worstcase_expr() {
+        assert_snapshot!(p_worstacase("1 <- 1"))
+    }
+
+    #[test]
+    fn worstcase_expr2() {
+        assert_snapshot!(p_worstacase("1"))
     }
 }

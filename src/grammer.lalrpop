@@ -9,9 +9,14 @@ use crate::lexer::Lay;
 grammar<'t>;
 
 S<T>: S<T> = {
-  <l:@L> <t:T> <r:@R> => S(l, t, r),
+  @L T @R => S(l, t, r),
 }
 
+B<T>: Box<T> = {
+  T => Box::new(<>),
+}
+
+#[inline]
 Sep<C, T>: Vec<T> = {
   <e:T> => vec![e],
   <mut v:(<T> C)+> <e:T?> => match e {
@@ -23,6 +28,7 @@ Sep<C, T>: Vec<T> = {
   }
 };
 
+#[inline]
 Sep0<C, T>: Vec<T> = {
   <mut v:(<T> C)*> <e:T?> => match e {
     None => v,
@@ -33,38 +39,50 @@ Sep0<C, T>: Vec<T> = {
   }
 };
 
-pub QProperName: QProperName<'t> = {
-  <xs:S<Qual *>> <n:ProperName> => QProperName(xs, n),
+#[inline]
+QProperName: QProperName<'t> = { S<Qual+>? ProperName => QProperName(<>) };
+
+#[inline]
+QName: QName<'t> = { S<Qual+>? Name => QName(<>) };
+
+#[inline]
+Qual: Qual<'t> = { "qual" => Qual(<>, ), }
+
+#[inline]
+ProperName: ProperName<'t> = { S<"upper"> => ProperName(<>), };
+
+#[inline]
+Name: Name<'t> = { S<"lower"> => Name(<>), };
+
+#[inline]
+Str: Str<'t> = {
+  S<"string"> => Str(<>),
+  S<"raw_string"> => Str(<>),
+};
+#[inline]
+Number: Number<'t> = { S<"number"> => Number(<>), };
+#[inline]
+Char: Char<'t> = { S<"char"> => Char(<>), };
+#[inline]
+Boolean: Boolean<'t> = {
+  <l:@L> "true" <r:@R> => Boolean(S(l, "true", r)),
+  <l:@L> "false" <r:@R> => Boolean(S(l, "false", r)), 
 };
 
-pub QName: QName<'t> = {
-  <xs:S<Qual *>> <n:Name> => QName(xs, n),
-};
+#[inline]
+Symbol: Symbol<'t> = { "(" S<"symbol"> ")" => Symbol(<>) };
+#[inline]
+QSymbol: QSymbol<'t> = { S<Qual+>? Symbol => Symbol(<>) };
 
+#[inline]
+Op: Op<'t> = { S<"symbol"> => Op(<>) };
+#[inline]
+QOp: QOp<'t> = { S<Qual+>? Op => QOp(<>) };
 
-pub Qual: Qual<'t> = {
-  "qual" => Qual(<>, ),
-}
+#[inline]
+Hole: Hole<'t> = { S<"hole"> => Hole(<>), };
 
-pub ProperName: ProperName<'t> = {
-  S<"upper"> => ProperName(<>),
-};
-
-pub Name: Name<'t> = {
-  S<"lower"> => Name(<>),
-};
-
-pub Symbol: Symbol<'t> = {
-  S<"symbol"> => Symbol(<>),
-};
-
-pub Hole: Hole<'t> = {
-  S<"hole"> => Hole(<>),
-};
-
-pub Module: Header<'t> = {
-  Header => <>,
-};
+pub Module: Module<'t> = { Header Sep0<"/0", Decl> => Module(<>), };
 
 
 pub Header: Header<'t> = {
@@ -78,8 +96,8 @@ pub Exports: Vec<Export<'t>> = {
 
 pub Export: Export<'t> = {
   Name => Export::Value(<>),
-  "(" <Symbol> ")" => Export::Symbol(<>),
-  "type" "(" <Symbol> ")" => Export::TypSymbol(<>),
+  <Symbol> => Export::Symbol(<>),
+  "type" <Symbol> => Export::TypSymbol(<>),
   ProperName => Export::Typ(<>),
   ProperName DataMember => Export::TypDat(<>),
   "class" <ProperName> => Export::Class(<>),
@@ -98,8 +116,8 @@ pub ImportDecl: ImportDecl<'t> = {
 
 pub Import: Import<'t> = {
   Name => Import::Value(<>),
-  "(" <Symbol> ")" => Import::Symbol(<>),
-  "type" "(" <Symbol> ")" => Import::TypSymbol(<>),
+  <Symbol> => Import::Symbol(<>),
+  "type" <Symbol> => Import::TypSymbol(<>),
   ProperName => Import::Typ(<>),
   ProperName DataMember => Import::TypDat(<>),
   "class" <ProperName> => Import::Class(<>),
@@ -110,6 +128,144 @@ pub DataMember: DataMember<'t> = {
   "(" ".." ")" => DataMember::All,
   "(" <Sep<",", ProperName>> ")" => DataMember::Some(<>),
 };
+
+pub Decl : Decl<'t> = {
+  "data" <ProperName> "::" <Typ> => Decl::DataKind(<>),
+  "data" <ProperName> <SimpleTypVarBinding*> ("=" (<DataCtr> "|")+)? => Decl::Data(<>),
+
+  "type" <ProperName> "::" <Typ> => Decl::TypeKind(<>),
+  "type" <ProperName> <SimpleTypVarBinding*> "=" <Typ> => Decl::Type(<>),
+
+  "newtype" <ProperName> "::" <Typ> => Decl::NewTypeKind(<>),
+  "newtype" <ProperName> <SimpleTypVarBinding*> "=" <TypAtom> => Decl::NewType(<>),
+
+  "class" <ClassHead> "where" "/{" <Sep<"/;", ClassMember>> "/}" "/0" => Decl::Class(<>),
+  "class" <ClassHead> "/0" => Decl::Class(<>, Vec::new()),
+}
+
+ClassMember : ClassMember<'t> = {
+  <Name> "::" <Typ> => ClassMember(<>),
+}
+
+ClassHead : ClassHead<'t> = {
+  Constraints? ProperName TypVarBinding* FunDeps => ClassHead(<>),
+}
+
+TypVarBinding : TypVarBinding<'t> = {
+  "@" <Name> => TypVarBinding(<>, None, true),
+  "(" "@" <Name> "::" <Typ> ")" => TypVarBinding(<>, true),
+  SimpleTypVarBinding => <>,
+}
+
+SimpleTypVarBinding : TypVarBinding<'t> = {
+  <Name> => TypVarBinding(<>, None, false),
+  "(" <Name> "::" <Typ> ")" => TypVarBinding(<>, false),
+}
+
+Constraints : Vec<Constraint<'t>> = {
+  "(" <Sep<",", Constraint>> ")" "<=" => <>,
+  Constraint "<=" => vec![<>],
+}
+
+Constraint : Constraint<'t> = {
+  "(" <Constraint> ")" => <>,
+  QProperName TypAtom* => Constraint(<>),
+}
+
+#[inline]
+FunDeps : Vec<FunDep<'t>> = {
+  "|" <Sep<",", FunDep>> => <>,
+  => Vec::new(),
+}
+
+#[inline]
+FunDep : FunDep<'t> = {
+  "->" <Name+> => FunDep(_, <>),
+  <Name+> "->" <Name+> => FunDep(<>),
+}
+
+DataCtr : (ProperName<'t>, Vec<Typ<'t>>) = {
+  ProperName TypAtom* => <>
+}
+
+pub Typ : Typ<'t> = {
+  Typ1 => <>,
+  <B<Typ1>> "::" <B<Typ>> => Typ::Kinded(<>),
+}
+
+Typ1 : Typ<'t> = {
+  Typ2 => <>,
+  "forall" <TypVarBinding*> "." <B<Typ1>> => Typ::Forall(<>),
+}
+
+Typ2 : Typ<'t> = {
+  Typ3 => <>,
+  <B<Typ3>> "->" <B<Typ1>> => Typ::Arr(<>),
+  // This is correct, right?
+  <Constraint> "=>" <B<Typ1>> => Typ::Constrained(<>),
+}
+
+Typ3 : Typ<'t> = {
+  Typ4 => <>,
+  <B<Typ3>> <QOp> <B<Typ4>> => Typ::Op(<>),
+}
+
+Typ4 : Typ<'t> = {
+  Typ5 => <>,
+  // "-" Int => ??,
+}
+
+Typ5 : Typ<'t> = {
+  TypAtom => <>,
+  B<Typ5> B<TypAtom> => Typ::App(<>),
+}
+
+TypAtom : Typ<'t> = {
+  "_" => Typ::Wildcard,
+  Name => Typ::Var(<>),
+  QProperName => Typ::Constructor(<>), 
+  QSymbol => Typ::Symbol(<>),
+  Str => Typ::Str(<>),
+  // Int => Typ::Int(<>),
+  Hole => Typ::Hole(<>),
+  // ?????
+  // | "(->)" { TypeArrName () $1 }
+  <@L> "{" <Row> "}" <@R> => Typ::Row(S(<>)),
+  <@L> "(" <Row> ")" <@R> => Typ::Record(S(<>)),
+  "(" <Typ> ")" => <>,
+}
+
+Row : Row<'t> = {
+  <x:Sep<",", RowLabel>> => Row(x, None),
+  <x:Sep<",", RowLabel>> "|" <t:Typ> => Row(x, Some(t)),
+  "|" <t:Typ> => Row(Vec::new(), Some(t)),
+  => Row(Vec::new(), None),
+}
+
+RowLabel : (Label<'t>, Typ<'t>) = {
+  <Label> "::" <Typ> => (<>),
+}
+
+Label : Label<'t> = {
+  S<"lower"> => Label(<>),
+  S<"string"> => Label(<>),
+  S<"raw_string"> => Label(<>),
+}
+
+pub WorstCase : Result<(Binder<'t>, Expr<'t>), (Expr<'t>)> = {
+  <Binder> "<-" <Expr> => Ok((<>)),
+  <Expr> => Err(<>),
+}
+
+pub Expr : Expr<'t> = {
+  Number => Expr::Number(<>),
+  QName => Expr::Var(<>),
+}
+
+pub Binder : Binder<'t> = {
+  Number => Binder::Number(<>),
+  Name => Binder::Var(<>),
+}
 
 extern {
   type Location = usize;
@@ -128,7 +284,13 @@ extern {
     "`" => Token::Tick,
     "," => Token::Comma,
 
+    "<=" => Token::Symbol("<="),
+    "@" => Token::Symbol("@"),
+    "|" => Token::Symbol("|"),
+    "." => Token::Symbol("."),
+    "=" => Token::Symbol("="),
     ".." => Token::Symbol(".."),
+    "_" => Token::Lower("_"),
 
     "module" => Token::Lower("module"),
     "where" => Token::Lower("where"),
@@ -137,7 +299,10 @@ extern {
     "import" => Token::Lower("import"),
     "hiding" => Token::Lower("hiding"),
     "type" => Token::Lower("type"),
+    "newtype" => Token::Lower("newtype"),
     "data" => Token::Lower("data"),
+    "true" => Token::Lower("true"),
+    "false" => Token::Lower("false"),
 
     "forall" => Token::Forall,
     "qual" => Token::Qual(<&'t str>),
@@ -157,9 +322,6 @@ extern {
     "/}" => Token::LayEnd,
     "/;" => Token::LaySep,
     "/0" => Token::LayTop,
-
-    // Shouldn't occur
-    "_lay" => Token::Lay(<Lay>),
   }
 }
 
