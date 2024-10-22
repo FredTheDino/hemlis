@@ -1,0 +1,6 @@
+---
+source: src/parser.rs
+assertion_line: 67
+expression: "p_import(\"import A (foo\\n , bar\\n , baz)\")"
+---
+UnrecognizedToken { token: (0, Lower("import"), 6), expected: ["\"(\"", "\"class\"", "\"type\"", "\"lower\"", "\"upper\""] }

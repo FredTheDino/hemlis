@@ -58,6 +58,10 @@ pub Symbol: Symbol<'t> = {
   S<"symbol"> => Symbol(<>),
 };
 
+pub Hole: Hole<'t> = {
+  S<"hole"> => Hole(<>),
+};
+
 pub Module: Header<'t> = {
   Header => <>,
 };
@@ -82,23 +86,23 @@ pub Export: Export<'t> = {
   "module" <QProperName> => Export::Module(<>),
 };
 
-pub Imports: Vec<Import<'t>> = {
-  Import* => <>,
+pub Imports: Vec<ImportDecl<'t>> = {
+  ImportDecl* => <>,
+};
+
+pub ImportDecl: ImportDecl<'t> = {
+  "/0" "import" <QProperName> "as" <QProperName> => ImportDecl::As(<>),
+  "/0" "import" <QProperName> "hiding" "(" <Sep<",", Import>> ")" => ImportDecl::Hiding(<>),
+  "/0" "import" <QProperName> "(" <Sep<",", Import>> ")" => ImportDecl::Multiple(<>),
 };
 
 pub Import: Import<'t> = {
-  "/0"? "import" <QProperName> "as" <QProperName> => Import::As(<>),
-  "/0"? "import" <QProperName> "hiding" "(" <Sep<",", ImportPiece>> ")" => Import::Hiding(<>),
-  "/0"? "import" <QProperName> "(" <Sep<",", ImportPiece>> ")" => Import::Multiple(<>),
-};
-
-pub ImportPiece: ImportPiece<'t> = {
-  Name => ImportPiece::Value(<>),
-  "(" <Symbol> ")" => ImportPiece::Symbol(<>),
-  "type" "(" <Symbol> ")" => ImportPiece::TypSymbol(<>),
-  ProperName => ImportPiece::Typ(<>),
-  ProperName DataMember => ImportPiece::TypDat(<>),
-  "class" <ProperName> => ImportPiece::Class(<>),
+  Name => Import::Value(<>),
+  "(" <Symbol> ")" => Import::Symbol(<>),
+  "type" "(" <Symbol> ")" => Import::TypSymbol(<>),
+  ProperName => Import::Typ(<>),
+  ProperName DataMember => Import::TypDat(<>),
+  "class" <ProperName> => Import::Class(<>),
 };
 
 pub DataMember: DataMember<'t> = {

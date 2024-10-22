@@ -49,13 +49,15 @@ pub struct ProperName<'t>(pub S<&'t str>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Name<'t>(pub S<&'t str>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Hole<'t>(pub S<&'t str>);
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Symbol<'t>(pub S<&'t str>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Header<'t>(
     pub QProperName<'t>,
     pub Vec<Export<'t>>,
-    pub Vec<Import<'t>>,
+    pub Vec<ImportDecl<'t>>,
 );
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
@@ -76,7 +78,7 @@ pub enum Export<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ImportPiece<'t> {
+pub enum Import<'t> {
     Value(Name<'t>),
     Symbol(Symbol<'t>),
     Typ(ProperName<'t>),
@@ -86,8 +88,8 @@ pub enum ImportPiece<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Import<'t> {
+pub enum ImportDecl<'t> {
     As(QProperName<'t>, QProperName<'t>),
-    Multiple(QProperName<'t>, Vec<ImportPiece<'t>>),
-    Hiding(QProperName<'t>, Vec<ImportPiece<'t>>),
+    Multiple(QProperName<'t>, Vec<Import<'t>>),
+    Hiding(QProperName<'t>, Vec<Import<'t>>),
 }
