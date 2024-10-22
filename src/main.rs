@@ -6,7 +6,6 @@ use rayon::prelude::*;
 mod ast;
 mod grammer;
 mod lexer;
-mod parser;
 
 fn main() {
     env::args()

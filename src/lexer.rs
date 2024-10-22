@@ -1,4 +1,4 @@
-use std::{iter::Peekable, ops::Range};
+use std::ops::Range;
 
 use logos::{FilterResult, Logos, Source};
 // NOTE: Might not support unicode?

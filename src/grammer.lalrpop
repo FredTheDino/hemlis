@@ -1,5 +1,10 @@
+#![allow(unused_extern_crates)]
+#![allow(unused_imports)]
+use std::str::FromStr;
+
 use crate::ast::*;
 use crate::lexer::Token;
+use crate::lexer::Lay;
 
 grammar<'t>;
 

@@ -1,5 +1,7 @@
 // auto-generated: "lalrpop 0.22.0"
-// sha3: 15bc2931f771cced7bd1fcff08174c37232c5e7be723ff9ec6ca87b26a291c40
+// sha3: 9897311c6dfb80c84aa4fa5e05719cd2fb9844e29dd988705b301807f8ffd3fe
+#![allow(unused_extern_crates)]
+#![allow(unused_imports)]
 use std::str::FromStr;
 use crate::ast::*;
 use crate::lexer::Token;
