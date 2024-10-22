@@ -194,6 +194,7 @@ pub enum Token<'t> {
     LayTop,
 }
 
+#[allow(dead_code)]
 pub fn contains_lex_errors(content: &str) -> bool {
     lex(content).into_iter().any(|x| x.0.is_err())
 }
