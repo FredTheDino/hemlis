@@ -1,8 +1,5 @@
-use std::str::FromStr;
-
 use crate::ast::*;
 use crate::lexer::Token;
-use crate::lexer::Lay;
 
 grammar<'t>;
 
@@ -66,7 +63,8 @@ pub Exports: Vec<Export<'t>> = {
 
 pub Export: Export<'t> = {
   Name => Export::Value(<>),
-  Symbol => Export::Symbol(<>),
+  "(" <Symbol> ")" => Export::Symbol(<>),
+  "type" "(" <Symbol> ")" => Export::TypSymbol(<>),
   ProperName => Export::Typ(<>),
   ProperName DataMember => Export::TypDat(<>),
   "class" <ProperName> => Export::Class(<>),
@@ -123,6 +121,8 @@ extern {
     "as" => Token::Lower("as"),
     "import" => Token::Lower("import"),
     "hiding" => Token::Lower("hiding"),
+    "type" => Token::Lower("type"),
+    "data" => Token::Lower("data"),
 
     "forall" => Token::Forall,
     "qual" => Token::Qual(<&'t str>),

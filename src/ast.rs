@@ -69,6 +69,7 @@ pub enum Export<'t> {
     Value(Name<'t>),
     Symbol(Symbol<'t>),
     Typ(ProperName<'t>),
+    TypSymbol(Symbol<'t>),
     TypDat(ProperName<'t>, DataMember<'t>),
     Class(ProperName<'t>),
     Module(QProperName<'t>),
