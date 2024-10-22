@@ -1,0 +1,5 @@
+---
+source: src/parser.rs
+expression: "p_header(\"\")"
+---
+UnrecognizedEof { location: 0, expected: ["\"module\"", "\"/0\""] }

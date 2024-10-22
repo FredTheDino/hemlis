@@ -81,6 +81,7 @@ pub enum ImportPiece<'t> {
     Symbol(Symbol<'t>),
     Typ(ProperName<'t>),
     TypDat(ProperName<'t>, DataMember<'t>),
+    TypSymbol(Symbol<'t>),
     Class(ProperName<'t>),
 }
 

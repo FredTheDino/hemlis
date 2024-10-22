@@ -1,0 +1,18 @@
+---
+source: src/parser.rs
+expression: "p_import(\"import A (foo\\n , bar\\n , baz)\")"
+---
+Import::Multiple
+ QProperName
+  7..7
+  ProperName
+   7..8
+  ImportPiece::Value
+   Name
+    10..13
+  ImportPiece::Value
+   Name
+    17..20
+  ImportPiece::Value
+   Name
+    24..27

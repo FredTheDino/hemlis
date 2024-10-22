@@ -2,16 +2,16 @@
 source: src/lexer.rs
 expression: "p(r#\"\nimport A as A\n\nfoo :: Int\nfoo = bar + baz\n        \"#)"
 ---
-Ok(Lay(Top))
+Ok(LayTop)
 Ok(Lower("import"))
 Ok(Upper("A"))
 Ok(Lower("as"))
 Ok(Upper("A"))
-Ok(Lay(Top))
+Ok(LayTop)
 Ok(Lower("foo"))
 Ok(DoubleColon)
 Ok(Upper("Int"))
-Ok(Lay(Top))
+Ok(LayTop)
 Ok(Lower("foo"))
 Ok(Symbol("="))
 Ok(Lower("bar"))

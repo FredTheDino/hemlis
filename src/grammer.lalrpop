@@ -13,6 +13,7 @@ S<T>: S<T> = {
 }
 
 Sep<C, T>: Vec<T> = {
+  <e:T> => vec![e],
   <mut v:(<T> C)+> <e:T?> => match e {
     None => v,
     Some(e) => {
@@ -58,12 +59,17 @@ pub Symbol: Symbol<'t> = {
 };
 
 pub Module: Header<'t> = {
-  "module" <QProperName> <Exports> <Imports> => Header(<>),
+  Header => <>,
+};
+
+
+pub Header: Header<'t> = {
+  "/0"* "module" <QProperName> <Exports> <Imports> => Header(<>),
 };
 
 pub Exports: Vec<Export<'t>> = {
-  "(" <Sep<",", Export>> ")" "where" "/0" => <>,
-  "where" "/0" => Vec::new(),
+  "(" <Sep<",", Export>> ")" "where" => <>,
+  "where" => Vec::new(),
 };
 
 pub Export: Export<'t> = {
@@ -77,25 +83,25 @@ pub Export: Export<'t> = {
 };
 
 pub Imports: Vec<Import<'t>> = {
-  Sep0<"/0", Import> => <>,
+  Import* => <>,
 };
 
 pub Import: Import<'t> = {
-  "import" <QProperName> "as" <QProperName> => Import::As(<>),
-  "import" <QProperName> "hiding" "(" <Sep<",", ImportPiece>> ")" => Import::Hiding(<>),
-  "import" <QProperName> "(" <Sep<",", ImportPiece>> ")" => Import::Multiple(<>),
+  "/0"? "import" <QProperName> "as" <QProperName> => Import::As(<>),
+  "/0"? "import" <QProperName> "hiding" "(" <Sep<",", ImportPiece>> ")" => Import::Hiding(<>),
+  "/0"? "import" <QProperName> "(" <Sep<",", ImportPiece>> ")" => Import::Multiple(<>),
 };
 
 pub ImportPiece: ImportPiece<'t> = {
   Name => ImportPiece::Value(<>),
-  Symbol => ImportPiece::Symbol(<>),
+  "(" <Symbol> ")" => ImportPiece::Symbol(<>),
+  "type" "(" <Symbol> ")" => ImportPiece::TypSymbol(<>),
   ProperName => ImportPiece::Typ(<>),
   ProperName DataMember => ImportPiece::TypDat(<>),
   "class" <ProperName> => ImportPiece::Class(<>),
 };
 
 pub DataMember: DataMember<'t> = {
-#[precedence(level="0")]
   "(" ")" => DataMember::Some(Vec::new()),
   "(" ".." ")" => DataMember::All,
   "(" <Sep<",", ProperName>> ")" => DataMember::Some(<>),
