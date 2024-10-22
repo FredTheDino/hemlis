@@ -100,3 +100,84 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
     // println!("Output: {}", out);
     out
 }
+
+struct ParserHelperInput {
+    name: syn::Ident,
+    ty: syn::Type,
+    vars: Vec<(bool, syn::Expr)>,
+    out: syn::Expr,
+}
+
+impl syn::parse::Parse for ParserHelperInput {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let name: syn::Ident = input.parse()?;
+        input.parse::<Token![->]>()?;
+        let ty: syn::Type = input.parse()?;
+        input.parse::<Token![|]>()?;
+
+        let mut vars = Vec::new();
+        while !input.is_empty() {
+            let is = input.parse::<Option<Token![_]>>().err();
+            let f: syn::Expr = input.parse()?;
+            vars.push((is, f));
+        }
+
+        input.parse::<Token![=>]>()?;
+        let out: syn::Expr = input.parse()?;
+
+        Ok(Input {
+            name,
+            ty,
+            vars,
+            out,
+        })
+    }
+}
+
+#[proc_macro]
+pub fn prs(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as ParserHelperInput);
+
+    let name = input.name;
+    let ty = input.ty;
+    let vars = input.vars;
+    let out = input.out;
+
+    let code = vars
+        .iter()
+        .enumerate()
+        .map(|(i, (is, f))|
+            if *is {
+                let i = syn::Ident::new(&format!("v{}", i), proc_macro2::Span::call_site());
+                quote!{
+                    let #i = #f (p) ? ;
+                }
+            } else {
+                quote!{
+                    #f (p) ? ;
+                }
+            }
+        ).collect();
+
+    let done = vars
+        .iter()
+        .enumerate()
+        .map(|(i, (is, _))|
+            if *is {
+                let i = syn::Ident::new(&format!("v{}", i), proc_macro2::Span::call_site());
+                quote!{ #i , }
+            } else {
+                quote!{}
+            }
+        ).collect();
+
+    // Generate code based on the parsed input
+    let expanded = quote! {
+        pub fn #name<'t>(p: &mut P<'t>) -> #ty {
+            #(#code)
+            #(#done)
+        }
+    };
+
+    TokenStream::from(expanded)
+}
