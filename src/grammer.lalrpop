@@ -1,0 +1,148 @@
+use std::str::FromStr;
+
+use crate::ast::*;
+use crate::lexer::Token;
+use crate::lexer::Lay;
+
+grammar<'t>;
+
+S<T>: S<T> = {
+  <l:@L> <t:T> <r:@R> => S(l, t, r),
+}
+
+Sep<C, T>: Vec<T> = {
+  <mut v:(<T> C)+> <e:T?> => match e {
+    None => v,
+    Some(e) => {
+      v.push(e);
+      v
+    }
+  }
+};
+
+Sep0<C, T>: Vec<T> = {
+  <mut v:(<T> C)*> <e:T?> => match e {
+    None => v,
+    Some(e) => {
+      v.push(e);
+      v
+    }
+  }
+};
+
+pub QProperName: QProperName<'t> = {
+  <xs:S<Qual *>> <n:ProperName> => QProperName(xs, n),
+};
+
+pub QName: QName<'t> = {
+  <xs:S<Qual *>> <n:Name> => QName(xs, n),
+};
+
+
+pub Qual: Qual<'t> = {
+  "qual" => Qual(<>, ),
+}
+
+pub ProperName: ProperName<'t> = {
+  S<"upper"> => ProperName(<>),
+};
+
+pub Name: Name<'t> = {
+  S<"lower"> => Name(<>),
+};
+
+pub Symbol: Symbol<'t> = {
+  S<"symbol"> => Symbol(<>),
+};
+
+pub Module: Header<'t> = {
+  "module" <QProperName> <Exports> <Imports> => Header(<>),
+};
+
+pub Exports: Vec<Export<'t>> = {
+  "(" <Sep<",", Export>> ")" "where" "/0" => <>,
+  "where" "/0" => Vec::new(),
+};
+
+pub Export: Export<'t> = {
+  Name => Export::Value(<>),
+  Symbol => Export::Symbol(<>),
+  ProperName => Export::Typ(<>),
+  ProperName DataMember => Export::TypDat(<>),
+  "class" <ProperName> => Export::Class(<>),
+  "module" <QProperName> => Export::Module(<>),
+};
+
+pub Imports: Vec<Import<'t>> = {
+  Sep0<"/0", Import> => <>,
+};
+
+pub Import: Import<'t> = {
+  "import" <QProperName> "as" <QProperName> => Import::As(<>),
+  "import" <QProperName> "hiding" "(" <Sep<",", ImportPiece>> ")" => Import::Hiding(<>),
+  "import" <QProperName> "(" <Sep<",", ImportPiece>> ")" => Import::Multiple(<>),
+};
+
+pub ImportPiece: ImportPiece<'t> = {
+  Name => ImportPiece::Value(<>),
+  Symbol => ImportPiece::Symbol(<>),
+  ProperName => ImportPiece::Typ(<>),
+  ProperName DataMember => ImportPiece::TypDat(<>),
+  "class" <ProperName> => ImportPiece::Class(<>),
+};
+
+pub DataMember: DataMember<'t> = {
+#[precedence(level="0")]
+  "(" ")" => DataMember::Some(Vec::new()),
+  "(" ".." ")" => DataMember::All,
+  "(" <Sep<",", ProperName>> ")" => DataMember::Some(<>),
+};
+
+extern {
+  type Location = usize;
+  type Error = ();
+  enum Token<'t> {
+    "(" => Token::LeftParen,
+    ")" => Token::RightParen,
+    "{" => Token::LeftBrace,
+    "}" => Token::RightBrace,
+    "[" => Token::LeftSquare,
+    "]" => Token::RightSquare,
+    "<-" => Token::LeftArrow,
+    "->" => Token::RightArrow,
+    "=>" => Token::RightFatArrow,
+    "::" => Token::DoubleColon,
+    "`" => Token::Tick,
+    "," => Token::Comma,
+
+    ".." => Token::Symbol(".."),
+
+    "module" => Token::Lower("module"),
+    "where" => Token::Lower("where"),
+    "class" => Token::Lower("class"),
+    "as" => Token::Lower("as"),
+    "import" => Token::Lower("import"),
+    "hiding" => Token::Lower("hiding"),
+
+    "forall" => Token::Forall,
+    "qual" => Token::Qual(<&'t str>),
+    "lower" => Token::Lower(<&'t str>),
+    "upper" => Token::Upper(<&'t str>),
+    "symbol" => Token::Symbol(<&'t str>),
+    "hole" => Token::Hole(<&'t str>),
+    "hex_int" => Token::HexInt(<&'t str>),
+    "number" => Token::Number(<&'t str>),
+    "char" => Token::Char(<&'t str>),
+    "string" => Token::String(<&'t str>),
+    "raw_string" => Token::RawString(<&'t str>),
+    "line_comment" => Token::LineComment(<&'t str>),
+    "block_comment" => Token::BlockComment(<&'t str>),
+    // Shouldn't occur
+    "_lay" => Token::Lay(<Lay>),
+    "/{" => Token::LayBegin,
+    "/}" => Token::LayEnd,
+    "/;" => Token::LaySep,
+    "/0" => Token::LayTop,
+  }
+}
+

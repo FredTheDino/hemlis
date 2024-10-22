@@ -5,6 +5,7 @@ use rayon::prelude::*;
 mod lexer;
 mod parser;
 mod ast;
+mod grammer;
 
 fn main() {
     env::args()
@@ -14,12 +15,13 @@ fn main() {
         .for_each(|arg| match fs::read_to_string(&arg) {
             Err(e) => println!("ERR: {} {:?}", arg, e),
             Ok(f) => {
-                for i in lexer::lex(&f) {
-                    match i.0 {
-                        Ok(lexer::Token::Lower(n)) => println!("def: {}", n),
-                        _ => {}
-                    }
-                }
+                let parser = grammer::ModuleParser::new();
+                let out = parser.parse(
+                lexer::lex(&f)
+                        .into_iter()
+                        .map(|(token, span)| Ok((span.start, token?, span.end)))
+                );
+                dbg!(out);
             }
         })
 }

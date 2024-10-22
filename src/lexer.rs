@@ -94,7 +94,7 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
         }
         return Emit(End(lex.extras.1.len()));
     }
-    if indent == lex.extras.1.last().copied().unwrap_or(0) {
+    if Some(&indent) == lex.extras.1.last() {
         update_newline(lex);
         return Emit(Sep(lex.extras.1.len()));
     }
@@ -187,6 +187,11 @@ pub enum Token<'t> {
 
     #[regex("\\s*\n\\s*", lex_lay, priority = 12)]
     Lay(Lay),
+
+    LayBegin,
+    LayEnd,
+    LaySep,
+    LayTop,
 }
 
 pub fn contains_lex_errors(content: &str) -> bool {
@@ -219,8 +224,8 @@ fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
             let out = (1..=*prev)
                 .rev()
                 .into_iter()
-                .map(|x| Token::Lay(End(x)))
-                .chain([Token::Lay(Top)].into_iter())
+                .map(|_| Token::LayEnd)
+                .chain([Token::LayTop].into_iter())
                 .collect();
             *prev = 0;
             out
@@ -229,8 +234,8 @@ fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
             let out = (n + 1..=*prev)
                 .rev()
                 .into_iter()
-                .map(|x| Token::Lay(End(x)))
-                .chain([Token::Lay(Sep(n))].into_iter())
+                .map(|_| Token::LayEnd)
+                .chain([Token::LaySep].into_iter())
                 .collect();
             *prev = n;
             out
@@ -238,12 +243,12 @@ fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
         Begin(x) => {
             assert!(x == *prev + 1, "A");
             *prev = x;
-            vec![t]
+            vec![Token::LayBegin]
         }
         Sep(x) => {
             assert!(x == *prev, "B");
             *prev = x;
-            vec![t]
+            vec![Token::LaySep]
         }
     }
 }
