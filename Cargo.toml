@@ -7,6 +7,7 @@ edition = "2021"
 lalrpop-util = "0.22.0"
 logos = { version = "0.14.2", features = [] }
 rayon = "1.10.0"
+purring_macros = { path = "purring_macros/" }
 
 [dev-dependencies]
 insta = "1.40.0"

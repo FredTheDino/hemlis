@@ -1,11 +1,12 @@
 use std::{env, fs};
 
+use ast::Ast;
 use rayon::prelude::*;
 
-mod lexer;
-mod parser;
 mod ast;
 mod grammer;
+mod lexer;
+mod parser;
 
 fn main() {
     env::args()
@@ -17,11 +18,12 @@ fn main() {
             Ok(f) => {
                 let parser = grammer::ModuleParser::new();
                 let out = parser.parse(
-                lexer::lex(&f)
+                    lexer::lex(&f)
                         .into_iter()
-                        .map(|(token, span)| Ok((span.start, token?, span.end)))
-                );
-                dbg!(out);
+                        .map(|(token, span)| Ok((span.start, token?, span.end))),
+                ).expect("XX");
+
+                out.show(0, &mut std::io::stdout()).expect("YY");
             }
         })
 }

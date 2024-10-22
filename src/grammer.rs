@@ -1,5 +1,5 @@
 // auto-generated: "lalrpop 0.22.0"
-// sha3: 0a0cbea3d35d2cc99c5ed235bd4d977485c76119df82bd74ce081e3946fe28af
+// sha3: ced44d9d11ea13fbf215c14164d93a6035b2d23dbe9373926e2777c53abde160
 use std::str::FromStr;
 use crate::ast::*;
 use crate::lexer::Token;
@@ -173,11 +173,11 @@ mod __parse__DataMember {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -344,11 +344,11 @@ mod __parse__DataMember {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -361,12 +361,12 @@ mod __parse__DataMember {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -3191,11 +3191,11 @@ mod __parse__Export {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -3362,11 +3362,11 @@ mod __parse__Export {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -3379,12 +3379,12 @@ mod __parse__Export {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -6033,7 +6033,7 @@ mod __parse__Exports {
         // State 10
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 11
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 23,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 23, 0,
         // State 12
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 13
@@ -6083,7 +6083,7 @@ mod __parse__Exports {
         // State 35
         0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 36
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 44,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 44, 0,
         // State 37
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -54, 0, -54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 38
@@ -6263,11 +6263,11 @@ mod __parse__Exports {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -6434,11 +6434,11 @@ mod __parse__Exports {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -6451,12 +6451,12 @@ mod __parse__Exports {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -9349,11 +9349,11 @@ mod __parse__Import {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -9520,11 +9520,11 @@ mod __parse__Import {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -9537,12 +9537,12 @@ mod __parse__Import {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -12327,11 +12327,11 @@ mod __parse__ImportPiece {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -12498,11 +12498,11 @@ mod __parse__ImportPiece {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -12515,12 +12515,12 @@ mod __parse__ImportPiece {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -15173,13 +15173,13 @@ mod __parse__Imports {
         // State 12
         0, -69, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 13
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18, 0,
         // State 14
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 15
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 16
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 22, 0,
         // State 17
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 18
@@ -15195,11 +15195,11 @@ mod __parse__Imports {
         // State 23
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -54, 0, -54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 24
-        -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49, 0, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49,
+        -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49, 0, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49, 0,
         // State 25
-        -45, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 0, 0, 0, 0, -45, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45,
+        -45, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 0, 0, 0, 0, -45, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 0,
         // State 26
-        -57, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57, 0, 0, 0, 0, -57, 0, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57,
+        -57, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57, 0, 0, 0, 0, -57, 0, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57, 0,
         // State 27
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 28
@@ -15217,7 +15217,7 @@ mod __parse__Imports {
         // State 34
         0, -56, 0, 0, 0, 0, 0, 0, 0, 0, 0, -56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 35
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -30,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -30, 0,
         // State 36
         0, -66, 0, 0, 0, 0, 0, 0, 0, 0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 37
@@ -15225,7 +15225,7 @@ mod __parse__Imports {
         // State 38
         0, -38, 0, 0, 0, 0, 0, 0, 0, 0, 0, -38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 39
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, 0,
         // State 40
         0, -39, 0, 0, 0, 0, 0, 0, 0, 0, 0, -39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 41
@@ -15241,7 +15241,7 @@ mod __parse__Imports {
         // State 46
         0, 52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 47
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -31,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -31, 0,
         // State 48
         0, -68, 0, 0, 0, 0, 0, 0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 49
@@ -15443,11 +15443,11 @@ mod __parse__Imports {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -15614,11 +15614,11 @@ mod __parse__Imports {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -15631,12 +15631,12 @@ mod __parse__Imports {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -18311,17 +18311,17 @@ mod __parse__Module {
         // State 23
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -50, 0, -50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 24
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 41,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 41, 0,
         // State 25
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -54, 0, -54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 26
-        -49, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49, 0, 0, -49, 0, -49, 0, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49,
+        -49, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49, 0, 0, -49, 0, -49, 0, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -49, 0,
         // State 27
-        -45, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 0, 0, -45, 0, -45, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45,
+        -45, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 0, 0, -45, 0, -45, 0, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -45, 0,
         // State 28
-        -57, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57, 0, 0, -57, 0, -57, 0, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57,
+        -57, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57, 0, 0, -57, 0, -57, 0, -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -57, 0,
         // State 29
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 43,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 43, 0,
         // State 30
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 31
@@ -18345,7 +18345,7 @@ mod __parse__Module {
         // State 40
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 41
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 51,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 51, 0,
         // State 42
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 43
@@ -18377,7 +18377,7 @@ mod __parse__Module {
         // State 56
         0, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 57
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0,
         // State 58
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 59
@@ -18387,7 +18387,7 @@ mod __parse__Module {
         // State 61
         0, -36, 0, 0, 0, 0, 0, 0, 0, 0, 0, -36, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 62
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -30,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -30, 0,
         // State 63
         0, -68, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 64
@@ -18405,7 +18405,7 @@ mod __parse__Module {
         // State 70
         0, -38, 0, 0, 0, 0, 0, 0, 0, 0, 0, -38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 71
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -32, 0,
         // State 72
         0, -39, 0, 0, 0, 0, 0, 0, 0, 0, 0, -39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 73
@@ -18415,7 +18415,7 @@ mod __parse__Module {
         // State 75
         0, -11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -11, 0, 0, 0, 0, 0, -11, -11, -11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         // State 76
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -31,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -31, 0,
     ];
     fn __action(state: i8, integer: usize) -> i8 {
         __ACTION[(state as usize) * 37 + integer]
@@ -18676,11 +18676,11 @@ mod __parse__Module {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -18847,11 +18847,11 @@ mod __parse__Module {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -18864,12 +18864,12 @@ mod __parse__Module {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -21557,11 +21557,11 @@ mod __parse__Name {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -21728,11 +21728,11 @@ mod __parse__Name {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -21745,12 +21745,12 @@ mod __parse__Name {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -24438,11 +24438,11 @@ mod __parse__ProperName {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -24609,11 +24609,11 @@ mod __parse__ProperName {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -24626,12 +24626,12 @@ mod __parse__ProperName {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -27350,11 +27350,11 @@ mod __parse__QName {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -27521,11 +27521,11 @@ mod __parse__QName {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -27538,12 +27538,12 @@ mod __parse__QName {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -30262,11 +30262,11 @@ mod __parse__QProperName {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -30433,11 +30433,11 @@ mod __parse__QProperName {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -30450,12 +30450,12 @@ mod __parse__QProperName {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -33138,11 +33138,11 @@ mod __parse__Qual {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -33309,11 +33309,11 @@ mod __parse__Qual {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -33326,12 +33326,12 @@ mod __parse__Qual {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },
@@ -36019,11 +36019,11 @@ mod __parse__Symbol {
         r###""raw_string""###,
         r###""line_comment""###,
         r###""block_comment""###,
-        r###""_lay""###,
         r###""/{""###,
         r###""/}""###,
         r###""/;""###,
         r###""/0""###,
+        r###""_lay""###,
     ];
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
@@ -36190,11 +36190,11 @@ mod __parse__Symbol {
             Token::RawString(_) if true => Some(29),
             Token::LineComment(_) if true => Some(30),
             Token::BlockComment(_) if true => Some(31),
-            Token::Lay(_) if true => Some(32),
-            Token::LayBegin if true => Some(33),
-            Token::LayEnd if true => Some(34),
-            Token::LaySep if true => Some(35),
-            Token::LayTop if true => Some(36),
+            Token::LayBegin if true => Some(32),
+            Token::LayEnd if true => Some(33),
+            Token::LaySep if true => Some(34),
+            Token::LayTop if true => Some(35),
+            Token::Lay(_) if true => Some(36),
             _ => None,
         }
     }
@@ -36207,12 +36207,12 @@ mod __parse__Symbol {
     ) -> __Symbol<'t>
     {
         #[allow(clippy::manual_range_patterns)]match __token_index {
-            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 33 | 34 | 35 | 36 => __Symbol::Variant0(__token),
+            0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 32 | 33 | 34 | 35 => __Symbol::Variant0(__token),
             20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 => match __token {
                 Token::Qual(__tok0) | Token::Lower(__tok0) | Token::Upper(__tok0) | Token::Symbol(__tok0) | Token::Hole(__tok0) | Token::HexInt(__tok0) | Token::Number(__tok0) | Token::Char(__tok0) | Token::String(__tok0) | Token::RawString(__tok0) | Token::LineComment(__tok0) | Token::BlockComment(__tok0) if true => __Symbol::Variant1(__tok0),
                 _ => unreachable!(),
             },
-            32 => match __token {
+            36 => match __token {
                 Token::Lay(__tok0) if true => __Symbol::Variant2(__tok0),
                 _ => unreachable!(),
             },

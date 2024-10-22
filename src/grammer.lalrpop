@@ -137,12 +137,14 @@ extern {
     "raw_string" => Token::RawString(<&'t str>),
     "line_comment" => Token::LineComment(<&'t str>),
     "block_comment" => Token::BlockComment(<&'t str>),
-    // Shouldn't occur
-    "_lay" => Token::Lay(<Lay>),
+
     "/{" => Token::LayBegin,
     "/}" => Token::LayEnd,
     "/;" => Token::LaySep,
     "/0" => Token::LayTop,
+
+    // Shouldn't occur
+    "_lay" => Token::Lay(<Lay>),
   }
 }
 
