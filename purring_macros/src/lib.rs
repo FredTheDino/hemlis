@@ -117,15 +117,19 @@ impl syn::parse::Parse for ParserHelperInput {
 
         let mut vars = Vec::new();
         while !input.is_empty() {
-            let is = input.parse::<Option<Token![_]>>().err();
+            let is = matches!(input.parse::<Option<Token![.]>>(), Ok(_));
             let f: syn::Expr = input.parse()?;
             vars.push((is, f));
+
+            if input.peek(Token![=>]) {
+                break
+            }
         }
 
         input.parse::<Token![=>]>()?;
         let out: syn::Expr = input.parse()?;
 
-        Ok(Input {
+        Ok(ParserHelperInput {
             name,
             ty,
             vars,
@@ -143,41 +147,43 @@ pub fn prs(input: TokenStream) -> TokenStream {
     let vars = input.vars;
     let out = input.out;
 
-    let code = vars
+    let code: Vec<_> = vars
         .iter()
         .enumerate()
-        .map(|(i, (is, f))|
+        .map(|(i, (is, f))| {
             if *is {
                 let i = syn::Ident::new(&format!("v{}", i), proc_macro2::Span::call_site());
-                quote!{
+                quote! {
                     let #i = #f (p) ? ;
                 }
             } else {
-                quote!{
+                quote! {
                     #f (p) ? ;
                 }
             }
-        ).collect();
+        })
+        .collect();
 
-    let done = vars
+    let done: Vec<_> = vars
         .iter()
         .enumerate()
-        .map(|(i, (is, _))|
+        .map(|(i, (is, _))| {
             if *is {
                 let i = syn::Ident::new(&format!("v{}", i), proc_macro2::Span::call_site());
-                quote!{ #i , }
+                quote! { #i , }
             } else {
-                quote!{}
+                quote! {}
             }
-        ).collect();
+        })
+        .collect();
 
-    // Generate code based on the parsed input
-    let expanded = quote! {
+    let out = TokenStream::from(quote! {
         pub fn #name<'t>(p: &mut P<'t>) -> #ty {
-            #(#code)
-            #(#done)
+            #(#code)*
+            #(#done)*
         }
-    };
+    });
 
-    TokenStream::from(expanded)
+    println!("Output: {}", out);
+    out
 }

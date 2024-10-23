@@ -1,24 +1,91 @@
+use purring_macros::prs;
+
 use crate::ast::*;
 use crate::lexer;
+use crate::lexer::Token as T;
 use crate::lexer::Token;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Span {
-    lo: usize,
-    hi: usize,
-    fi: usize,
+macro_rules! b {
+    ($e:expr) => {
+        Box::new($e)
+    };
 }
 
-impl Span {
-    fn merge(self, other: Self) -> Self {
-        assert_eq!(other.fi, self.fi, "Cannot merge spans files!");
-        Self {
-            lo: self.lo.min(other.lo),
-            hi: self.hi.min(other.hi),
-            fi: self.fi,
+macro_rules! t {
+    ($name:ident, $token:ident, $thing:ident) => {
+        fn $name<'t>(p: &mut P<'t>) -> Option<$thing<'t>> {
+            match p.next() {
+                (Some(T::$token(x)), s) => Some($thing(S(x, s))),
+                _ => p.raise_(stringify!($thing)),
+            }
         }
+    };
+}
+
+t!(name, Lower, Name);
+t!(proper, Upper, ProperName);
+t!(qual, Qual, Qual);
+t!(number, Number, Number);
+t!(char, Char, Char);
+t!(op, Symbol, Op);
+t!(hole, Hole, Hole);
+
+fn boolean<'t>(p: &mut P<'t>) -> Option<Boolean<'t>> {
+    match p.next() {
+        (Some(T::Lower(x @ ("true" | "false"))), s) => Some(Boolean(S(x, s))),
+        _ => p.raise_("Boolean"),
     }
 }
+
+fn string<'t>(p: &mut P<'t>) -> Option<Str<'t>> {
+    match p.next() {
+        (Some(T::String(x) | T::RawString(x)), s) => Some(Str(S(x, s))),
+        _ => p.raise_("String | RawString"),
+    }
+}
+
+macro_rules! kw {
+    ($name:ident, $kw:pat) => {
+        fn $name<'t>(p: &mut P<'t>) -> Option<()> {
+            p.expect(|x| matches!(x, $kw), stringify!($kw))
+        }
+    };
+}
+
+kw!(kw_lp, Token::LeftParen);
+kw!(kw_rp, Token::RightParen);
+kw!(kw_lb, Token::LeftBrace);
+kw!(kw_rb, Token::RightBrace);
+kw!(kw_ls, Token::LeftSquare);
+kw!(kw_rs, Token::RightSquare);
+kw!(kw_left_arrow, Token::LeftArrow);
+kw!(kw_right_arrow, Token::RightArrow);
+kw!(kw_right_imply, Token::RightFatArrow);
+kw!(kw_coloncolon, Token::DoubleColon);
+kw!(kw_tick, Token::Tick);
+kw!(kw_comma, Token::Comma);
+
+kw!(kw_left_imply, T::Symbol("<="));
+kw!(kw_at, T::Symbol("@"));
+kw!(kw_pipe, T::Symbol("|"));
+kw!(kw_dot, T::Symbol("."));
+kw!(kw_eq, T::Symbol("="));
+kw!(kw_dotdot, T::Symbol(".."));
+kw!(kw_underscore, T::Symbol("_"));
+
+kw!(kw_module, T::Lower("module"));
+kw!(kw_where, T::Lower("where"));
+kw!(kw_class, T::Lower("class"));
+kw!(kw_as, T::Lower("as"));
+kw!(kw_import, T::Lower("import"));
+kw!(kw_hiding, T::Lower("hiding"));
+kw!(kw_type, T::Lower("type"));
+kw!(kw_newtype, T::Lower("newtype"));
+kw!(kw_data, T::Lower("data"));
+kw!(kw_true, T::Lower("true"));
+kw!(kw_false, T::Lower("false"));
+
+// prs!(header -> Header<'t> | .kw_module qproper exports imports => Header);
 
 enum Serror<'s> {
     Unexpected(Span, Option<Token<'s>>, &'static str),
@@ -92,10 +159,7 @@ impl<'s> P<'s> {
         // NOTE: For now we skipp some of the tokens in this parser
         while matches!(
             self.peek_().0,
-            Some(
-                    Token::LineComment(_)
-                    | Token::BlockComment(_)
-            )
+            Some(Token::LineComment(_) | Token::BlockComment(_))
         ) {
             self.i += 1;
         }
@@ -109,13 +173,13 @@ impl<'s> P<'s> {
             return Ok(());
         }
         while let (Some(x), _) = self.peek_() {
-                if f(x) {
-                    self.panic = false;
-                    return Ok(());
-                } else {
-                    self.i += 1
-                }
-        };
+            if f(x) {
+                self.panic = false;
+                return Ok(());
+            } else {
+                self.i += 1
+            }
+        }
         Err(())
     }
 
@@ -141,6 +205,11 @@ impl<'s> P<'s> {
                 return Some(a);
             }
         }
+        self.raise(Serror::Unexpected(self.span(), self.peekt(), err));
+        None
+    }
+
+    fn raise_<A>(&mut self, err: &'static str) -> Option<A> {
         self.raise(Serror::Unexpected(self.span(), self.peekt(), err));
         None
     }
@@ -205,7 +274,8 @@ mod tests {
 
     #[test]
     fn everything_header() {
-        assert_snapshot!(p_header(r#"
+        assert_snapshot!(p_header(
+            r#"
 module A.B.C (a, class B, C, D(..), E(F, G), 
  (+), type (+), module H) where
 
@@ -214,7 +284,8 @@ import A.B.C as A.C
 import A.B.C (a, class B, 
  C, D(..), E(F, G), (+), type (+))
 import A.B.C hiding (foo)
-        "#));
+        "#
+        ));
     }
 
     gen_parser!(p_import, ImportParser);

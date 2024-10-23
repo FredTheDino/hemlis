@@ -1,5 +1,24 @@
 use std::io::Write;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct Span {
+    lo: usize,
+    hi: usize,
+    fi: usize,
+}
+
+impl Span {
+    fn merge(self, other: Self) -> Self {
+        assert_eq!(other.fi, self.fi, "Cannot merge spans files!");
+        Self {
+            lo: self.lo.min(other.lo),
+            hi: self.hi.min(other.hi),
+            fi: self.fi,
+        }
+    }
+}
+
+
 pub trait Ast {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()>;
 }
@@ -21,8 +40,8 @@ where
     T: Ast,
 {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
-        writeln!(w, "{:indent$}{}..{}", "", self.0, self.2, indent = indent)?;
-        self.1.show(indent + 1, w)
+        writeln!(w, "{:indent$}{}..{}", "", self.1.lo, self.1.hi, indent = indent)?;
+        self.0.show(indent + 1, w)
     }
 }
 
@@ -64,7 +83,6 @@ where
     }
 }
 
-
 impl<A> Ast for Option<A>
 where
     A: Ast,
@@ -86,16 +104,14 @@ where
     }
 }
 
-impl Ast for bool
-where {
+impl Ast for bool {
     fn show(&self, _: usize, _: &mut impl Write) -> ::std::io::Result<()> {
         Ok(())
     }
 }
 
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct S<T>(pub usize, pub T, pub usize);
+pub struct S<T>(pub T, pub Span);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct QProperName<'t>(pub S<Vec<Qual<'t>>>, pub ProperName<'t>);
@@ -107,7 +123,7 @@ pub struct QSymbol<'t>(pub S<Vec<Qual<'t>>>, pub S<&'t str>);
 pub struct QOp<'t>(pub S<Vec<Qual<'t>>>, pub S<&'t str>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Qual<'t>(pub &'t str);
+pub struct Qual<'t>(pub S<&'t str>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ProperName<'t>(pub S<&'t str>);
@@ -141,11 +157,7 @@ pub struct Header<'t>(
 );
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Module<'t>(
-    pub Header<'t>,
-    pub Vec<Decl<'t>>,
-);
-
+pub struct Module<'t>(pub Header<'t>, pub Vec<Decl<'t>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DataMember<'t> {
@@ -184,7 +196,11 @@ pub enum ImportDecl<'t> {
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Decl<'t> {
     DataKind(ProperName<'t>, Typ<'t>),
-    Data( ProperName<'t>, Vec<Name<'t>>, Vec<(ProperName<'t>, Vec<Typ<'t>>)>,),
+    Data(
+        ProperName<'t>,
+        Vec<Name<'t>>,
+        Vec<(ProperName<'t>, Vec<Typ<'t>>)>,
+    ),
 
     TypeKind(ProperName<'t>, Typ<'t>),
     Type(ProperName<'t>, Vec<Name<'t>>, Typ<'t>),
@@ -200,7 +216,7 @@ pub enum Decl<'t> {
 
     Sig(Name<'t>, Typ<'t>),
     Def(Name<'t>, Vec<Binder<'t>>, GuardedExpr<'t>),
-    // TODO: Fixity, role, 
+    // TODO: Fixity, role,
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
@@ -216,7 +232,12 @@ pub struct InstHead<'t>(Vec<Constraint<'t>>, QProperName<'t>, Vec<Typ<'t>>);
 pub struct ClassMember<'t>(Name<'t>, Typ<'t>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ClassHead<'t>(Vec<Constraint<'t>>, ProperName<'t>, Vec<Name<'t>>, Vec<FunDep<'t>>);
+pub struct ClassHead<'t>(
+    Vec<Constraint<'t>>,
+    ProperName<'t>,
+    Vec<Name<'t>>,
+    Vec<FunDep<'t>>,
+);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Constraint<'t>(QProperName<'t>, Vec<Typ<'t>>);
@@ -275,7 +296,7 @@ pub enum GuardedExpr<'t> {
 pub struct ExprWhere<'t>(Expr<'t>, Vec<LetBinding<'t>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum LetBinding<'t>{
+pub enum LetBinding<'t> {
     Sig(Name<'t>, Typ<'t>),
     Name(Name<'t>, Vec<Binder<'t>>, GuardedExpr<'t>),
     Pattern(Binder<'t>, ExprWhere<'t>),
