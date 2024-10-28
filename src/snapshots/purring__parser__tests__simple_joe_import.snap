@@ -1,0 +1,5 @@
+---
+source: src/parser.rs
+expression: "p_import(\"import Joe\")"
+---
+Unexpected(Span { lo: 7, hi: 10, fi: 0 }, None, "EoF")

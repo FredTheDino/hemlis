@@ -1,6 +1,0 @@
----
-source: src/parser.rs
-assertion_line: 62
-expression: "p_import(\"import A as A\")"
----
-UnrecognizedToken { token: (0, Lower("import"), 6), expected: ["\"(\"", "\"class\"", "\"type\"", "\"lower\"", "\"upper\""] }

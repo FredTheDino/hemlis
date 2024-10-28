@@ -2,17 +2,17 @@
 source: src/parser.rs
 expression: "p_import(\"import A (foo\\n , bar\\n , baz)\")"
 ---
-Import::Multiple
+ImportDecl::Multiple
  QProperName
-  7..7
+  7..8
   ProperName
    7..8
-  ImportPiece::Value
+  Import::Value
    Name
     10..13
-  ImportPiece::Value
+  Import::Value
    Name
     17..20
-  ImportPiece::Value
+  Import::Value
    Name
     24..27

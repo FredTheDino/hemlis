@@ -2,12 +2,12 @@
 source: src/parser.rs
 expression: "p_import(\"import A as A\")"
 ---
-Import::As
+ImportDecl::As
  QProperName
-  7..7
+  7..8
   ProperName
    7..8
  QProperName
-  12..12
+  12..13
   ProperName
    12..13

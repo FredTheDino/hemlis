@@ -2,4 +2,4 @@
 source: src/parser.rs
 expression: "p_header(\"\")"
 ---
-UnrecognizedEof { location: 0, expected: ["\"module\"", "\"/0\""] }
+Unexpected(Span { lo: 0, hi: 0, fi: 0 }, None, "T::Lower(\"module\")")

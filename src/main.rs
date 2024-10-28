@@ -1,6 +1,5 @@
 use std::{env, fs};
 
-use ast::Ast;
 use rayon::prelude::*;
 
 mod ast;
@@ -14,7 +13,7 @@ fn main() {
         .par_iter()
         .for_each(|arg| match fs::read_to_string(&arg) {
             Err(e) => println!("ERR: {} {:?}", arg, e),
-            Ok(f) => {
+            Ok(_f) => {
                 // let parser = grammer::ModuleParser::new();
                 // let out = parser.parse(
                 //     lexer::lex(&f)

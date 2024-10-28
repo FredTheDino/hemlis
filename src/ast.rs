@@ -1,14 +1,16 @@
+#![allow(unused)]
+
 use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct Span {
-    lo: usize,
-    hi: usize,
-    fi: usize,
+    pub lo: usize,
+    pub hi: usize,
+    pub fi: usize,
 }
 
 impl Span {
-    fn merge(self, other: Self) -> Self {
+    pub fn merge(self, other: Self) -> Self {
         assert_eq!(other.fi, self.fi, "Cannot merge spans files!");
         Self {
             lo: self.lo.min(other.lo),
@@ -118,9 +120,9 @@ pub struct QProperName<'t>(pub S<Vec<Qual<'t>>>, pub ProperName<'t>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct QName<'t>(pub S<Vec<Qual<'t>>>, pub Name<'t>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QSymbol<'t>(pub S<Vec<Qual<'t>>>, pub S<&'t str>);
+pub struct QSymbol<'t>(pub S<Vec<Qual<'t>>>, pub Symbol<'t>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QOp<'t>(pub S<Vec<Qual<'t>>>, pub S<&'t str>);
+pub struct QOp<'t>(pub S<Vec<Qual<'t>>>, pub Op<'t>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Qual<'t>(pub S<&'t str>);
@@ -191,6 +193,7 @@ pub enum ImportDecl<'t> {
     As(QProperName<'t>, QProperName<'t>),
     Multiple(QProperName<'t>, Vec<Import<'t>>),
     Hiding(QProperName<'t>, Vec<Import<'t>>),
+    Bulk(QProperName<'t>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]

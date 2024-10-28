@@ -1,12 +1,14 @@
 ---
 source: src/parser.rs
-expression: "p_header(r#\"\nmodule A.B.C (a, class B, C, D(..), E(F, G), \n (+), type (+), module H) where\n\nimport A as A\nimport A.B.C as A.C\nimport A.B.C (a, class B, \n C, D(..), E(F, G), (+), type (+))\nimport A.B.C hiding (foo)\n        \"#)"
+expression: "p_header(r#\"\nmodule A.B.C (a, class B, C, D(..), E(F, G), \n (+), type (+), module H) where\n\nimport A\nimport A as A\nimport A.B.C as A.C\nimport A.B.C (a, class B, \n C, D(..), E(F, G), (+), type (+))\nimport A.B.C hiding (foo)\n        \"#)"
 ---
 Header
  QProperName
-  8..12
+  8..10
     Qual
+     8..10
     Qual
+     10..12
   ProperName
    12..13
   Export::Value
@@ -38,71 +40,83 @@ Header
     59..60
   Export::Module
    QProperName
-    70..70
+    70..71
     ProperName
      70..71
-  Import::As
+  ImportDecl::Bulk
    QProperName
-    87..87
+    87..88
     ProperName
      87..88
+  ImportDecl::As
    QProperName
-    92..92
+    96..97
     ProperName
-     92..93
-  Import::As
+     96..97
    QProperName
-    101..105
-      Qual
-      Qual
+    101..102
     ProperName
-     105..106
+     101..102
+  ImportDecl::As
    QProperName
     110..112
       Qual
+       110..112
+      Qual
+       112..114
     ProperName
-     112..113
-  Import::Multiple
+     114..115
    QProperName
-    121..125
+    119..121
       Qual
-      Qual
+       119..121
     ProperName
-     125..126
-    ImportPiece::Value
+     121..122
+  ImportDecl::Multiple
+   QProperName
+    130..132
+      Qual
+       130..132
+      Qual
+       132..134
+    ProperName
+     134..135
+    Import::Value
      Name
-      128..129
-    ImportPiece::Class
-     ProperName
       137..138
-    ImportPiece::Typ
+    Import::Class
      ProperName
-      142..143
-    ImportPiece::TypDat
+      146..147
+    Import::Typ
      ProperName
-      145..146
+      151..152
+    Import::TypDat
+     ProperName
+      154..155
      DataMember::All
-    ImportPiece::TypDat
+    Import::TypDat
      ProperName
-      152..153
+      161..162
      DataMember::Some
        ProperName
-        154..155
+        163..164
        ProperName
-        157..158
-    ImportPiece::Symbol
+        166..167
+    Import::Symbol
      Symbol
-      162..163
-    ImportPiece::TypSymbol
+      171..172
+    Import::TypSymbol
      Symbol
-      172..173
-  Import::Hiding
+      181..182
+  ImportDecl::Hiding
    QProperName
-    183..187
+    192..194
       Qual
+       192..194
       Qual
+       194..196
     ProperName
-     187..188
-    ImportPiece::Value
+     196..197
+    Import::Value
      Name
-      197..200
+      206..209
