@@ -3,37 +3,81 @@
 use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct Span {
-    pub lo: usize,
-    pub hi: usize,
-    pub fi: usize,
+pub enum Span {
+    Known(usize, usize, usize),
+    Zero,
 }
 
 impl Span {
+    pub fn zero() -> Self {
+        Span::Zero
+    }
+
     pub fn merge(self, other: Self) -> Self {
-        assert_eq!(other.fi, self.fi, "Cannot merge spans files!");
-        Self {
-            lo: self.lo.min(other.lo),
-            hi: self.hi.min(other.hi),
-            fi: self.fi,
+        use Span::*;
+        match (self, other) {
+            (Known(a_lo, a_hi, a_fi), Known(b_lo, b_hi, b_fi)) => {
+                assert_eq!(a_fi, b_fi);
+                Known(a_lo.min(b_lo), a_hi.min(b_hi), a_fi)
+            }
+            (a @ Known(_, _, _), Zero) | (Zero, a @ Known(_, _, _)) => a,
+            _ => self,
+        }
+    }
+
+    pub fn lo(&self) -> usize {
+        match self {
+            Span::Known(l, _, _) => *l,
+            Span::Zero => 0,
+        }
+    }
+
+    pub fn hi(&self) -> usize {
+        match self {
+            Span::Known(_, h, _) => *h,
+            Span::Zero => 0,
         }
     }
 }
 
-
 pub trait Ast {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()>;
+
+    fn span(&self) -> Span;
 }
 
-impl Ast for str {
-    fn show(&self, _: usize, _: &mut impl Write) -> ::std::io::Result<()> {
-        Ok(())
+macro_rules! ast {
+    ($t:ty) => {
+        impl Ast for $t {
+            fn show(&self, _: usize, _: &mut impl Write) -> ::std::io::Result<()> {
+                Ok(())
+            }
+
+            fn span(&self) -> Span {
+                Span::zero()
+            }
+        }
+    };
+}
+
+ast!(str);
+ast!(&str);
+ast!(bool);
+
+impl Ast for Span {
+    fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
+        writeln!(
+            w,
+            "{:indent$}{}..{}",
+            "",
+            self.lo(),
+            self.hi(),
+            indent = indent
+        )
     }
-}
 
-impl Ast for &str {
-    fn show(&self, _: usize, _: &mut impl Write) -> ::std::io::Result<()> {
-        Ok(())
+    fn span(&self) -> Span {
+        *self
     }
 }
 
@@ -42,8 +86,12 @@ where
     T: Ast,
 {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
-        writeln!(w, "{:indent$}{}..{}", "", self.1.lo, self.1.hi, indent = indent)?;
+        self.1.show(indent, w)?;
         self.0.show(indent + 1, w)
+    }
+
+    fn span(&self) -> Span {
+        self.1
     }
 }
 
@@ -56,6 +104,10 @@ where
             i.show(indent + 1, w)?;
         }
         Ok(())
+    }
+
+    fn span(&self) -> Span {
+        self.iter().fold(Span::zero(), |a, b| a.merge(b.span()))
     }
 }
 
@@ -70,6 +122,10 @@ where
         self.1.show(indent + 1, w)?;
         writeln!(w, "{:indent$})", "", indent = indent)
     }
+
+    fn span(&self) -> Span {
+        self.0.span().merge(self.1.span())
+    }
 }
 
 impl<A, B> Ast for Result<A, B>
@@ -81,6 +137,13 @@ where
         match self {
             Ok(a) => a.show(indent, w),
             Err(a) => a.show(indent, w),
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            Ok(a) => a.span(),
+            Err(a) => a.span(),
         }
     }
 }
@@ -95,6 +158,13 @@ where
             None => writeln!(w, "{:indent$}NULL", "", indent = indent),
         }
     }
+
+    fn span(&self) -> Span {
+        match self {
+            Some(a) => a.span(),
+            None => Span::zero(),
+        }
+    }
 }
 
 impl<A> Ast for Box<A>
@@ -104,11 +174,9 @@ where
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
         (&*self as &A).show(indent, w)
     }
-}
 
-impl Ast for bool {
-    fn show(&self, _: usize, _: &mut impl Write) -> ::std::io::Result<()> {
-        Ok(())
+    fn span(&self) -> Span {
+        (&*self as &A).span()
     }
 }
 
@@ -250,7 +318,7 @@ pub struct FunDep<'t>(Vec<Name<'t>>, Vec<Name<'t>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Typ<'t> {
-    Wildcard,
+    Wildcard(Span),
     Var(Name<'t>),
     Constructor(QProperName<'t>),
     Symbol(QSymbol<'t>),
@@ -268,11 +336,40 @@ pub enum Typ<'t> {
     App(Box<Typ<'t>>, Box<Typ<'t>>),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TypVarBinding<'t>(Name<'t>, Option<Typ<'t>>, bool);
+impl<'t> Typ<'t> {
+    pub fn to_constraint(self) -> Option<Constraint<'t>> {
+        fn inner<'t>(a: Typ<'t>, mut args: Vec<Typ<'t>>) -> Option<Constraint<'t>> {
+            match a {
+                Typ::Symbol(_)
+                | Typ::Str(_)
+                | Typ::Int(_)
+                | Typ::Hole(_)
+                | Typ::Record(_)
+                | Typ::Var(_)
+                | Typ::Wildcard(_)
+                | Typ::Row(_)
+                | Typ::Forall(_, _)
+                | Typ::Kinded(_, _)
+                | Typ::Op(_, _, _)
+                | Typ::Constrained(_, _)
+                | Typ::Arr(_, _) => None,
+
+                Typ::Constructor(n) => Some(Constraint(n, args)),
+                Typ::App(l, r) => {
+                    args.insert(0, *r);
+                    inner(*l, args)
+                }
+            }
+        }
+        inner(self, Vec::new())
+    }
+}
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Row<'t>(Vec<(Label<'t>, Typ<'t>)>, Option<Box<Typ<'t>>>);
+pub struct TypVarBinding<'t>(pub Name<'t>, pub Option<Typ<'t>>, pub bool);
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Row<'t>(pub Vec<(Label<'t>, Typ<'t>)>, pub Option<Box<Typ<'t>>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Binder<'t> {

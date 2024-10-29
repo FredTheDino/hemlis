@@ -1,0 +1,15 @@
+---
+source: src/parser.rs
+expression: "p_typ_var_binding(\"( @a :: Kind )\")"
+---
+6 of 6
+===
+TypVarBinding
+ Name
+  3..4
+ Typ::Constructor
+  QProperName
+   8..12
+   ProperName
+    8..12
+===

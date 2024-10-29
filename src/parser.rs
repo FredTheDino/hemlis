@@ -61,7 +61,7 @@ kw!(kw_rs, Token::RightSquare);
 kw!(kw_left_arrow, Token::LeftArrow);
 kw!(kw_right_arrow, Token::RightArrow);
 kw!(kw_right_imply, Token::RightFatArrow);
-kw!(kw_coloncolon, Token::DoubleColon);
+kw!(kw_coloncolon, Token::Symbol("::"));
 kw!(kw_tick, Token::Tick);
 kw!(kw_comma, Token::Comma);
 
@@ -84,6 +84,7 @@ kw!(kw_newtype, T::Lower("newtype"));
 kw!(kw_data, T::Lower("data"));
 kw!(kw_true, T::Lower("true"));
 kw!(kw_false, T::Lower("false"));
+kw!(kw_forall, T::Lower("forall"));
 
 kw!(kw_begin, T::LayBegin);
 kw!(kw_end, T::LayEnd);
@@ -154,19 +155,37 @@ macro_rules! choice {
                 }, (_, Some(_))) =>  {
                     let mut p_ = $p.fork();
                     let out = $t(&mut p_);
-                    (p_, out)
+                    (p_, Ok(out))
                 }
             ),*
                 _ => {
                     let mut p_ = $p.fork();
                     p_.raise_::<usize>(stringify!($($t),*));
-                    (p_, None)
+                    (p_, Err(None))
                 }
             };
-            *$p = p__;
-            x
+            match x {
+                Ok(e) => {
+                    *$p = p__;
+                    e
+                }
+                Err(e) => {
+                    e
+                }
+            }
         }
     };
+}
+
+fn many<'t, FE, E>(p: &mut P<'t>, e: FE) -> Vec<E>
+where
+    FE: Fn(&mut P<'t>) -> Option<E>,
+{
+    let mut out = Vec::new();
+    while let Some(ee) = choice!(p, e, |_| None::<E>) {
+        out.push(ee);
+    }
+    out
 }
 
 fn sep<'t, FS, FE, E, S>(p: &mut P<'t>, s: FS, e: FE) -> Vec<E>
@@ -281,8 +300,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
             kw_rp(p)?;
             ImportDecl::Multiple(name, imports)
         }
-        Some(_) => ImportDecl::Bulk(name),
-        _ => p.raise_("EoF")?,
+        _ => ImportDecl::Bulk(name),
     })
 }
 
@@ -308,9 +326,257 @@ fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
     )
 }
 
+fn typ_atom<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
+    choice!(
+        p,
+        |p: &mut P<'t>| {
+            let span = p.span();
+            kw_underscore(p)?;
+            Some(Typ::Wildcard(span))
+        },
+        |p| { Some(Typ::Var(name(p)?)) },
+        |p| { Some(Typ::Constructor(qproper(p)?)) },
+        |p| { Some(Typ::Symbol(qsymbol(p)?)) },
+        |p| { Some(Typ::Str(string(p)?)) },
+        // |p| { Some(Typ::Int(int(p)?)) },
+        |p| { Some(Typ::Hole(hole(p)?)) },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_lb(p)?;
+            let r = row(p)?;
+            kw_rb(p)?;
+            let end = p.span();
+            Some(Typ::Record(S(r, start.merge(end))))
+        },
+        // NOTE: ( a :: B ) is considered a row-type in this conflict
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_lp(p)?;
+            let r = row(p)?;
+            kw_rp(p)?;
+            let end = p.span();
+            Some(Typ::Row(S(r, start.merge(end))))
+        },
+        |p: &mut _| {
+            kw_lp(p)?;
+            let r = typ(p)?;
+            kw_rp(p)?;
+            Some(r)
+        }
+    )
+}
+
+// Higher binds tighter
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum Prec {
+    L(usize),
+    R(usize),
+}
+
+impl Prec {
+    fn zero() -> Self {
+        Self::L(0)
+    }
+
+    fn next(&self, other: &Self) -> Option<Prec> {
+        match (self.prec(), other) {
+            (s, Self::L(o)) if o > &s => Some(Self::L(o + 1)),
+            (s, Self::R(o)) if o > &s => Some(Self::R(o + 1)),
+            (s, Self::R(o)) if o == &s => Some(*self),
+            _ => None,
+        }
+    }
+
+    fn prec(&self) -> usize {
+        match self {
+            Self::L(a) | Self::R(a) => *a,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum TypOp<'t> {
+    Kind,
+    Arr,
+    FatArr,
+    Op(QOp<'t>),
+    App,
+}
+
+fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
+    choice!(
+        p,
+        |p| {
+            kw_coloncolon(p)?;
+            Some(TypOp::Kind)
+        },
+        |p| {
+            kw_right_arrow(p)?;
+            Some(TypOp::Arr)
+        },
+        |p| {
+            kw_right_imply(p)?;
+            Some(TypOp::FatArr)
+        },
+        |p| { Some(TypOp::Op(qop(p)?)) },
+        |p: &mut P<'t>| {
+            typ_atom(&mut p.fork())?;
+            Some(TypOp::App)
+        },
+        |_| None::<TypOp<'t>>
+    )
+}
+
+fn typ_fop<'t>(t: &TypOp<'t>) -> Prec {
+    use Prec::*;
+    match t {
+        TypOp::Kind => L(0),
+        TypOp::Arr => R(2),
+        TypOp::FatArr => R(1),
+        // This is not right - we can maybe do better
+        TypOp::Op(_) => L(2),
+        TypOp::App => L(3),
+    }
+}
+
+fn typ_mrg<'t>(p: &mut P<'t>, op: TypOp<'t>, lhs: Typ<'t>, rhs: Typ<'t>) -> Typ<'t> {
+    match op {
+        TypOp::Kind => Typ::Kinded(b!(lhs), b!(rhs)),
+        TypOp::Arr => Typ::Arr(b!(lhs), b!(rhs)),
+        TypOp::FatArr => {
+            if let Some(lhs) = lhs.clone().to_constraint() {
+                Typ::Constrained(lhs, b!(rhs))
+            } else {
+                p.raise(Serror::NotAConstraint(lhs.span()));
+                Typ::Arr(b!(lhs), b!(rhs))
+            }
+        }
+        TypOp::Op(op) => Typ::Op(b!(lhs), op, b!(rhs)),
+        TypOp::App => Typ::App(b!(lhs), b!(rhs)),
+    }
+}
+
+fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
+    choice!(
+        p,
+        |p: &mut _| {
+            kw_forall(p)?;
+            let vars = typ_var_bindings(p);
+            kw_dot(p)?;
+            let inner = typ(p)?;
+            Some(Typ::Forall(vars, b!(inner)))
+        },
+        typ_atom
+    )
+}
+
+fn typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
+    let lhs = top_typ(p)?;
+    pratt(&top_typ, &typ_op, &typ_fop, &typ_mrg, p, lhs, Prec::zero())
+}
+
+fn pratt<'t, FE, E, MRG, FO, O, FOP>(
+    fe: &FE,
+    fo: &FO,
+    fop: &FOP,
+    mrg: &MRG,
+    p: &mut P<'t>,
+    mut lhs: E,
+    prec: Prec,
+) -> Option<E>
+where
+    FE: Fn(&mut P<'t>) -> Option<E>,
+    FO: Fn(&mut P<'t>) -> Option<O>,
+    FOP: Fn(&O) -> Prec,
+    MRG: Fn(&mut P<'t>, O, E, E) -> E,
+{
+    while let Some(lookahead) = fo(p) {
+        let inner_prec = fop(&lookahead);
+        if inner_prec.prec() < prec.prec() {
+            break;
+        }
+        let mut rhs = fe(p)?;
+        while let Some(next) = (|p: &mut _| {
+            let lookahead = fo(p)?;
+            inner_prec.next(&fop(&lookahead))
+        })(&mut p.fork())
+        {
+            let i = p.i;
+            rhs = pratt(fe, fo, fop, mrg, p, rhs, next)?;
+            if i == p.i {
+                break;
+            }
+        }
+        lhs = mrg(p, lookahead, lhs, rhs);
+    }
+    Some(lhs)
+}
+
+fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding<'t>> {
+    let is_paren = matches!(p.peekt(), Some(T::LeftParen));
+    if is_paren {
+        kw_lp(p)?;
+    }
+
+    let is_at = matches!(p.peekt(), Some(T::Symbol("@")));
+    if is_at {
+        kw_at(p)?;
+    }
+    let name = name(p)?;
+    let ty = if matches!(p.peekt(), Some(T::Symbol("::"))) {
+        kw_coloncolon(p)?;
+        typ(p)
+    } else {
+        None
+    };
+    if is_paren {
+        kw_rp(p)?;
+    }
+    Some(TypVarBinding(name, ty, is_at))
+}
+
+fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
+    many(p, typ_var_binding)
+}
+
+fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
+    let vars = typ_var_bindings(p);
+    for v in vars.iter() {
+        if v.2 {
+            p.raise(Serror::NotSimpleTypeVarBinding(v.0 .0 .1))
+        }
+    }
+    vars
+}
+
+fn row_label<'t>(p: &mut P<'t>) -> Option<(Label<'t>, Typ<'t>)> {
+    let l = match p.peek() {
+        (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(n, s)),
+        _ => return None,
+    };
+    kw_coloncolon(p)?;
+    let t = typ(p)?;
+    Some((l, t))
+}
+
+fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
+    let c = sep(p, kw_comma, row_label);
+
+    let x = if matches!(p.peekt(), Some(T::Symbol("|"))) {
+        kw_pipe(p)?;
+        typ(p).map(|x| b!(x))
+    } else {
+        None
+    };
+
+    Some(Row(c, x))
+}
+
 #[derive(Clone, Debug)]
 enum Serror<'s> {
     Unexpected(Span, Option<Token<'s>>, &'static str),
+    NotSimpleTypeVarBinding(Span),
+    NotAConstraint(Span),
 }
 
 #[derive(Clone, Debug)]
@@ -320,6 +586,7 @@ struct P<'s> {
     tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
     errors: Vec<Serror<'s>>,
     panic: bool,
+    steps: std::cell::RefCell<usize>,
 }
 
 impl<'s> P<'s> {
@@ -327,13 +594,22 @@ impl<'s> P<'s> {
         Self {
             fi,
             i: 0,
+            steps: 0.into(),
             panic: false,
             errors: Vec::new(),
             tokens,
         }
     }
 
+    fn check_loop(&self) {
+        *self.steps.borrow_mut() += 1;
+        if *self.steps.borrow() > 100 {
+            panic!("Found loop in parser, {}\n{:?}", self.i, self.tokens)
+        }
+    }
+
     fn peek_(&self) -> (Option<Token<'s>>, Span) {
+        self.check_loop();
         (self.tokens.get(self.i).and_then(|x| x.0.ok()), self.span())
     }
 
@@ -379,18 +655,20 @@ impl<'s> P<'s> {
 
     fn span(&self) -> Span {
         let s = self.tokens.get(self.i).or_else(|| self.tokens.last());
-        Span {
-            lo: s.map(|x| x.1.start).unwrap_or(0),
-            hi: s.map(|x| x.1.end).unwrap_or(0),
-            fi: self.fi,
-        }
+        Span::Known(
+            s.map(|x| x.1.start).unwrap_or(0),
+            s.map(|x| x.1.end).unwrap_or(0),
+            self.fi,
+        )
     }
 
-    fn fork(&self) -> Self {
+    fn fork(&mut self) -> Self {
+        self.check_loop();
         self.clone()
     }
 
     fn skip(&mut self) {
+        *self.steps.borrow_mut() = 0;
         self.i += 1;
         // NOTE: For now we skipp some of the tokens in this parser
         while matches!(
@@ -413,7 +691,7 @@ impl<'s> P<'s> {
                 self.panic = false;
                 return Ok(());
             } else {
-                self.i += 1
+                self.skip()
             }
         }
         Err(())
@@ -493,20 +771,24 @@ mod tests {
 
                 let l = lexer::lex(&src);
                 let mut p = P::new(0, &l);
-                if let Some(out) = $p(&mut p) {
-                    let mut buf = BufWriter::new(Vec::new());
-                    out.show(0, &mut buf).unwrap();
-                    let inner = buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap();
+
+                let mut buf = BufWriter::new(Vec::new());
+                $p(&mut p).show(0, &mut buf).unwrap();
+                let inner = buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap();
+
+                format!(
+                    "{} of {}\n===\n{}===\n{}",
+                    p.i,
+                    p.tokens.len(),
                     String::from_utf8(inner)
                         .map_err(|x| format!("{:?}", x))
-                        .unwrap()
-                } else {
+                        .unwrap(),
                     p.errors
                         .iter()
                         .map(|x| format!("{:?}", x))
                         .collect::<Vec<_>>()
                         .join("\n")
-                }
+                )
             }
         };
     }
@@ -556,91 +838,58 @@ import A.B.C hiding (foo)
     fn import_with_newlines() {
         assert_snapshot!(p_import("import A (foo\n , bar\n , baz)"))
     }
-}
 
-/*
-#[cfg(test)]
-mod tests {
-    use insta::assert_snapshot;
-
-    macro_rules! gen_parser {
-        ($a:ident, $p:ident) => {
-            pub fn $a<'t>(src: &'t str) -> String {
-                pub fn inner<'t>(src: &'t str) -> Result<String, String> {
-                    use crate::{ast::Ast, grammer, lexer};
-                    use std::io::BufWriter;
-
-                    let parser = grammer::$p::new();
-                    let out = parser
-                        .parse(
-                            lexer::lex(&src)
-                                .into_iter()
-                                .map(|(token, span)| Ok((span.start, token?, span.end))),
-                        )
-                        .map_err(|x| format!("{:?}", x))?;
-
-                    let mut buf = BufWriter::new(Vec::new());
-                    out.show(0, &mut buf).map_err(|x| format!("{:?}", x))?;
-                    let inner = buf.into_inner().map_err(|x| format!("{:?}", x))?;
-                    String::from_utf8(inner).map_err(|x| format!("{:?}", x))
-                }
-                match inner(src) {
-                    Ok(s) | Err(s) => s,
-                }
-            }
-        };
-    }
-
-    gen_parser!(p_header, HeaderParser);
+    gen_parser!(p_typ, typ);
 
     #[test]
-    fn empty_string() {
-        assert_snapshot!(p_header(""));
+    fn typ_empty_row() {
+        assert_snapshot!(p_typ("()"))
     }
 
     #[test]
-    fn normal_definition() {
-        assert_snapshot!(p_header("module A (a, b, c) where"));
+    fn typ_row_kind_ambiguity_row() {
+        assert_snapshot!(p_typ("( a :: A )"))
     }
 
     #[test]
-    fn everything_header() {
-        assert_snapshot!(p_header(
-            r#"
-module A.B.C (a, class B, C, D(..), E(F, G),
- (+), type (+), module H) where
-
-import A as A
-import A.B.C as A.C
-import A.B.C (a, class B,
- C, D(..), E(F, G), (+), type (+))
-import A.B.C hiding (foo)
-        "#
-        ));
-    }
-
-    gen_parser!(p_import, ImportParser);
-
-    #[test]
-    fn simple_import() {
-        assert_snapshot!(p_import("import A as A"))
+    fn typ_row_kind_ambiguity_typ() {
+        assert_snapshot!(p_typ("A :: Type"))
     }
 
     #[test]
-    fn import_with_newlines() {
-        assert_snapshot!(p_import("import A (foo\n , bar\n , baz)"))
-    }
-
-    gen_parser!(p_worstacase, WorstCaseParser);
-
-    #[test]
-    fn worstcase_expr() {
-        assert_snapshot!(p_worstacase("1 <- 1"))
+    fn typ_higher_kinded() {
+        assert_snapshot!(p_typ("Foo bar biz"))
     }
 
     #[test]
-    fn worstcase_expr2() {
-        assert_snapshot!(p_worstacase("1"))
+    fn typ_a_signature() {
+        assert_snapshot!(p_typ("forall a. Monoid a => a -> a -> a"))
+    }
+
+    #[test]
+    fn typ_operators() {
+        assert_snapshot!(p_typ("Array $ Maybe $ Maybe $ Int"))
+    }
+
+    gen_parser!(p_typ_var_binding, typ_var_binding);
+
+    #[test]
+    fn typ_var_bindings_a() {
+        assert_snapshot!(p_typ_var_binding("a"))
+    }
+
+    #[test]
+    fn typ_var_bindings_a_at() {
+        assert_snapshot!(p_typ_var_binding("@a"))
+    }
+
+    #[test]
+    fn typ_var_bindings_a_at_paren() {
+        assert_snapshot!(p_typ_var_binding("( @a )"))
+    }
+
+    #[test]
+    fn typ_var_bindings_a_at_paren_kind() {
+        assert_snapshot!(p_typ_var_binding("( @a :: Kind )"))
     }
 }
-*/

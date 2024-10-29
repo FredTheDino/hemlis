@@ -2,7 +2,7 @@
 source: src/lexer.rs
 expression: "p(\"forall f. Monad f => f a -> f Unit\")"
 ---
-Ok(Forall)
+Ok(Lower("forall"))
 Ok(Lower("f"))
 Ok(Symbol("."))
 Ok(Upper("Monad"))

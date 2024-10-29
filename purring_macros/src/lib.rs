@@ -14,7 +14,7 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
 
     let ident = input.ident;
     let generics = input.generics;
-    let inner = match input.data {
+    let show = match input.data.clone() {
         syn::Data::Struct(s) => {
             let fields = match s.fields {
                 syn::Fields::Named(syn::FieldsNamed { named: fs, .. })
@@ -89,11 +89,88 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
         }
     };
 
+    let span = match input.data {
+        syn::Data::Struct(s) => {
+            let fields = match s.fields {
+                syn::Fields::Named(syn::FieldsNamed { named: fs, .. })
+                | syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed: fs, .. }) => fs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        f.ident
+                            .as_ref()
+                            .map(|x| quote!(self.#x.span()))
+                            .unwrap_or_else(|| {
+                                let i = syn::Index::from(i);
+                                quote!(self.#i.span())
+                            })
+                    })
+                    .collect(),
+                syn::Fields::Unit => Vec::new(),
+            };
+            quote!(
+                [#(#fields),*].into_iter().fold(Span::zero(), |a, b| a.merge(b))
+            )
+        }
+
+        syn::Data::Enum(s) => {
+            let match_arms: Vec<_> = s
+                .variants
+                .iter()
+                .map(|v| {
+                    let vident = v.ident.clone();
+                    let (args, body) = match &v.fields {
+                        syn::Fields::Named(syn::FieldsNamed { named: fs, .. })
+                        | syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed: fs, .. }) => fs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, f)| {
+                                let n = f.ident.as_ref().map(|x| quote!(#x)).unwrap_or_else(|| {
+                                    let i = syn::Ident::new(
+                                        &format!("a{}", i),
+                                        proc_macro2::Span::call_site()
+                                    );
+                                    quote!(#i)
+                                });
+                                (quote!(#n , ), quote!(#n.span()))
+                            })
+                            .collect::<(Vec<_>, Vec<_>)>(),
+
+                        syn::Fields::Unit => (Vec::new(), Vec::new()),
+                    };
+                    let args2 = match v.fields {
+                        syn::Fields::Named(_) => quote!( { #(#args)* } ),
+                        syn::Fields::Unnamed(_) => quote! { ( #(#args)* ) },
+                        syn::Fields::Unit => quote!(),
+                    };
+                    quote! {
+                        #ident::#vident #args2 => {
+                            [#(#body),*].into_iter().fold(Span::zero(), |a, b| a.merge(b))
+                        },
+                    }
+                })
+                .collect();
+
+            quote!(
+                match self {
+                    #(#match_arms)*
+                }
+            )
+        }
+        syn::Data::Union(_) => {
+            panic!("Unions aren't supported yet")
+        }
+    };
+
     let out = TokenStream::from(quote!(
         impl #generics Ast for #ident #generics {
             fn show(&self, indent__: usize, w__: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
-                #inner
+                #show
                 Ok(())
+            }
+
+            fn span(&self) -> Span {
+                #span
             }
         }
     ));

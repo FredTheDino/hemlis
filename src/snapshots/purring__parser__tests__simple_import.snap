@@ -2,6 +2,8 @@
 source: src/parser.rs
 expression: "p_import(\"import A as A\")"
 ---
+4 of 4
+===
 ImportDecl::As
  QProperName
   7..8
@@ -11,3 +13,4 @@ ImportDecl::As
   12..13
   ProperName
    12..13
+===

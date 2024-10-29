@@ -1,0 +1,18 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"A :: Type\")"
+---
+3 of 3
+===
+Typ::Kinded
+ Typ::Constructor
+  QProperName
+   0..1
+   ProperName
+    0..1
+ Typ::Constructor
+  QProperName
+   5..9
+   ProperName
+    5..9
+===

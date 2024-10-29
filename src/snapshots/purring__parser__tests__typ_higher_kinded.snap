@@ -1,0 +1,20 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"Foo bar biz\")"
+---
+3 of 3
+===
+Typ::App
+ Typ::App
+  Typ::Constructor
+   QProperName
+    0..3
+    ProperName
+     0..3
+  Typ::Var
+   Name
+    4..7
+ Typ::Var
+  Name
+   8..11
+===

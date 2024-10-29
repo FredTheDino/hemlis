@@ -2,4 +2,8 @@
 source: src/parser.rs
 expression: "p_header(\"\")"
 ---
-Unexpected(Span { lo: 0, hi: 0, fi: 0 }, None, "T::Lower(\"module\")")
+0 of 0
+===
+NULL
+===
+Unexpected(Known(0, 0, 0), None, "T::Lower(\"module\")")

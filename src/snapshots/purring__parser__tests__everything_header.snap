@@ -2,6 +2,8 @@
 source: src/parser.rs
 expression: "p_header(r#\"\nmodule A.B.C (a, class B, C, D(..), E(F, G), \n (+), type (+), module H) where\n\nimport A\nimport A as A\nimport A.B.C as A.C\nimport A.B.C (a, class B, \n C, D(..), E(F, G), (+), type (+))\nimport A.B.C hiding (foo)\n        \"#)"
 ---
+97 of 97
+===
 Header
  QProperName
   8..10
@@ -120,3 +122,4 @@ Header
     Import::Value
      Name
       206..209
+===

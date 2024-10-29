@@ -2,6 +2,8 @@
 source: src/parser.rs
 expression: "p_import(\"import A (foo\\n , bar\\n , baz)\")"
 ---
+9 of 9
+===
 ImportDecl::Multiple
  QProperName
   7..8
@@ -16,3 +18,4 @@ ImportDecl::Multiple
   Import::Value
    Name
     24..27
+===

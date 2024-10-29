@@ -135,15 +135,10 @@ pub enum Token<'t> {
     RightArrow,
     #[token("=>")]
     RightFatArrow,
-    #[token("::")]
-    DoubleColon,
     #[token("`")]
     Tick,
     #[token(",")]
     Comma,
-
-    #[token("forall")]
-    Forall,
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.

@@ -1,0 +1,42 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"Array $ Maybe $ Maybe $ Int\")"
+---
+7 of 7
+===
+Typ::Op
+ Typ::Op
+  Typ::Op
+   Typ::Constructor
+    QProperName
+     0..5
+     ProperName
+      0..5
+   QOp
+    6..7
+    Op
+     6..7
+   Typ::Constructor
+    QProperName
+     8..13
+     ProperName
+      8..13
+  QOp
+   14..15
+   Op
+    14..15
+  Typ::Constructor
+   QProperName
+    16..21
+    ProperName
+     16..21
+ QOp
+  22..23
+  Op
+   22..23
+ Typ::Constructor
+  QProperName
+   24..27
+   ProperName
+    24..27
+===

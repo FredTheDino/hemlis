@@ -1,0 +1,11 @@
+---
+source: src/parser.rs
+expression: "p_typ_var_binding(\"a\")"
+---
+1 of 1
+===
+TypVarBinding
+ Name
+  0..1
+ NULL
+===
