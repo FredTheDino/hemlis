@@ -374,15 +374,15 @@ enum Prec {
 }
 
 impl Prec {
-    fn zero() -> Self {
-        Self::L(0)
+    fn zero() -> usize {
+        0
     }
 
-    fn next(&self, other: &Self) -> Option<Prec> {
-        match (self.prec(), other) {
-            (s, Self::L(o)) if o > &s => Some(Self::L(o + 1)),
-            (s, Self::R(o)) if o > &s => Some(Self::R(o + 1)),
-            (s, Self::R(o)) if o == &s => Some(*self),
+    fn next(&self, current: usize) -> Option<usize> {
+        match (current, self) {
+            (s, Self::L(o)) if o > &s => Some(s + 1),
+            (s, Self::R(o)) if o > &s => Some(s + 1),
+            (s, Self::R(o)) if o == &s => Some(s),
             _ => None,
         }
     }
@@ -431,11 +431,11 @@ fn typ_fop<'t>(t: &TypOp<'t>) -> Prec {
     use Prec::*;
     match t {
         TypOp::Kind => L(0),
-        TypOp::Arr => R(2),
         TypOp::FatArr => R(1),
+        TypOp::Arr => R(1),
         // This is not right - we can maybe do better
-        TypOp::Op(_) => L(2),
-        TypOp::App => L(3),
+        TypOp::Op(_) => L(3),
+        TypOp::App => L(4),
     }
 }
 
@@ -472,42 +472,34 @@ fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
 
 fn typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
     let lhs = top_typ(p)?;
-    pratt(&top_typ, &typ_op, &typ_fop, &typ_mrg, p, lhs, Prec::zero())
+    pratt_typ(p, lhs, Prec::zero())
 }
 
-fn pratt<'t, FE, E, MRG, FO, O, FOP>(
-    fe: &FE,
-    fo: &FO,
-    fop: &FOP,
-    mrg: &MRG,
-    p: &mut P<'t>,
-    mut lhs: E,
-    prec: Prec,
-) -> Option<E>
-where
-    FE: Fn(&mut P<'t>) -> Option<E>,
-    FO: Fn(&mut P<'t>) -> Option<O>,
-    FOP: Fn(&O) -> Prec,
-    MRG: Fn(&mut P<'t>, O, E, E) -> E,
-{
-    while let Some(lookahead) = fo(p) {
-        let inner_prec = fop(&lookahead);
-        if inner_prec.prec() < prec.prec() {
-            break;
+fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ<'t>, prec: usize) -> Option<Typ<'t>> {
+    while let Some(outer_lookahead) = (|p: &mut P<'t>| {
+        let op = typ_op(&mut p.fork())?;
+        if typ_fop(&op).prec() >= prec {
+            if !matches!(op, TypOp::App) {
+                let _ = typ_op(p)?;
+            }
+            Some(op)
+        } else {
+            None
         }
-        let mut rhs = fe(p)?;
-        while let Some(next) = (|p: &mut _| {
-            let lookahead = fo(p)?;
-            inner_prec.next(&fop(&lookahead))
-        })(&mut p.fork())
+    })(p)
+    {
+        // Make the check a peek
+        let mut rhs = top_typ(p)?;
+        while let Some(next) = (|p: &mut P<'t>| {
+            let op = typ_op(&mut p.fork())?;
+            typ_fop(&op).next(typ_fop(&outer_lookahead).prec())
+        })(p)
         {
             let i = p.i;
-            rhs = pratt(fe, fo, fop, mrg, p, rhs, next)?;
-            if i == p.i {
-                break;
-            }
+            rhs = pratt_typ(p, rhs, next)?;
+            assert_ne!(i, p.i, "STUCK!");
         }
-        lhs = mrg(p, lookahead, lhs, rhs);
+        lhs = typ_mrg(p, outer_lookahead, lhs, rhs);
     }
     Some(lhs)
 }
@@ -864,6 +856,36 @@ import A.B.C hiding (foo)
     #[test]
     fn typ_a_signature() {
         assert_snapshot!(p_typ("forall a. Monoid a => a -> a -> a"))
+    }
+
+    #[test]
+    fn typ_b_signature() {
+        assert_snapshot!(p_typ("forall a b . Foo a b => Bar a b => b -> b"))
+    }
+
+    #[test]
+    fn typ_b_simple_signature() {
+        assert_snapshot!(p_typ("Foo => Bar => b -> b"))
+    }
+
+    #[test]
+    fn typ_c_signature() {
+        assert_snapshot!(p_typ(
+            "
+     forall out pkA pkB propsB rowB propsA rowA select
+   . GetPk (C pkA N) propsA
+  => ReflectArray pkA
+  => HasMagicMapping rowA rowA
+  => AllColumns rowA select
+  => HasMagicSelect propsA rowA select select out
+  => GetPk (C pkB N) propsB
+  => ReflectArray pkB
+  => HasMagicMapping rowB rowB
+  => Table propsA rowA
+  -> Table propsB rowB
+  -> (Record out -> Record rowB)
+  -> Sql Unit"
+        ))
     }
 
     #[test]

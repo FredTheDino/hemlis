@@ -1,0 +1,47 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"forall a b . Foo a b => Bar a b => b -> b\")"
+---
+15 of 15
+===
+Typ::Forall
+  TypVarBinding
+   Name
+    7..8
+   NULL
+  TypVarBinding
+   Name
+    9..10
+   NULL
+ Typ::Constrained
+  Constraint
+   QProperName
+    13..16
+    ProperName
+     13..16
+    Typ::Var
+     Name
+      17..18
+    Typ::Var
+     Name
+      19..20
+  Typ::Constrained
+   Constraint
+    QProperName
+     24..27
+     ProperName
+      24..27
+     Typ::Var
+      Name
+       28..29
+     Typ::Var
+      Name
+       30..31
+   Typ::Arr
+    Typ::Var
+     Name
+      35..36
+    Typ::Var
+     Name
+      40..41
+===

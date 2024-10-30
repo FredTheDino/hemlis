@@ -1,0 +1,26 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"Foo => Bar => b -> b\")"
+---
+7 of 7
+===
+Typ::Constrained
+ Constraint
+  QProperName
+   0..3
+   ProperName
+    0..3
+ Typ::Constrained
+  Constraint
+   QProperName
+    7..10
+    ProperName
+     7..10
+  Typ::Arr
+   Typ::Var
+    Name
+     14..15
+   Typ::Var
+    Name
+     19..20
+===

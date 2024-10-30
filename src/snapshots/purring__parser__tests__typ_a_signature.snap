@@ -9,24 +9,24 @@ Typ::Forall
    Name
     7..8
    NULL
- Typ::Arr
-  Typ::App
-   Typ::Constrained
-    Constraint
-     QProperName
-      10..16
-      ProperName
-       10..16
-      Typ::Var
-       Name
-        17..18
+ Typ::Constrained
+  Constraint
+   QProperName
+    10..16
+    ProperName
+     10..16
     Typ::Var
      Name
-      22..23
+      17..18
+  Typ::Arr
    Typ::Var
     Name
-     27..28
-  Typ::Var
-   Name
-    32..33
+     22..23
+   Typ::Arr
+    Typ::Var
+     Name
+      27..28
+    Typ::Var
+     Name
+      32..33
 ===
