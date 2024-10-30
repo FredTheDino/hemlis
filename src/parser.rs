@@ -142,7 +142,7 @@ fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
 }
 
 macro_rules! choice {
-    ($p:ident, $($t:expr),*) => {
+    ($p:ident : $e:expr, $($t:expr),*) => {
         {
             let (p__, x) = match () {
                 // TODO: If this was a proc-macro the code would be twice as fast
@@ -160,7 +160,7 @@ macro_rules! choice {
             ),*
                 _ => {
                     let mut p_ = $p.fork();
-                    p_.raise_::<usize>(stringify!($($t),*));
+                    p_.raise_::<usize>($e);
                     (p_, Err(None))
                 }
             };
@@ -175,20 +175,21 @@ macro_rules! choice {
             }
         }
     };
+    // ($p:ident, $($t:expr),*) => { choice!($p : stringify!($($t),*), $($t),*) };
 }
 
-fn many<'t, FE, E>(p: &mut P<'t>, e: FE) -> Vec<E>
+fn many<'t, FE, E>(p: &mut P<'t>, err: &'static str, e: FE) -> Vec<E>
 where
     FE: Fn(&mut P<'t>) -> Option<E>,
 {
     let mut out = Vec::new();
-    while let Some(ee) = choice!(p, e, |_| None::<E>) {
+    while let Some(ee) = choice!(p : err, e, |_| None::<E>) {
         out.push(ee);
     }
     out
 }
 
-fn sep<'t, FS, FE, E, S>(p: &mut P<'t>, s: FS, e: FE) -> Vec<E>
+fn sep<'t, FS, FE, E, S>(p: &mut P<'t>, err: &'static str, s: FS, e: FE) -> Vec<E>
 where
     FS: Fn(&mut P<'t>) -> Option<S>,
     FE: Fn(&mut P<'t>) -> Option<E>,
@@ -200,7 +201,7 @@ where
         } else {
             break;
         }
-        if choice!(p, s, |_| None::<S>).is_some() {
+        if choice!(p: err, s, |_| None::<S>).is_some() {
             continue;
         } else {
             break;
@@ -212,16 +213,16 @@ where
 fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
     fn f<'t>(p: &mut P<'t>) -> Option<Vec<Export<'t>>> {
         kw_lp(p)?;
-        let exports = sep(p, kw_comma, export);
+        let exports = sep(p, "export", kw_comma, export);
         kw_rp(p)?;
         Some(exports)
     }
-    choice!(p, f, |_| { Some(Vec::<Export<'t>>::new()) }).unwrap()
+    choice!(p: "'export", f, |_| { Some(Vec::<Export<'t>>::new()) }).unwrap()
 }
 
 fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
     choice!(
-        p,
+        p: "export",
         |p: &mut _| {
             kw_type(p)?;
             Some(Export::TypSymbol(symbol(p)?))
@@ -253,7 +254,7 @@ fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
             DataMember::All
         }
         Some(T::LeftParen) => DataMember::Some(Vec::new()),
-        Some(_) => DataMember::Some(sep(p, kw_comma, proper)),
+        Some(_) => DataMember::Some(sep(p, "data_member.proper", kw_comma, proper)),
         _ => p.raise_("EoF")?,
     };
     kw_rp(p)?;
@@ -290,13 +291,13 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
         Some(T::Lower("hiding")) => {
             kw_hiding(p)?;
             kw_lp(p)?;
-            let imports = sep(p, kw_comma, import);
+            let imports = sep(p, "hiding imports", kw_comma, import);
             kw_rp(p)?;
             ImportDecl::Hiding(name, imports)
         }
         Some(T::LeftParen) => {
             kw_lp(p)?;
-            let imports = sep(p, kw_comma, import);
+            let imports = sep(p, "imports", kw_comma, import);
             kw_rp(p)?;
             ImportDecl::Multiple(name, imports)
         }
@@ -306,7 +307,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
 
 fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
     choice!(
-        p,
+        p: "'import",
         |p: &mut _| {
             kw_type(p)?;
             Some(Import::TypSymbol(symbol(p)?))
@@ -328,7 +329,7 @@ fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
 
 fn typ_atom<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
     choice!(
-        p,
+        p: "typ_atom",
         |p: &mut P<'t>| {
             let span = p.span();
             kw_underscore(p)?;
@@ -405,7 +406,7 @@ enum TypOp<'t> {
 
 fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
     choice!(
-        p,
+        p: "typ_op",
         |p| {
             kw_coloncolon(p)?;
             Some(TypOp::Kind)
@@ -458,7 +459,7 @@ fn typ_mrg<'t>(p: &mut P<'t>, op: TypOp<'t>, lhs: Typ<'t>, rhs: Typ<'t>) -> Typ<
 
 fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
     choice!(
-        p,
+        p: "top_typ",
         |p: &mut _| {
             kw_forall(p)?;
             let vars = typ_var_bindings(p);
@@ -528,7 +529,7 @@ fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding<'t>> {
 }
 
 fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
-    many(p, typ_var_binding)
+    many(p, "typ_var_bindings", typ_var_binding)
 }
 
 fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
@@ -552,7 +553,7 @@ fn row_label<'t>(p: &mut P<'t>) -> Option<(Label<'t>, Typ<'t>)> {
 }
 
 fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
-    let c = sep(p, kw_comma, row_label);
+    let c = sep(p, "row", kw_comma, row_label);
 
     let x = if matches!(p.peekt(), Some(T::Symbol("|"))) {
         kw_pipe(p)?;
@@ -562,6 +563,15 @@ fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
     };
 
     Some(Row(c, x))
+}
+
+
+fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
+    panic!()
+}
+
+fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
+    panic!()
 }
 
 #[derive(Clone, Debug)]
