@@ -404,6 +404,63 @@ pub enum LetBinding<'t> {
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expr<'t> {
+    Typed(Box<Expr<'t>>, Typ<'t>),
+    Op(Box<Expr<'t>>, QOp<'t>, Box<Expr<'t>>),
+    Infix(Box<Expr<'t>>, Box<Expr<'t>>, Box<Expr<'t>>),
+    Negate(Box<Expr<'t>>),
+    App(Box<Expr<'t>>, Box<Expr<'t>>),
+    Vta(Box<Expr<'t>>, Typ<'t>),
+    IfThenElse(Box<Expr<'t>>, Box<Expr<'t>>, Box<Expr<'t>>),
+    Do(Vec<DoStmt<'t>>),
+    Ado(Vec<DoStmt<'t>>, Box<Expr<'t>>),
+    Lambda(Vec<Binder<'t>>, Box<Expr<'t>>),
+    Let(Vec<(Binder<'t>, Expr<'t>)>),
+
+    Case(Vec<Expr<'t>>, Vec<CaseBranch<'t>>),
+
+    Record(Vec<(Label<'t>, Expr<'t>)>),
+    Update(Vec<(Label<'t>, Vec<RecordUpdate<'t>>)>),
+    Access(Box<Expr<'t>>, Vec<Label<'t>>),
+
+    Section(Span),
+    Ident(QName<'t>),
+    Constructor(QName<'t>),
+    Symbol(QSymbol<'t>),
+    Boolean(Boolean<'t>),
+    Char(Char<'t>),
+    Str(Str<'t>),
     Number(Number<'t>),
-    Var(QName<'t>),
+    Paren(Box<Expr<'t>>),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RecordUpdate<'t> {
+    Leaf(Label<'t>, Expr<'t>),
+    Branch(Label<'t>, Box<RecordUpdate<'t>>),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CaseBranch<'t>(Vec<(Binder<'t>, Vec<Guard<'t>>)>);
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum DoStmt<'t> {
+    Stmt(Option<Binder<'t>>, Expr<'t>),
+    Let(Vec<LetBinder<'t>>),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum LetBinder<'t> {
+    Signature(Name<'t>, Typ<'t>),
+    Name(Name<'t>, Vec<Binder<'t>>, GuardedDecl<'t>),
+    Pattern(Binder<'t>, ExprWhere<'t>),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GuardedDecl<'t> {
+    Unit(&'t str),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Guard<'t> {
+    Unit(&'t str),
 }
