@@ -140,6 +140,21 @@ pub enum Token<'t> {
     #[token(",")]
     Comma,
 
+    #[token("if")]
+    If,
+    #[token("then")]
+    Then,
+    #[token("else")]
+    Else,
+    #[token("case")]
+    Case,
+    #[token("of")]
+    Of,
+    #[token("let")]
+    Let,
+    #[token("in")]
+    In,
+
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.
     #[regex("[A-Z][[:alnum:]]*\\.")]

@@ -95,11 +95,13 @@ kw!(kw_data, T::Lower("data"));
 kw!(kw_true, T::Lower("true"));
 kw!(kw_false, T::Lower("false"));
 kw!(kw_forall, T::Lower("forall"));
-kw!(kw_if, T::Lower("if"));
-kw!(kw_then, T::Lower("then"));
-kw!(kw_else, T::Lower("else"));
-kw!(kw_case, T::Lower("case"));
-kw!(kw_of, T::Lower("of"));
+kw!(kw_let, T::Let);
+kw!(kw_in, T::In);
+kw!(kw_if, T::If);
+kw!(kw_then, T::Then);
+kw!(kw_else, T::Else);
+kw!(kw_case, T::Case);
+kw!(kw_of, T::Of);
 
 kw!(kw_begin, T::LayBegin);
 kw!(kw_end, T::LayEnd);
@@ -682,6 +684,16 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             let c = b!(expr(p)?);
             Some(Expr::IfThenElse(start, a, b, c))
         },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_let(p)?;
+            // Handle inline ones?
+            kw_begin(p)?;
+            let bindings = sep(p, "let-bindings", kw_sep, let_binding);
+            kw_in(p)?;
+            let b = b!(expr(p)?);
+            Some(Expr::Let(start, bindings, b))
+        },
         // TODO: do
         // TODO: ado
         |p: &mut P<'t>| {
@@ -789,6 +801,10 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
         e = Expr::Vta(b!(e), labels);
     }
     Some(e)
+}
+
+fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
+    panic!()
 }
 
 fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabel<'t>> {
@@ -1228,5 +1244,15 @@ import A.B.C hiding (foo)
     #[test]
     fn expr_record_update_full() {
         assert_snapshot!(p_expr( "foo { a = 1, b = { c = 1 }, d = { e: 1 } }"))
+    }
+
+    #[test]
+    fn expr_if() {
+        assert_snapshot!(p_expr( "if a == 2 then b else c"))
+    }
+
+    #[test]
+    fn expr_let() {
+        assert_snapshot!(p_expr( "let x = 1 in 2"))
     }
 }

@@ -411,7 +411,7 @@ pub enum Expr<'t> {
     Do(Vec<DoStmt<'t>>),
     Ado(Vec<DoStmt<'t>>, Box<Expr<'t>>),
     Lambda(Span, Vec<Binder<'t>>, Box<Expr<'t>>),
-    Let(Vec<(LetBinding<'t>, Expr<'t>)>),
+    Let(Span, Vec<LetBinding<'t>>, Box<Expr<'t>>),
     Where(Box<Expr<'t>>, Vec<LetBinding<'t>>),
 
     Case(Span, Vec<Expr<'t>>, Vec<CaseBranch<'t>>),
