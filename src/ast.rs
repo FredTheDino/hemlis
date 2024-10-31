@@ -418,7 +418,7 @@ pub enum Expr<'t> {
 
     Array(Span, Vec<Expr<'t>>, Span),
     Record(Span, Vec<RecordLabel<'t>>, Span),
-    Update(Span, Vec<(Label<'t>, Vec<RecordUpdate<'t>>)>, Span),
+    Update(Box<Expr<'t>>, Vec<RecordUpdate<'t>>),
     Access(Box<Expr<'t>>, Vec<Label<'t>>),
 
     Section(Span),
@@ -442,7 +442,7 @@ pub enum RecordLabel<'t> {
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RecordUpdate<'t> {
     Leaf(Label<'t>, Expr<'t>),
-    Branch(Label<'t>, Box<RecordUpdate<'t>>),
+    Branch(Label<'t>, Vec<RecordUpdate<'t>>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]

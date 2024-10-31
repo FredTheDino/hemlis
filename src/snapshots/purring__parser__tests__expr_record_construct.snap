@@ -1,0 +1,22 @@
+---
+source: src/parser.rs
+expression: "p_expr(\"foo { a : 1 }\")"
+---
+6 of 6
+===
+Expr::App
+ Expr::Ident
+  QName
+   0..3
+   Name
+    0..3
+ Expr::Record
+  4..5
+   RecordLabel::Field
+    Label
+     6..7
+    Expr::Number
+     Number
+      10..11
+  12..13
+===

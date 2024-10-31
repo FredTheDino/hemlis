@@ -1,0 +1,40 @@
+---
+source: src/parser.rs
+expression: "p_expr(\"foo { a = 1, b = { c = 1 }, d = { e: 1 } }\")"
+---
+22 of 22
+===
+Expr::Update
+ Expr::Ident
+  QName
+   0..3
+   Name
+    0..3
+  RecordUpdate::Leaf
+   Label
+    6..7
+   Expr::Number
+    Number
+     10..11
+  RecordUpdate::Branch
+   Label
+    13..14
+    RecordUpdate::Leaf
+     Label
+      19..20
+     Expr::Number
+      Number
+       23..24
+  RecordUpdate::Leaf
+   Label
+    28..29
+   Expr::Record
+    32..33
+     RecordLabel::Field
+      Label
+       34..35
+      Expr::Number
+       Number
+        37..38
+    41..42
+===

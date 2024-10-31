@@ -740,10 +740,15 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             Some(Expr::Array(start, inner, end))
         },
         |p: &mut P<'t>| {
+            println!("A");
             let start = p.span();
+            println!("B");
             kw_lb(p)?;
+            println!("C");
             let inner = sep(p, "record expr", kw_comma, record_label);
+            println!("D {:?}", p.peekt());
             kw_rb(p)?;
+            println!("E");
             let end = p.span();
             Some(Expr::Record(start, inner, end))
         },
@@ -764,6 +769,16 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     {
         e = Expr::Access(b!(e), labels);
     }
+
+    if let Some(x) = choice!(p: "expr_access" ,
+        // NOTE: This isn't as good as it can be - we can know the user intends to do
+        // this if we see a `=` in side the record
+            record_updates,
+        |_| None::<Vec<RecordUpdate<'t>>>)
+    {
+        e = Expr::Update(b!(e), x);
+    }
+
     while let Some(labels) = choice!(p: "expr_vta" ,
         |p: &mut P<'t>| {
             kw_at(p)?;
@@ -780,6 +795,7 @@ fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabel<'t>> {
     choice!(p: "record_label",
         |p: &mut P<'t>| {
             let f = label(p)?;
+            p.next();
             kw_colon(p)?;
             let e = expr(p)?;
             Some(RecordLabel::Field(f, e))
@@ -789,6 +805,29 @@ fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabel<'t>> {
         },
     )
 }
+
+fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate<'t>>> {
+    kw_lb(p)?;
+    let updates = sep(p, "record_updates", kw_comma, record_update);
+    kw_rb(p)?;
+    Some(updates)
+}
+
+fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
+    let f = label(p)?;
+    p.next();
+    kw_eq(p)?;
+
+    choice!(p: "record_label",
+        |p: &mut P<'t>| {
+            Some(RecordUpdate::Leaf(f.clone(), expr(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(RecordUpdate::Branch(f.clone(), record_updates(p)?))
+        },
+    )
+}
+
 
 fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
     panic!()
@@ -1169,5 +1208,25 @@ import A.B.C hiding (foo)
         assert_snapshot!(p_expr(
             "(1 + 1) * 2 + foo @A `a + b` A.B.C.d A.B.+ q :: Int"
         ))
+    }
+
+    #[test]
+    fn expr_record() {
+        assert_snapshot!(p_expr( "{ a, b: 1 }"))
+    }
+
+    #[test]
+    fn expr_record_construct() {
+        assert_snapshot!(p_expr( "foo { a : 1 }"))
+    }
+
+    #[test]
+    fn expr_record_update() {
+        assert_snapshot!(p_expr( "foo { a = 1 }"))
+    }
+
+    #[test]
+    fn expr_record_update_full() {
+        assert_snapshot!(p_expr( "foo { a = 1, b = { c = 1 }, d = { e: 1 } }"))
     }
 }

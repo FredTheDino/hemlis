@@ -1,0 +1,19 @@
+---
+source: src/parser.rs
+expression: "p_expr(\"{ a, b: 1 }\")"
+---
+7 of 7
+===
+Expr::Record
+ 0..1
+  RecordLabel::Pun
+   Name
+    2..3
+  RecordLabel::Field
+   Label
+    5..6
+   Expr::Number
+    Number
+     8..9
+ 10..11
+===
