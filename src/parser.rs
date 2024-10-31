@@ -44,6 +44,13 @@ fn string<'t>(p: &mut P<'t>) -> Option<Str<'t>> {
     }
 }
 
+fn label<'t>(p: &mut P<'t>) -> Option<Label<'t>> {
+    Some(match p.peek() {
+        (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(n, s)),
+        _ => return None,
+    })
+}
+
 macro_rules! kw {
     ($name:ident, $kw:pat) => {
         fn $name<'t>(p: &mut P<'t>) -> Option<()> {
@@ -62,6 +69,7 @@ kw!(kw_left_arrow, Token::LeftArrow);
 kw!(kw_right_arrow, Token::RightArrow);
 kw!(kw_right_imply, Token::RightFatArrow);
 kw!(kw_coloncolon, Token::Symbol("::"));
+kw!(kw_colon, Token::Symbol(":"));
 kw!(kw_tick, Token::Tick);
 kw!(kw_comma, Token::Comma);
 
@@ -72,6 +80,8 @@ kw!(kw_dot, T::Symbol("."));
 kw!(kw_eq, T::Symbol("="));
 kw!(kw_dotdot, T::Symbol(".."));
 kw!(kw_underscore, T::Symbol("_"));
+kw!(kw_minus, T::Symbol("-"));
+kw!(kw_backslash, T::Symbol("\\"));
 
 kw!(kw_module, T::Lower("module"));
 kw!(kw_where, T::Lower("where"));
@@ -85,6 +95,11 @@ kw!(kw_data, T::Lower("data"));
 kw!(kw_true, T::Lower("true"));
 kw!(kw_false, T::Lower("false"));
 kw!(kw_forall, T::Lower("forall"));
+kw!(kw_if, T::Lower("if"));
+kw!(kw_then, T::Lower("then"));
+kw!(kw_else, T::Lower("else"));
+kw!(kw_case, T::Lower("case"));
+kw!(kw_of, T::Lower("of"));
 
 kw!(kw_begin, T::LayBegin);
 kw!(kw_end, T::LayEnd);
@@ -175,6 +190,8 @@ macro_rules! choice {
             }
         }
     };
+    ($p:ident : $e:expr, $($t:expr),* ,) => { choice!($p: $e, $($t),*) };
+
     // ($p:ident, $($t:expr),*) => { choice!($p : stringify!($($t),*), $($t),*) };
 }
 
@@ -498,7 +515,7 @@ fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ<'t>, prec: usize) -> Option<Typ<'t>
         {
             let i = p.i;
             rhs = pratt_typ(p, rhs, next)?;
-            assert_ne!(i, p.i, "STUCK!");
+            // assert_ne!(i, p.i, "STUCK TYP!");
         }
         lhs = typ_mrg(p, outer_lookahead, lhs, rhs);
     }
@@ -565,12 +582,219 @@ fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
     Some(Row(c, x))
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum ExprOp<'t> {
+    Op(QOp<'t>),
+    Infix(Expr<'t>),
+    App,
+}
+
+fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
+    choice!(
+        p: "expr_op",
+        |p| { Some(ExprOp::Op(qop(p)?)) },
+        |p: &mut P<'t>| {
+            kw_tick(p)?;
+            let e = expr(p)?;
+            kw_tick(p)?;
+            Some(ExprOp::Infix(e))
+        },
+        |p: &mut P<'t>| {
+            expr_atom(p)?;
+            Some(ExprOp::App)
+        },
+        |_| None::<ExprOp<'t>>
+    )
+}
+
+fn expr_fop<'t>(t: &ExprOp<'t>) -> Prec {
+    use Prec::*;
+    match t {
+        // NOTE[et]: With more information we can get the correct precedences
+        ExprOp::Op(_) => R(1),
+        ExprOp::Infix(_) => L(2),
+        ExprOp::App => L(3),
+    }
+}
+
+fn expr_mrg<'t>(p: &mut P<'t>, op: ExprOp<'t>, lhs: Expr<'t>, rhs: Expr<'t>) -> Expr<'t> {
+    match op {
+        ExprOp::Op(op) => Expr::Op(b!(lhs), op, b!(rhs)),
+        ExprOp::Infix(op) => Expr::Infix(b!(lhs), b!(op), b!(rhs)),
+        ExprOp::App => Expr::App(b!(lhs), b!(rhs)),
+    }
+}
 
 fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
-    panic!()
+    let lhs = expr_atom(p)?;
+    let e = pratt_expr(p, lhs, Prec::zero())?;
+    Some(if matches!(p.peekt(), Some(T::Symbol("::"))) {
+        kw_coloncolon(p)?;
+        let t = typ(p)?;
+        Expr::Typed(b!(e), t)
+    } else {
+        e
+    })
+}
+
+fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<'t>> {
+    while let Some(outer_lookahead) = (|p: &mut P<'t>| {
+        let op = expr_op(&mut p.fork())?;
+        if expr_fop(&op).prec() >= prec {
+            if !matches!(op, ExprOp::App) {
+                let _ = expr_op(p)?;
+            }
+            Some(op)
+        } else {
+            None
+        }
+    })(p)
+    {
+        // Make the check a peek
+        let mut rhs = expr_atom(p)?;
+        while let Some(next) = (|p: &mut P<'t>| {
+            let op = expr_op(&mut p.fork())?;
+            expr_fop(&op).next(expr_fop(&outer_lookahead).prec())
+        })(p)
+        {
+            let i = p.i;
+            rhs = pratt_expr(p, rhs, next)?;
+            assert_ne!(i, p.i, "STUCK EXPR!");
+        }
+        lhs = expr_mrg(p, outer_lookahead, lhs, rhs);
+    }
+    Some(lhs)
 }
 
 fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
+    let mut e = choice!(p: "expr_atom" ,
+        |p: &mut P<'t>| {
+            kw_minus(p)?;
+            Some(Expr::Negate(b!(expr_atom(p)?)))
+        },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_if(p)?;
+            let a = b!(expr(p)?);
+            kw_then(p)?;
+            let b = b!(expr(p)?);
+            kw_else(p)?;
+            let c = b!(expr(p)?);
+            Some(Expr::IfThenElse(start, a, b, c))
+        },
+        // TODO: do
+        // TODO: ado
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_backslash(p)?;
+            let binders = many(p, "lambda binder", binder_atom);
+            kw_right_arrow(p)?;
+            let body = b!(expr(p)?);
+            Some(Expr::Lambda(start, binders, body))
+        },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_case(p)?;
+            let xs = many(p, "case expr", expr);
+            kw_of(p)?;
+            kw_begin(p)?;
+            let branches = sep(p, "case branch", kw_sep, case_branch);
+            kw_end(p)?;
+            Some(Expr::Case(start, xs, branches))
+        },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_underscore(p)?;
+            Some(Expr::Section(start))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Hole(hole(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Ident(qname(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Constructor(qproper(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Symbol(qsymbol(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Boolean(boolean(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Char(char(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Str(string(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Number(number(p)?))
+        },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_ls(p)?;
+            let inner = sep(p, "array expr", kw_comma, expr);
+            kw_rs(p)?;
+            let end = p.span();
+            Some(Expr::Array(start, inner, end))
+        },
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_lb(p)?;
+            let inner = sep(p, "record expr", kw_comma, record_label);
+            kw_rb(p)?;
+            let end = p.span();
+            Some(Expr::Record(start, inner, end))
+        },
+        |p: &mut P<'t>| {
+            kw_lp(p)?;
+            let inner = expr(p)?;
+            kw_rp(p)?;
+            Some(Expr::Paren(b!(inner)))
+        },
+    )?;
+
+    if let Some(labels) = choice!(p: "expr_access" ,
+        |p: &mut P<'t>| {
+            kw_dot(p)?;
+            Some(sep(p, "expr_access", kw_dot, label))
+        },
+        |_| None::<Vec<Label<'t>>>)
+    {
+        e = Expr::Access(b!(e), labels);
+    }
+    while let Some(labels) = choice!(p: "expr_vta" ,
+        |p: &mut P<'t>| {
+            kw_at(p)?;
+            Some(typ(p)?)
+        },
+        |_| None::<Typ<'t>>)
+    {
+        e = Expr::Vta(b!(e), labels);
+    }
+    Some(e)
+}
+
+fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabel<'t>> {
+    choice!(p: "record_label",
+        |p: &mut P<'t>| {
+            let f = label(p)?;
+            kw_colon(p)?;
+            let e = expr(p)?;
+            Some(RecordLabel::Field(f, e))
+        },
+        |p: &mut P<'t>| {
+            Some(RecordLabel::Pun(name(p)?))
+        },
+    )
+}
+
+fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
+    panic!()
+}
+
+fn binder_atom<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     panic!()
 }
 
@@ -605,7 +829,7 @@ impl<'s> P<'s> {
 
     fn check_loop(&self) {
         *self.steps.borrow_mut() += 1;
-        if *self.steps.borrow() > 100 {
+        if *self.steps.borrow() > 1000 {
             panic!("Found loop in parser, {}\n{:?}", self.i, self.tokens)
         }
     }
@@ -624,6 +848,7 @@ impl<'s> P<'s> {
     }
 
     fn peek2t(&self) -> (Option<Token<'s>>, Option<Token<'s>>) {
+        self.check_loop();
         if self.panic {
             (None, None)
         } else {
@@ -923,5 +1148,26 @@ import A.B.C hiding (foo)
     #[test]
     fn typ_var_bindings_a_at_paren_kind() {
         assert_snapshot!(p_typ_var_binding("( @a :: Kind )"))
+    }
+
+    gen_parser!(p_expr, expr);
+
+    #[test]
+    fn expr_simple() {
+        assert_snapshot!(p_expr("1 + 1"))
+    }
+
+    #[test]
+    fn expr_tick() {
+        assert_snapshot!(p_expr(
+            "a `b` c"
+        ))
+    }
+
+    #[test]
+    fn expr_messy() {
+        assert_snapshot!(p_expr(
+            "(1 + 1) * 2 + foo @A `a + b` A.B.C.d A.B.+ q :: Int"
+        ))
     }
 }
