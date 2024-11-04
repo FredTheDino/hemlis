@@ -30,7 +30,7 @@ Expr::Update
     28..29
    Expr::Record
     32..33
-     RecordLabel::Field
+     RecordLabelExpr::Field
       Label
        34..35
       Expr::Number

@@ -1,0 +1,19 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\"\n            let\n                x = 1\n            in 2\n    \")"
+---
+9 of 9
+===
+Expr::Let
+ 13..16
+  LetBinding::Pattern
+   Binder::Var
+    Name
+     33..34
+   Expr::Number
+    Number
+     37..38
+ Expr::Number
+  Number
+   54..55
+===

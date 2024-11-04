@@ -12,7 +12,7 @@ Expr::App
     0..3
  Expr::Record
   4..5
-   RecordLabel::Field
+   RecordLabelExpr::Field
     Label
      6..7
     Expr::Number

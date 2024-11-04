@@ -1,9 +1,0 @@
----
-source: src/parser.rs
-assertion_line: 1256
-expression: "p_expr(\"let x = 1 in 2\")"
----
-0 of 6
-===
-NULL
-===

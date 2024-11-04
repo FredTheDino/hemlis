@@ -80,6 +80,7 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
                 || s.ends_with(".ado")
                 || s.ends_with(" where")
                 || s.ends_with(" let")
+                || s.ends_with(" of")
         })
         .unwrap_or(false);
     if indent > lex.extras.1.last().copied().unwrap_or(0) && implies_start {
@@ -154,6 +155,8 @@ pub enum Token<'t> {
     Let,
     #[token("in")]
     In,
+    #[token("where")]
+    Where,
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.

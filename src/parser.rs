@@ -84,7 +84,7 @@ kw!(kw_minus, T::Symbol("-"));
 kw!(kw_backslash, T::Symbol("\\"));
 
 kw!(kw_module, T::Lower("module"));
-kw!(kw_where, T::Lower("where"));
+kw!(kw_where, T::Where);
 kw!(kw_class, T::Lower("class"));
 kw!(kw_as, T::Lower("as"));
 kw!(kw_import, T::Lower("import"));
@@ -109,9 +109,9 @@ kw!(kw_sep, T::LaySep);
 kw!(kw_top, T::LayTop);
 
 fn symbol<'t>(p: &mut P<'t>) -> Option<Symbol<'t>> {
-    kw_lp(p);
+    kw_lp(p)?;
     let sym = op(p)?.0;
-    kw_rp(p);
+    kw_rp(p)?;
     Some(Symbol::<'t>(sym))
 }
 
@@ -639,6 +639,20 @@ fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     })
 }
 
+fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
+    let e = expr(p)?;
+    if matches!(p.peekt(), Some(T::Where)) {
+        let start = p.span();
+        kw_where(p)?;
+        kw_begin(p)?;
+        let b = sep(p, "where-bindings", kw_sep, let_binding);
+        kw_end(p)?;
+        Some(Expr::Where(start, b!(e), b))
+    } else {
+        Some(e)
+    }
+}
+
 fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<'t>> {
     while let Some(outer_lookahead) = (|p: &mut P<'t>| {
         let op = expr_op(&mut p.fork())?;
@@ -669,10 +683,13 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<
 }
 
 fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
-    let mut e = choice!(p: "expr_atom" ,
+    let e = choice!(p: "expr_atom" ,
         |p: &mut P<'t>| {
             kw_minus(p)?;
             Some(Expr::Negate(b!(expr_atom(p)?)))
+        },
+        |p: &mut P<'t>| {
+            Some(Expr::Boolean(boolean(p)?))
         },
         |p: &mut P<'t>| {
             let start = p.span();
@@ -689,17 +706,19 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             kw_let(p)?;
             // Handle inline ones?
             kw_begin(p)?;
-            let bindings = sep(p, "let-bindings", kw_sep, let_binding);
+            let b = sep(p, "let-bindings", kw_sep, let_binding);
+            kw_end(p)?;
+            kw_sep(p)?;
             kw_in(p)?;
-            let b = b!(expr(p)?);
-            Some(Expr::Let(start, bindings, b))
+            let e = b!(expr(p)?);
+            Some(Expr::Let(start, b, e))
         },
         // TODO: do
         // TODO: ado
         |p: &mut P<'t>| {
             let start = p.span();
             kw_backslash(p)?;
-            let binders = many(p, "lambda binder", binder_atom);
+            let binders = many(p, "lambda binder", binder_no_type);
             kw_right_arrow(p)?;
             let body = b!(expr(p)?);
             Some(Expr::Lambda(start, binders, body))
@@ -707,11 +726,12 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
         |p: &mut P<'t>| {
             let start = p.span();
             kw_case(p)?;
-            let xs = many(p, "case expr", expr);
+            let xs = sep(p, "case expr", kw_sep, expr);
             kw_of(p)?;
             kw_begin(p)?;
             let branches = sep(p, "case branch", kw_sep, case_branch);
             kw_end(p)?;
+            kw_sep(p)?;
             Some(Expr::Case(start, xs, branches))
         },
         |p: &mut P<'t>| {
@@ -732,9 +752,6 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             Some(Expr::Symbol(qsymbol(p)?))
         },
         |p: &mut P<'t>| {
-            Some(Expr::Boolean(boolean(p)?))
-        },
-        |p: &mut P<'t>| {
             Some(Expr::Char(char(p)?))
         },
         |p: &mut P<'t>| {
@@ -752,15 +769,10 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             Some(Expr::Array(start, inner, end))
         },
         |p: &mut P<'t>| {
-            println!("A");
             let start = p.span();
-            println!("B");
             kw_lb(p)?;
-            println!("C");
             let inner = sep(p, "record expr", kw_comma, record_label);
-            println!("D {:?}", p.peekt());
             kw_rb(p)?;
-            println!("E");
             let end = p.span();
             Some(Expr::Record(start, inner, end))
         },
@@ -770,7 +782,12 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             kw_rp(p)?;
             Some(Expr::Paren(b!(inner)))
         },
-    )?;
+    );
+    let mut e = if let Some(e) = e {
+        e
+    } else {
+        return p.raise_("Invalid expression");
+    };
 
     if let Some(labels) = choice!(p: "expr_access" ,
         |p: &mut P<'t>| {
@@ -804,20 +821,171 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
 }
 
 fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
-    panic!()
+    choice!(p: "let_binding" ,
+        |p: &mut P<'t>| {
+            let b = binder(p)?;
+            kw_eq(p)?;
+            let e = expr_where(p)?;
+            Some(LetBinding::Pattern(b, e))
+        },
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            let bs = many(p, "let-binder", binder_atom);
+            let decl = guarded_decl(p)?;
+            Some(LetBinding::Name(n, bs, decl))
+        },
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(LetBinding::Sig(n, t))
+        },
+    )
 }
 
-fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabel<'t>> {
+fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+    let b = binder_no_type(p)?;
+    if matches!(p.peekt(), Some(T::Symbol("::"))) {
+        kw_coloncolon(p)?;
+        let t = typ(p)?;
+        Some(Binder::Typed(b!(b), t))
+    } else {
+        Some(b)
+    }
+}
+
+fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+    let bs = many(p, "binder_no_type", binder_atom);
+    match Binder::toConstructor(bs) {
+        Ok(a) => Some(a),
+        Err(e) => p.raise_(e),
+    }
+}
+
+fn binder_atom<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+    choice!(p: "binder_atom",
+        |p: &mut P<'t>| {
+            let start = p.span();
+            kw_underscore(p)?;
+            Some(Binder::Wildcard(start))
+        },
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            kw_at(p)?;
+            let t = binder_atom(p)?;
+            Some(Binder::Named(n, b!(t)))
+        },
+        |p: &mut P<'t>| {
+            Some(Binder::Var(name(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Binder::Constructor(qproper(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Binder::Boolean(boolean(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Binder::Char(char(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Binder::Str(string(p)?))
+        },
+        |p: &mut P<'t>| {
+            kw_minus(p)?;
+            Some(Binder::Number(true, number(p)?))
+        },
+        |p: &mut P<'t>| {
+            Some(Binder::Number(false, number(p)?))
+        },
+        |p: &mut P<'t>| {
+            kw_ls(p)?;
+            let bs = sep(p, "array binder", kw_comma, binder);
+            kw_rs(p)?;
+            Some(Binder::Array(bs))
+        },
+        |p: &mut P<'t>| {
+            kw_lb(p)?;
+            let bs = sep(p, "record binder", kw_comma, record_binder);
+            kw_rb(p)?;
+            Some(Binder::Record(bs))
+        },
+        |p: &mut P<'t>| {
+            kw_lp(p)?;
+            let b = b!(binder(p)?);
+            kw_rp(p)?;
+            Some(Binder::Paren(b))
+        },
+    )
+}
+
+fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
+    choice!(p: "record_label",
+        |p: &mut P<'t>| {
+            let f = label(p)?;
+            p.next();
+            kw_colon(p)?;
+            let e = binder(p)?;
+            Some(RecordLabelBinder::Field(f, e))
+        },
+        |p: &mut P<'t>| {
+            Some(RecordLabelBinder::Pun(name(p)?))
+        },
+    )
+}
+
+fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
+    if matches!(p.peekt(), Some(T::Symbol("="))) {
+        kw_eq(p)?;
+        Some(GuardedExpr::Unconditional(expr_where(p)?))
+    } else {
+        Some(GuardedExpr::Guarded(many(
+            p,
+            "guardDeclExpr",
+            guarded_decl_expr,
+        )))
+    }
+}
+
+fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
+    if !matches!(p.peekt(), Some(T::Symbol("|"))) {
+        return None;
+    }
+    let gs = guard(p)?;
+    kw_eq(p)?;
+    let e = expr_where(p)?;
+    Some((gs, e))
+}
+
+fn guard<'t>(p: &mut P<'t>) -> Option<Vec<Guard<'t>>> {
+    kw_pipe(p)?;
+    Some(sep(p, "guard", kw_comma, guard_statement))
+}
+
+fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
+    choice!(p: "guard statements",
+        |p: &mut P<'t>| {
+            let b = binder(p)?;
+            kw_left_arrow(p)?;
+            let e = expr(p)?;
+            Some(Guard::Binder(b, e))
+        },
+        |p: &mut P<'t>| {
+            Some(Guard::Expr(expr(p)?))
+        },
+    )
+}
+
+fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr<'t>> {
     choice!(p: "record_label",
         |p: &mut P<'t>| {
             let f = label(p)?;
             p.next();
             kw_colon(p)?;
             let e = expr(p)?;
-            Some(RecordLabel::Field(f, e))
+            Some(RecordLabelExpr::Field(f, e))
         },
         |p: &mut P<'t>| {
-            Some(RecordLabel::Pun(name(p)?))
+            Some(RecordLabelExpr::Pun(name(p)?))
         },
     )
 }
@@ -844,13 +1012,34 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
     )
 }
 
-
 fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
-    panic!()
+    println!("case_branch BEGIN");
+    let bs = sep(p, "case_branch", kw_comma, binder_no_type);
+    let x = guarded_case(p)?;
+    dbg!((&bs, &x));
+    println!("case_branch END");
+    Some(CaseBranch(bs, x))
 }
 
-fn binder_atom<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
-    panic!()
+fn guarded_case<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
+    if matches!(p.peekt(), Some(T::RightArrow)) {
+        kw_right_arrow(p)?;
+        Some(GuardedExpr::Unconditional(expr_where(p)?))
+    } else {
+        kw_pipe(p)?;
+        Some(GuardedExpr::Guarded(sep(p, "guarded_case_expr", kw_sep, guarded_case_expr)))
+    }
+}
+
+fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
+    dbg!(("A", p.peekt()));
+    let gs = sep(p, "guard", kw_comma, guard_statement);
+    dbg!(("B", p.peekt()));
+    kw_right_arrow(p)?;
+    dbg!(("C", p.peekt()));
+    let e = expr_where(p)?;
+    dbg!(("D", p.peekt()));
+    Some((gs, e))
 }
 
 #[derive(Clone, Debug)]
@@ -1053,6 +1242,7 @@ mod tests {
 
                 let l = lexer::lex(&src);
                 let mut p = P::new(0, &l);
+                dbg!(&p);
 
                 let mut buf = BufWriter::new(Vec::new());
                 $p(&mut p).show(0, &mut buf).unwrap();
@@ -1214,9 +1404,7 @@ import A.B.C hiding (foo)
 
     #[test]
     fn expr_tick() {
-        assert_snapshot!(p_expr(
-            "a `b` c"
-        ))
+        assert_snapshot!(p_expr("a `b` c"))
     }
 
     #[test]
@@ -1228,31 +1416,57 @@ import A.B.C hiding (foo)
 
     #[test]
     fn expr_record() {
-        assert_snapshot!(p_expr( "{ a, b: 1 }"))
+        assert_snapshot!(p_expr("{ a, b: 1 }"))
     }
 
     #[test]
     fn expr_record_construct() {
-        assert_snapshot!(p_expr( "foo { a : 1 }"))
+        assert_snapshot!(p_expr("foo { a : 1 }"))
     }
 
     #[test]
     fn expr_record_update() {
-        assert_snapshot!(p_expr( "foo { a = 1 }"))
+        assert_snapshot!(p_expr("foo { a = 1 }"))
     }
 
     #[test]
     fn expr_record_update_full() {
-        assert_snapshot!(p_expr( "foo { a = 1, b = { c = 1 }, d = { e: 1 } }"))
+        assert_snapshot!(p_expr("foo { a = 1, b = { c = 1 }, d = { e: 1 } }"))
     }
 
     #[test]
     fn expr_if() {
-        assert_snapshot!(p_expr( "if a == 2 then b else c"))
+        assert_snapshot!(p_expr("if a == 2 then b else c"))
     }
 
     #[test]
     fn expr_let() {
-        assert_snapshot!(p_expr( "let x = 1 in 2"))
+        assert_snapshot!(p_expr(r"
+            let
+                x = 1
+            in 2
+    "))
+    }
+
+    #[test]
+    fn expr_let_multiple() {
+        assert_snapshot!(p_expr(r"
+            let
+                x = 1
+                x = 1
+                x = 1
+            in 2
+    "))
+    }
+
+    #[test]
+    fn expr_case() {
+        assert_snapshot!(p_expr(r"
+        case 1 + 1 of
+            2 -> foo
+            3 | Just _ <- foo bar -> baz
+                    where
+                        baz = 3
+        "))
     }
 }

@@ -1,6 +1,5 @@
 ---
 source: src/parser.rs
-assertion_line: 1235
 expression: "p_expr(\"if a == 2 then b else c\")"
 ---
 8 of 8

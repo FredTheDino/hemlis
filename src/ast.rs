@@ -373,23 +373,52 @@ pub struct Row<'t>(pub Vec<(Label<'t>, Typ<'t>)>, pub Option<Box<Typ<'t>>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Binder<'t> {
-    Wildcard,
+    Typed(Box<Binder<'t>>, Typ<'t>),
+
+    App(Box<Binder<'t>>, Box<Binder<'t>>),
+    // TODO
+    Op(Box<Binder<'t>>, QOp<'t>, Box<Binder<'t>>),
+
+    Wildcard(Span),
     Var(Name<'t>),
     Named(Name<'t>, Box<Binder<'t>>),
-    Constructor(QProperName<'t>, Vec<Binder<'t>>),
+    Constructor(QProperName<'t>),
     Boolean(Boolean<'t>),
     Char(Char<'t>),
     Str(Str<'t>),
-    Number(Number<'t>),
+    Number(bool, Number<'t>),
     Array(Vec<Binder<'t>>),
-    Record(Vec<(Label<'t>, Binder<'t>)>),
-    Parens(Box<Binder<'t>>),
+    Record(Vec<RecordLabelBinder<'t>>),
+    Paren(Box<Binder<'t>>),
+}
+
+impl<'t> Binder<'t> {
+    pub fn toConstructor(bs: Vec<Binder<'t>>) -> Result<Binder<'t>, &'static str> {
+        Ok(match (bs.get(0).cloned(), bs.len()) {
+            (None, 0) => return Err("Empty binder is not allowed"),
+            (Some(a), 1) => a,
+            (Some(a@Binder::Constructor(_)), _) => {
+                let mut out = a;
+                for b in bs.into_iter().skip(1) {
+                    out = Binder::App(Box::new(out), Box::new(b));
+                }
+                out
+            }
+            (_, _) => return Err("For this to be a constructor application the first binder needs to be a constructor"),
+        })
+    }
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum GuardedExpr<'t> {
     Unconditional(Expr<'t>),
-    Guarded(Vec<Binder<'t>>, Expr<'t>),
+    Guarded(Vec<(Vec<Guard<'t>>, Expr<'t>)>),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Guard<'t> {
+    Expr(Expr<'t>),
+    Binder(Binder<'t>, Expr<'t>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
@@ -412,12 +441,12 @@ pub enum Expr<'t> {
     Ado(Vec<DoStmt<'t>>, Box<Expr<'t>>),
     Lambda(Span, Vec<Binder<'t>>, Box<Expr<'t>>),
     Let(Span, Vec<LetBinding<'t>>, Box<Expr<'t>>),
-    Where(Box<Expr<'t>>, Vec<LetBinding<'t>>),
+    Where(Span, Box<Expr<'t>>, Vec<LetBinding<'t>>),
 
     Case(Span, Vec<Expr<'t>>, Vec<CaseBranch<'t>>),
 
     Array(Span, Vec<Expr<'t>>, Span),
-    Record(Span, Vec<RecordLabel<'t>>, Span),
+    Record(Span, Vec<RecordLabelExpr<'t>>, Span),
     Update(Box<Expr<'t>>, Vec<RecordUpdate<'t>>),
     Access(Box<Expr<'t>>, Vec<Label<'t>>),
 
@@ -434,9 +463,15 @@ pub enum Expr<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum RecordLabel<'t> {
+pub enum RecordLabelExpr<'t> {
     Pun(Name<'t>),
     Field(Label<'t>, Expr<'t>),
+}
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RecordLabelBinder<'t> {
+    Pun(Name<'t>),
+    Field(Label<'t>, Binder<'t>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
@@ -446,27 +481,10 @@ pub enum RecordUpdate<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CaseBranch<'t>(Vec<(Binder<'t>, Vec<Guard<'t>>)>);
+pub struct CaseBranch<'t>(pub Vec<Binder<'t>>, pub GuardedExpr<'t>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DoStmt<'t> {
     Stmt(Option<Binder<'t>>, Expr<'t>),
-    Let(Vec<LetBinder<'t>>),
-}
-
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum LetBinder<'t> {
-    Signature(Name<'t>, Typ<'t>),
-    Name(Name<'t>, Vec<Binder<'t>>, GuardedDecl<'t>),
-    Pattern(Binder<'t>, Expr<'t>),
-}
-
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum GuardedDecl<'t> {
-    Unit(&'t str),
-}
-
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Guard<'t> {
-    Unit(&'t str),
+    Let(Vec<LetBinding<'t>>),
 }

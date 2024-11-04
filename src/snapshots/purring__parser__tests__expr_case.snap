@@ -1,0 +1,72 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\"\n        case 1 + 1 of\n            2 -> foo\n            3 | Just _ <- foo bar -> baz\n                    where\n                        baz = 3\n        \")"
+---
+27 of 27
+===
+Expr::Case
+ 9..13
+  Expr::Op
+   Expr::Number
+    Number
+     14..15
+   QOp
+    16..17
+    Op
+     16..17
+   Expr::Number
+    Number
+     18..19
+  CaseBranch
+    Binder::Number
+     Number
+      35..36
+   GuardedExpr::Unconditional
+    Expr::Ident
+     QName
+      40..43
+      Name
+       40..43
+  CaseBranch
+    Binder::Number
+     Number
+      56..57
+   GuardedExpr::Guarded
+     (
+       Guard::Binder
+        Binder::App
+         Binder::Constructor
+          QProperName
+           60..64
+           ProperName
+            60..64
+         Binder::Var
+          Name
+           65..66
+        Expr::App
+         Expr::Ident
+          QName
+           70..73
+           Name
+            70..73
+         Expr::Ident
+          QName
+           74..77
+           Name
+            74..77
+      Expr::Where
+       105..110
+       Expr::Ident
+        QName
+         81..84
+         Name
+          81..84
+        LetBinding::Pattern
+         Binder::Var
+          Name
+           135..138
+         Expr::Number
+          Number
+           141..142
+     )
+===
