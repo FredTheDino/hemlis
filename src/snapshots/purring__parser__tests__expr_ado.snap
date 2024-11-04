@@ -1,0 +1,66 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\"\n        ado\n            a <- f 2\n            b <- g a\n            fazz 1 2\n            in b + a\n        \")"
+---
+20 of 22
+===
+Expr::Ado
+  DoStmt::Stmt
+   Binder::Var
+    Name
+     25..26
+   Expr::App
+    Expr::Ident
+     QName
+      30..31
+      Name
+       30..31
+    Expr::Number
+     Number
+      32..33
+  DoStmt::Stmt
+   Binder::Var
+    Name
+     46..47
+   Expr::App
+    Expr::Ident
+     QName
+      51..52
+      Name
+       51..52
+    Expr::Ident
+     QName
+      53..54
+      Name
+       53..54
+  DoStmt::Stmt
+   NULL
+   Expr::App
+    Expr::App
+     Expr::Ident
+      QName
+       67..71
+       Name
+        67..71
+     Expr::Number
+      Number
+       72..73
+    Expr::Number
+     Number
+      74..75
+ Expr::Op
+  Expr::Ident
+   QName
+    91..92
+    Name
+     91..92
+  QOp
+   93..94
+   Op
+    93..94
+  Expr::Ident
+   QName
+    95..96
+    Name
+     95..96
+===

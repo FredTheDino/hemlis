@@ -741,6 +741,7 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             if matches!(p.peekt(), Some(T::LaySep)) {
                 kw_sep(p)?;
             }
+            kw_in(p)?;
             let e = expr(p)?;
             Some(Expr::Ado(ds, b!(e)))
         },
@@ -1571,10 +1572,18 @@ import A.B.C hiding (foo)
             a <- f 2
             b <- g a
             fazz 1 2
-            let 
-                a = 1
             in b + a
         "
+        ))
+    }
+
+    #[test]
+    fn expr_ado_b() {
+        assert_snapshot!(p_expr(
+            r" ado
+                    a <- f 2
+                    in a
+            "
         ))
     }
 }

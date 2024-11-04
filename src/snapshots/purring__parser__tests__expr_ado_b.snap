@@ -1,0 +1,26 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\" ado\n                    a <- f 2\n                    in a\n            \")"
+---
+9 of 11
+===
+Expr::Ado
+  DoStmt::Stmt
+   Binder::Var
+    Name
+     25..26
+   Expr::App
+    Expr::Ident
+     QName
+      30..31
+      Name
+       30..31
+    Expr::Number
+     Number
+      32..33
+ Expr::Ident
+  QName
+   57..58
+   Name
+    57..58
+===
