@@ -1026,10 +1026,8 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
 }
 
 fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
-    println!("case_branch BEGIN");
     let bs = sep(p, "case_branch", kw_comma, binder_no_type);
     let x = guarded_case(p)?;
-    println!("case_branch END");
     Some(CaseBranch(bs, x))
 }
 
@@ -1255,7 +1253,6 @@ mod tests {
 
                 let l = lexer::lex(&src);
                 let mut p = P::new(0, &l);
-                dbg!(&p);
 
                 let mut buf = BufWriter::new(Vec::new());
                 $p(&mut p).show(0, &mut buf).unwrap();
