@@ -644,9 +644,16 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     if matches!(p.peekt(), Some(T::Where)) {
         let start = p.span();
         kw_where(p)?;
-        kw_begin(p)?;
+        if matches!(p.peekt(), Some(T::LayBegin)) {
+            kw_begin(p)?;
+        }
         let b = sep(p, "where-bindings", kw_sep, let_binding);
-        kw_end(p)?;
+        if matches!(p.peekt(), Some(T::LayEnd)) {
+            kw_end(p)?;
+        }
+        if matches!(p.peekt(), Some(T::LaySep)) {
+            kw_sep(p)?;
+        }
         Some(Expr::Where(start, b!(e), b))
     } else {
         Some(e)
@@ -705,10 +712,16 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             let start = p.span();
             kw_let(p)?;
             // Handle inline ones?
-            kw_begin(p)?;
+            if matches!(p.peekt(), Some(T::LayBegin)) {
+                kw_begin(p)?;
+            }
             let b = sep(p, "let-bindings", kw_sep, let_binding);
-            kw_end(p)?;
-            kw_sep(p)?;
+            if matches!(p.peekt(), Some(T::LayEnd)) {
+                kw_end(p)?;
+            }
+            if matches!(p.peekt(), Some(T::LaySep)) {
+                kw_sep(p)?;
+            }
             kw_in(p)?;
             let e = b!(expr(p)?);
             Some(Expr::Let(start, b, e))
@@ -1016,7 +1029,6 @@ fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
     println!("case_branch BEGIN");
     let bs = sep(p, "case_branch", kw_comma, binder_no_type);
     let x = guarded_case(p)?;
-    dbg!((&bs, &x));
     println!("case_branch END");
     Some(CaseBranch(bs, x))
 }
@@ -1027,18 +1039,19 @@ fn guarded_case<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
         Some(GuardedExpr::Unconditional(expr_where(p)?))
     } else {
         kw_pipe(p)?;
-        Some(GuardedExpr::Guarded(sep(p, "guarded_case_expr", kw_sep, guarded_case_expr)))
+        Some(GuardedExpr::Guarded(sep(
+            p,
+            "guarded_case_expr",
+            kw_sep,
+            guarded_case_expr,
+        )))
     }
 }
 
 fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
-    dbg!(("A", p.peekt()));
     let gs = sep(p, "guard", kw_comma, guard_statement);
-    dbg!(("B", p.peekt()));
     kw_right_arrow(p)?;
-    dbg!(("C", p.peekt()));
     let e = expr_where(p)?;
-    dbg!(("D", p.peekt()));
     Some((gs, e))
 }
 
@@ -1441,32 +1454,43 @@ import A.B.C hiding (foo)
 
     #[test]
     fn expr_let() {
-        assert_snapshot!(p_expr(r"
+        assert_snapshot!(p_expr(
+            r"
             let
                 x = 1
             in 2
-    "))
+    "
+        ))
     }
 
     #[test]
     fn expr_let_multiple() {
-        assert_snapshot!(p_expr(r"
+        assert_snapshot!(p_expr(
+            r"
             let
                 x = 1
                 x = 1
                 x = 1
             in 2
-    "))
+    "
+        ))
+    }
+
+    #[test]
+    fn expr_let_inline() {
+        assert_snapshot!(p_expr(r"let x = 1 in 2"))
     }
 
     #[test]
     fn expr_case() {
-        assert_snapshot!(p_expr(r"
+        assert_snapshot!(p_expr(
+            r"
         case 1 + 1 of
             2 -> foo
             3 | Just _ <- foo bar -> baz
                     where
                         baz = 3
-        "))
+        "
+        ))
     }
 }
