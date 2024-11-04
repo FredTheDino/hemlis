@@ -1,0 +1,83 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\"\n        do\n            a <- f 2\n            b <- g a\n            fazz 1 2\n            let \n                a = 1\n            pure (b + a)\n        \")"
+---
+31 of 31
+===
+Expr::Do
+  DoStmt::Stmt
+   Binder::Var
+    Name
+     24..25
+   Expr::App
+    Expr::Ident
+     QName
+      29..30
+      Name
+       29..30
+    Expr::Number
+     Number
+      31..32
+  DoStmt::Stmt
+   Binder::Var
+    Name
+     45..46
+   Expr::App
+    Expr::Ident
+     QName
+      50..51
+      Name
+       50..51
+    Expr::Ident
+     QName
+      52..53
+      Name
+       52..53
+  DoStmt::Stmt
+   NULL
+   Expr::App
+    Expr::App
+     Expr::Ident
+      QName
+       66..70
+       Name
+        66..70
+     Expr::Number
+      Number
+       71..72
+    Expr::Number
+     Number
+      73..74
+  DoStmt::Let
+    LetBinding::Pattern
+     Binder::Var
+      Name
+       108..109
+     Expr::Number
+      Number
+       112..113
+  DoStmt::Stmt
+   NULL
+   Expr::App
+    Expr::Ident
+     QName
+      126..130
+      Name
+       126..130
+    Expr::Paren
+     Expr::Op
+      Expr::Ident
+       QName
+        132..133
+        Name
+         132..133
+      QOp
+       134..135
+       Op
+        134..135
+      Expr::Ident
+       QName
+        136..137
+        Name
+         136..137
+===

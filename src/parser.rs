@@ -102,6 +102,8 @@ kw!(kw_then, T::Then);
 kw!(kw_else, T::Else);
 kw!(kw_case, T::Case);
 kw!(kw_of, T::Of);
+kw!(kw_do, T::Do);
+kw!(kw_ado, T::Ado);
 
 kw!(kw_begin, T::LayBegin);
 kw!(kw_end, T::LayEnd);
@@ -158,6 +160,7 @@ fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
     Some(Header(name, exports, imports))
 }
 
+// TODO pick the errros from the branch that moved the most consumed tokens
 macro_rules! choice {
     ($p:ident : $e:expr, $($t:expr),*) => {
         {
@@ -726,8 +729,35 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             let e = b!(expr(p)?);
             Some(Expr::Let(start, b, e))
         },
-        // TODO: do
-        // TODO: ado
+        |p: &mut P<'t>| {
+            kw_ado(p)?;
+            if matches!(p.peekt(), Some(T::LayBegin)) {
+                kw_begin(p)?;
+            }
+            let ds = sep(p, "ado-block", kw_sep, do_statement);
+            if matches!(p.peekt(), Some(T::LayEnd)) {
+                kw_end(p)?;
+            }
+            if matches!(p.peekt(), Some(T::LaySep)) {
+                kw_sep(p)?;
+            }
+            let e = expr(p)?;
+            Some(Expr::Ado(ds, b!(e)))
+        },
+        |p: &mut P<'t>| {
+            kw_do(p)?;
+            if matches!(p.peekt(), Some(T::LayBegin)) {
+                kw_begin(p)?;
+            }
+            let ds = sep(p, "do-block", kw_sep, do_statement);
+            if matches!(p.peekt(), Some(T::LayEnd)) {
+                kw_end(p)?;
+            }
+            if matches!(p.peekt(), Some(T::LaySep)) {
+                kw_sep(p)?;
+            }
+            Some(Expr::Do(ds))
+        },
         |p: &mut P<'t>| {
             let start = p.span();
             kw_backslash(p)?;
@@ -831,6 +861,33 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
         e = Expr::Vta(b!(e), labels);
     }
     Some(e)
+}
+
+fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
+    choice!(p: "do_statement",
+        |p: &mut P<'t>| {
+            let b = binder(p)?;
+            kw_left_arrow(p)?;
+            let e = expr(p)?;
+            Some(DoStmt::Stmt(Some(b), e))
+        },
+        |p: &mut P<'t>| {
+            let e = expr(p)?;
+            Some(DoStmt::Stmt(None, e))
+        },
+        |p: &mut P<'t>| {
+            kw_let(p)?;
+            // Handle inline ones?
+            if matches!(p.peekt(), Some(T::LayBegin)) {
+                kw_begin(p)?;
+            }
+            let b = sep(p, "let-bindings", kw_sep, let_binding);
+            if matches!(p.peekt(), Some(T::LayEnd)) {
+                kw_end(p)?;
+            }
+            Some(DoStmt::Let(b))
+        },
+    )
 }
 
 fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
@@ -1487,6 +1544,36 @@ import A.B.C hiding (foo)
             3 | Just _ <- foo bar -> baz
                     where
                         baz = 3
+        "
+        ))
+    }
+
+    #[test]
+    fn expr_do() {
+        assert_snapshot!(p_expr(
+            r"
+        do
+            a <- f 2
+            b <- g a
+            fazz 1 2
+            let 
+                a = 1
+            pure (b + a)
+        "
+        ))
+    }
+
+    #[test]
+    fn expr_ado() {
+        assert_snapshot!(p_expr(
+            r"
+        ado
+            a <- f 2
+            b <- g a
+            fazz 1 2
+            let 
+                a = 1
+            in b + a
         "
         ))
     }

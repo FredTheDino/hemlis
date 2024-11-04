@@ -1,0 +1,19 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\"let x = 1 in 2\")"
+---
+6 of 6
+===
+Expr::Let
+ 0..3
+  LetBinding::Pattern
+   Binder::Var
+    Name
+     4..5
+   Expr::Number
+    Number
+     8..9
+ Expr::Number
+  Number
+   13..14
+===

@@ -157,6 +157,10 @@ pub enum Token<'t> {
     In,
     #[token("where")]
     Where,
+    #[token("do")]
+    Do,
+    #[token("ado")]
+    Ado,
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.
