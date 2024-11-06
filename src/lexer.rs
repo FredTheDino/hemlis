@@ -141,6 +141,28 @@ pub enum Token<'t> {
     #[token(",")]
     Comma,
 
+    #[token("class")]
+    Class,
+    #[token("data")]
+    Data,
+    #[token("infixr")]
+    Infixr,
+    #[token("infixl")]
+    Infixl,
+    #[token("infix")]
+    Infix,
+    #[token("derive")]
+    Derive,
+    #[token("type")]
+    Type,
+    #[token("newtype")]
+    Newtype,
+    #[token("foreign")]
+    Foreign,
+    #[token("instance")]
+    Instance,
+
+
     #[token("if")]
     If,
     #[token("then")]
@@ -161,6 +183,8 @@ pub enum Token<'t> {
     Do,
     #[token("ado")]
     Ado,
+    #[token("as")]
+    As,
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.

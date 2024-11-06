@@ -269,25 +269,57 @@ pub enum Decl<'t> {
     DataKind(ProperName<'t>, Typ<'t>),
     Data(
         ProperName<'t>,
-        Vec<Name<'t>>,
+        Vec<TypVarBinding<'t>>,
         Vec<(ProperName<'t>, Vec<Typ<'t>>)>,
     ),
 
     TypeKind(ProperName<'t>, Typ<'t>),
-    Type(ProperName<'t>, Vec<Name<'t>>, Typ<'t>),
+    Type(ProperName<'t>, Vec<TypVarBinding<'t>>, Typ<'t>),
 
     NewTypeKind(ProperName<'t>, Typ<'t>),
-    NewType(ProperName<'t>, Vec<Name<'t>>, ProperName<'t>, Typ<'t>),
+    NewType(
+        ProperName<'t>,
+        Vec<TypVarBinding<'t>>,
+        ProperName<'t>,
+        Typ<'t>,
+    ),
 
-    Class(ClassHead<'t>, Vec<ClassMember<'t>>),
-    Instance(InstHead<'t>, Vec<InstBinding<'t>>),
-    Derive(InstHead<'t>, bool, Vec<InstBinding<'t>>),
-    Foreign(ProperName<'t>, bool, Vec<InstBinding<'t>>),
-    ForeignData(InstHead<'t>, bool, Vec<InstBinding<'t>>),
+    ClassKind(ProperName<'t>, Typ<'t>),
+    Class(
+        Vec<Constraint<'t>>,
+        ProperName<'t>,
+        Vec<TypVarBinding<'t>>,
+        Vec<FunDep<'t>>,
+        Vec<ClassMember<'t>>,
+    ),
+
+    Instance(bool, InstHead<'t>, Vec<InstBinding<'t>>),
+    Derive(bool, InstHead<'t>),
+
+    Foreign(Name<'t>, Typ<'t>),
+    ForeignData(ProperName<'t>, Typ<'t>),
+
+    Role(ProperName<'t>, Vec<S<Role>>),
+
+    Fixity(S<FixitySide>, Number<'t>, Expr<'t>, Op<'t>),
+    FixityTyp(S<FixitySide>, Number<'t>, Typ<'t>, Op<'t>),
 
     Sig(Name<'t>, Typ<'t>),
     Def(Name<'t>, Vec<Binder<'t>>, GuardedExpr<'t>),
-    // TODO: Fixity, role,
+}
+
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FixitySide {
+    L,
+    R,
+    C,
+}
+
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Role {
+    Nominal,
+    Representational,
+    Phantom,
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
@@ -297,24 +329,20 @@ pub enum InstBinding<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct InstHead<'t>(Vec<Constraint<'t>>, QProperName<'t>, Vec<Typ<'t>>);
-
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ClassMember<'t>(Name<'t>, Typ<'t>);
-
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ClassHead<'t>(
-    Vec<Constraint<'t>>,
-    ProperName<'t>,
-    Vec<Name<'t>>,
-    Vec<FunDep<'t>>,
+pub struct InstHead<'t>(
+    pub Vec<Constraint<'t>>,
+    pub QProperName<'t>,
+    pub Vec<Typ<'t>>,
 );
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Constraint<'t>(QProperName<'t>, Vec<Typ<'t>>);
+pub struct ClassMember<'t>(pub Name<'t>, pub Typ<'t>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FunDep<'t>(Vec<Name<'t>>, Vec<Name<'t>>);
+pub struct Constraint<'t>(pub QProperName<'t>, pub Vec<Typ<'t>>);
+
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FunDep<'t>(pub Vec<Name<'t>>, pub Vec<Name<'t>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Typ<'t> {
@@ -393,7 +421,7 @@ pub enum Binder<'t> {
 }
 
 impl<'t> Binder<'t> {
-    pub fn toConstructor(bs: Vec<Binder<'t>>) -> Result<Binder<'t>, &'static str> {
+    pub fn to_constructor(bs: Vec<Binder<'t>>) -> Result<Binder<'t>, &'static str> {
         Ok(match (bs.get(0).cloned(), bs.len()) {
             (None, 0) => return Err("Empty binder is not allowed"),
             (Some(a), 1) => a,

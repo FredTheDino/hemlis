@@ -1,5 +1,6 @@
 use std::{env, fs};
 
+use ast::Ast;
 use rayon::prelude::*;
 
 mod ast;
@@ -13,15 +14,29 @@ fn main() {
         .par_iter()
         .for_each(|arg| match fs::read_to_string(&arg) {
             Err(e) => println!("ERR: {} {:?}", arg, e),
-            Ok(_f) => {
-                // let parser = grammer::ModuleParser::new();
-                // let out = parser.parse(
-                //     lexer::lex(&f)
-                //         .into_iter()
-                //         .map(|(token, span)| Ok((span.start, token?, span.end))),
-                // ).expect("XX");
+            Ok(src) => {
+                use std::io::BufWriter;
 
-                // out.show(0, &mut std::io::stdout()).expect("YY");
+                let l = lexer::lex(&src);
+                let mut p = parser::P::new(0, &l);
+
+                let mut buf = BufWriter::new(Vec::new());
+                parser::module(&mut p).show(0, &mut buf).unwrap();
+                let inner = buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap();
+
+                println!(
+                    "{} of {}\n===\n{}===\n{}",
+                    p.i,
+                    p.tokens.len(),
+                    String::from_utf8(inner)
+                        .map_err(|x| format!("{:?}", x))
+                        .unwrap(),
+                    p.errors
+                        .iter()
+                        .map(|x| format!("{:?}", x))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
             }
         })
 }

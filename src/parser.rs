@@ -85,13 +85,22 @@ kw!(kw_backslash, T::Symbol("\\"));
 
 kw!(kw_module, T::Lower("module"));
 kw!(kw_where, T::Where);
-kw!(kw_class, T::Lower("class"));
-kw!(kw_as, T::Lower("as"));
+kw!(kw_class, T::Class);
+kw!(kw_as, T::As);
 kw!(kw_import, T::Lower("import"));
+kw!(kw_foreign, T::Foreign);
 kw!(kw_hiding, T::Lower("hiding"));
-kw!(kw_type, T::Lower("type"));
-kw!(kw_newtype, T::Lower("newtype"));
-kw!(kw_data, T::Lower("data"));
+kw!(kw_type, T::Type);
+kw!(kw_role, T::Lower("role"));
+kw!(kw_nominal, T::Lower("nominal"));
+kw!(kw_representational, T::Lower("representational"));
+kw!(kw_phantom, T::Lower("phantom"));
+kw!(kw_newtype, T::Newtype);
+kw!(kw_derive, T::Derive);
+kw!(kw_data, T::Data);
+kw!(kw_fixityr, T::Infixr);
+kw!(kw_fixityl, T::Infixl);
+kw!(kw_fixity, T::Infix);
 kw!(kw_true, T::Lower("true"));
 kw!(kw_false, T::Lower("false"));
 kw!(kw_forall, T::Lower("forall"));
@@ -100,6 +109,7 @@ kw!(kw_in, T::In);
 kw!(kw_if, T::If);
 kw!(kw_then, T::Then);
 kw!(kw_else, T::Else);
+kw!(kw_instance, T::Instance);
 kw!(kw_case, T::Case);
 kw!(kw_of, T::Of);
 kw!(kw_do, T::Do);
@@ -145,6 +155,23 @@ q!(qproper, proper, QProperName, QProperName);
 q!(qsymbol, symbol, QSymbol, QSymbol);
 q!(qop, op, QOp, QOp);
 
+pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
+    let h = header(p)?;
+    let ds = many(p, "decl_with_recovery", decl_with_recovery).into_iter().filter_map(|x| x).collect();
+    Some(Module(h, ds))
+}
+
+fn decl_with_recovery<'t>(p: &mut P<'t>) -> Option<Option<Decl<'t>>> {
+    p.skip_until(|x| matches!(x, T::LayTop));
+    kw_top(p)?;
+    while matches!(p.peekt(), Some(T::LayTop)) {
+        kw_top(p)?;
+    }
+    let out = decl(p);
+    p.recover();
+    Some(out)
+}
+
 fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
     while matches!(p.peek().0, Some(T::LayTop)) {
         p.skip();
@@ -152,15 +179,13 @@ fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
     kw_module(p)?;
     let name = qproper(p)?;
     let exports = exports(p);
-    // TODO: recover on `where`
-    p.recover(|x| matches!(x, T::Lower("where") | T::LayTop))
-        .ok()?;
+    p.recover();
     kw_where(p)?;
     let imports = imports(p);
     Some(Header(name, exports, imports))
 }
 
-// TODO pick the errros from the branch that moved the most consumed tokens
+// TODO: pick the errros from the branch that moved the most consumed tokens
 macro_rules! choice {
     ($p:ident : $e:expr, $($t:expr),*) => {
         {
@@ -283,8 +308,9 @@ fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
     Some(out)
 }
 
-fn skip_to_top<'t>(p: &mut P<'t>) -> Option<()> {
-    p.recover(|t| matches!(t, T::LayTop)).ok()
+fn skip_to_top<'t>(p: &mut P<'t>) -> bool {
+    p.recover();
+    p.skip_until(|t| matches!(t, T::LayTop))
 }
 
 fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl<'t>> {
@@ -294,7 +320,7 @@ fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl<'t>> {
         if let Some(import) = import_decl(p) {
             out.push(import);
         }
-        if skip_to_top(p).is_none() {
+        if skip_to_top(p) {
             break;
         }
     }
@@ -927,7 +953,7 @@ fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
 
 fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     let bs = many(p, "binder_no_type", binder_atom);
-    match Binder::toConstructor(bs) {
+    match Binder::to_constructor(bs) {
         Ok(a) => Some(a),
         Err(e) => p.raise_(e),
     }
@@ -1111,25 +1137,346 @@ fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
     Some((gs, e))
 }
 
+fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
+    choice!(p: "decl",
+        |p: &mut P<'t>| {
+            kw_data(p)?;
+            let name = proper(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::DataKind(name, t))
+        },
+        |p: &mut P<'t>| {
+            kw_data(p)?;
+            let name = proper(p)?;
+            let vars = simple_typ_var_bindings(p);
+            kw_eq(p)?;
+            let enums = choice!(p: "Data enums",
+                |p: &mut P<'t>| {
+                    kw_eq(p);
+                    Some(sep(p, "data-decl", kw_pipe, data_cnstr))
+                },
+                |_| None::<Vec<(ProperName<'t>, Vec<Typ<'t>>)>>,
+            )?;
+            Some(Decl::Data(name, vars, enums))
+        },
+
+        |p: &mut P<'t>| {
+            kw_type(p)?;
+            kw_role(p)?;
+            let name = proper(p)?;
+            let roles = many(p, "roles", role);
+            Some(Decl::Role(name, roles))
+        },
+        |p: &mut P<'t>| {
+            kw_type(p)?;
+            let name = proper(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::TypeKind(name, t))
+        },
+        |p: &mut P<'t>| {
+            kw_type(p)?;
+            let name = proper(p)?;
+            let vars = simple_typ_var_bindings(p);
+            kw_eq(p)?;
+            let ty = typ(p)?;
+            Some(Decl::Type(name, vars, ty))
+        },
+
+        |p: &mut P<'t>| {
+            kw_newtype(p)?;
+            let name = proper(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::NewTypeKind(name, t))
+        },
+        |p: &mut P<'t>| {
+            kw_newtype(p)?;
+            let name = proper(p)?;
+            let vars = simple_typ_var_bindings(p);
+            kw_eq(p)?;
+            let ctrc = proper(p)?;
+            let t = typ(p)?;
+            Some(Decl::NewType(name, vars, ctrc, t))
+        },
+
+        |p: &mut P<'t>| {
+            kw_class(p)?;
+            let name = proper(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::ClassKind(name, t))
+        },
+        |p: &mut P<'t>| {
+            kw_class(p)?;
+            let cs = constraints(p)?;
+            let name = proper(p)?;
+            let vars = simple_typ_var_bindings(p);
+            let deps = fundeps(p)?;
+            let mem = members(p)?;
+            Some(Decl::Class(cs, name, vars, deps, mem))
+        },
+
+        |p: &mut P<'t>| {
+            let is_else = if matches!(p.peekt(), Some(T::Else)) {
+                kw_else(p)?;
+                true
+            } else {
+                false
+            };
+            kw_instance(p)?;
+            let head = instance_head(p)?;
+
+            let bs = choice!(p: "instance_head",
+                |p: &mut P<'t>| {
+                    kw_where(p)?;
+                    kw_begin(p)?;
+                    let xs = sep(p, "inst_bindings", kw_sep, inst_binding);
+                    // NOTE[et]: This might need to be more graciouse
+                    kw_end(p)?;
+                    Some(xs)
+                },
+                |_| {
+                    Some(Vec::<InstBinding<'t>>::new())
+                },
+            )?;
+
+            Some(Decl::Instance(is_else, head, bs))
+        },
+
+        |p: &mut P<'t>| {
+            kw_derive(p)?;
+            let is_newtype = if matches!(p.peekt(), Some(T::Lower("newtype"))) {
+                kw_newtype(p)?;
+                true
+            } else {
+                false
+            };
+            kw_instance(p)?;
+
+            let head = instance_head(p)?;
+
+            Some(Decl::Derive(is_newtype, head))
+        },
+
+        // NOTE: "data" is a "name" => It's placed earlier in the parser
+        |p: &mut P<'t>| {
+            kw_foreign(p)?;
+            kw_import(p)?;
+            kw_data(p)?;
+
+            let n = proper(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::ForeignData(n, t))
+        },
+        |p: &mut P<'t>| {
+            kw_foreign(p)?;
+            kw_import(p)?;
+
+            let n = name(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::Foreign(n, t))
+        },
+
+        |p: &mut P<'t>| {
+            let start = p.span();
+            let f = S(choice!(p: "fixity",
+                |p: &mut P<'t>| {
+                    kw_fixityr(p)?;
+                    Some(FixitySide::R)
+                },
+                |p: &mut P<'t>| {
+                    kw_fixityl(p)?;
+                    Some(FixitySide::L)
+                },
+                |p: &mut P<'t>| {
+                    kw_fixity(p)?;
+                    Some(FixitySide::C)
+                },
+            )?, start);
+            // TODO: This has to be an int
+            let i = number(p)?;
+
+            let x = choice!(p: "fixity final",
+                |p: &mut P<'t>| {
+                    kw_type(p)?;
+                    typ(p).map(|x| Err::<Expr<'t>, Typ<'t>>(x))
+                },
+                |p: &mut P<'t>| {
+                    expr(p).map(|x| Ok::<Expr<'t>, Typ<'t>>(x))
+                },
+            )?;
+            kw_as(p)?;
+            let o = op(p)?;
+            Some(match x {
+                Ok(x) => Decl::Fixity(f, i, x, o),
+                Err(x) => Decl::FixityTyp(f, i, x, o),
+            })
+
+        },
+
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(Decl::Sig(n, t))
+        },
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            let bs = many(p, "let-binder", binder_atom);
+            let decl = guarded_decl(p)?;
+            Some(Decl::Def(n, bs, decl))
+        },
+
+
+    )
+}
+
+fn role<'t>(p: &mut P<'t>) -> Option<S<Role>> {
+    let start = p.span();
+    let d = choice!(p: "role",
+            |p: &mut P<'t>| {
+                kw_nominal(p)?;
+                Some(Role::Nominal)
+            },
+            |p: &mut P<'t>| {
+                kw_representational(p)?;
+                Some(Role::Representational)
+            },
+            |p: &mut P<'t>| {
+                kw_phantom(p)?;
+                Some(Role::Phantom)
+            },
+    )?;
+    Some(S(d, start))
+}
+
+fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead<'t>> {
+    let cs = constraints(p)?;
+    kw_left_imply(p)?;
+    let n = qproper(p)?;
+    let bs = many(p, "instance head", typ_atom);
+    Some(InstHead(cs, n, bs))
+}
+
+fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding<'t>> {
+    choice!(p: "inst_binding",
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            kw_coloncolon(p)?;
+            let t = typ(p)?;
+            Some(InstBinding::Sig(n, t))
+        },
+        |p: &mut P<'t>| {
+            let n = name(p)?;
+            let bs = many(p, "inst-binder", binder_atom);
+            let decl = guarded_decl(p)?;
+            Some(InstBinding::Def(n, bs, decl))
+        },
+    )
+}
+
+fn data_cnstr<'t>(p: &mut P<'t>) -> Option<(ProperName<'t>, Vec<Typ<'t>>)> {
+    let n = proper(p)?;
+    let ts = many(p, "data cnstr", typ);
+    Some((n, ts))
+}
+
+fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
+    choice!(p: "constraints",
+        |p: &mut P<'t>| {
+            kw_lp(p)?;
+            let cs = sep(p, "constraints-sep", kw_comma, typ)
+                .into_iter()
+                .map(|x| x.to_constraint())
+                .collect::<Option<Vec<_>>>()?;
+            kw_rp(p)?;
+            kw_left_imply(p)?;
+            Some(Some(cs))
+        },
+        |p: &mut P<'t>| {
+            let t = typ(p)?.to_constraint()?;
+            kw_left_imply(p)?;
+            Some(Some(vec![t]))
+        },
+        |p: &mut P<'t>| {
+            Some(None::<Vec<Constraint<'t>>>)
+        }
+    )?
+}
+
+fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep<'t>>> {
+    choice!(p: "fundeps",
+        |p: &mut P<'t>| {
+            kw_pipe(p)?;
+            Some(Some(sep(p, "fundeps", kw_comma, fundep)))
+        },
+        |_| {
+            Some(None::<Vec<FunDep<'t>>>)
+        },
+    )?
+}
+
+fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
+    choice!(p: "fundep",
+        |p: &mut P<'t>| {
+            kw_right_arrow(p)?;
+            Some(FunDep(Vec::new(), many(p, "fundep A", name)))
+        },
+        |p: &mut P<'t>| {
+            let b = many(p, "fundep B", name);
+            kw_right_arrow(p)?;
+            let c = many(p, "fundep C", name);
+            Some(FunDep(b, c))
+        },
+    )
+}
+
+fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember<'t>>> {
+    if matches!(p.peekt(), Some(T::Where)) {
+        kw_where(p)?;
+        kw_begin(p)?;
+        let xs = sep(p, "members", kw_sep, member);
+        // NOTE[et]: This might need to be more graciouse
+        kw_end(p)?;
+        Some(xs)
+    } else {
+        Some(Vec::new())
+    }
+}
+
+fn member<'t>(p: &mut P<'t>) -> Option<ClassMember<'t>> {
+    let n = name(p)?;
+    kw_coloncolon(p)?;
+    let t = typ(p)?;
+    Some(ClassMember(n, t))
+}
+
 #[derive(Clone, Debug)]
-enum Serror<'s> {
+pub enum Serror<'s> {
     Unexpected(Span, Option<Token<'s>>, &'static str),
     NotSimpleTypeVarBinding(Span),
     NotAConstraint(Span),
 }
 
 #[derive(Clone, Debug)]
-struct P<'s> {
-    fi: usize,
-    i: usize,
-    tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
-    errors: Vec<Serror<'s>>,
-    panic: bool,
-    steps: std::cell::RefCell<usize>,
+pub struct P<'s> {
+    pub fi: usize,
+    pub i: usize,
+    pub tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
+    pub errors: Vec<Serror<'s>>,
+    pub panic: bool,
+    pub steps: std::cell::RefCell<usize>,
 }
 
 impl<'s> P<'s> {
-    fn new(fi: usize, tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>) -> Self {
+    pub fn new(
+        fi: usize,
+        tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
+    ) -> Self {
         Self {
             fi,
             i: 0,
@@ -1219,22 +1566,23 @@ impl<'s> P<'s> {
         }
     }
 
-    fn recover<F>(&mut self, f: F) -> Result<(), ()>
+    fn recover(&mut self)
+    {
+        self.panic = false;
+    }
+
+    fn skip_until<F>(&mut self, f: F) -> bool
     where
         F: Fn(Token<'s>) -> bool,
     {
-        if !self.panic {
-            return Ok(());
-        }
         while let (Some(x), _) = self.peek_() {
             if f(x) {
-                self.panic = false;
-                return Ok(());
+                return true;
             } else {
                 self.skip()
             }
         }
-        Err(())
+        false       
     }
 
     fn iff<F>(&mut self, f: F, err: &'static str) -> Option<()>
