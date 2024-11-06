@@ -308,11 +308,6 @@ fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
     Some(out)
 }
 
-fn skip_to_top<'t>(p: &mut P<'t>) -> bool {
-    p.recover();
-    p.skip_until(|t| matches!(t, T::LayTop))
-}
-
 fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl<'t>> {
     let mut out = Vec::new();
     while matches!(p.peek2t(), (Some(T::LayTop), Some(T::Lower("import")))) {
@@ -320,9 +315,8 @@ fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl<'t>> {
         if let Some(import) = import_decl(p) {
             out.push(import);
         }
-        if skip_to_top(p) {
-            break;
-        }
+        p.recover();
+        p.skip_until(|t| matches!(t, T::LayTop));
     }
     out
 }
