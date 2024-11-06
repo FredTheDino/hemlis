@@ -5,7 +5,7 @@ expression: "p(r#\"\nimport A as A\n\nfoo :: Int\nfoo = bar + baz\n        \"#)"
 Ok(LayTop)
 Ok(Lower("import"))
 Ok(Upper("A"))
-Ok(Lower("as"))
+Ok(As)
 Ok(Upper("A"))
 Ok(LayTop)
 Ok(Lower("foo"))

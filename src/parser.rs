@@ -331,7 +331,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
     kw_import(p)?;
     let name = qproper(p)?;
     Some(match p.peekt() {
-        Some(T::Lower("as")) => {
+        Some(T::As) => {
             kw_as(p)?;
             let as_name = qproper(p)?;
             ImportDecl::As(name, as_name)
