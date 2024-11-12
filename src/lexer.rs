@@ -192,7 +192,7 @@ pub enum Token<'t> {
     Qual(&'t str),
 
     // TODO: Might be too much of a wuzz when only extending the uncide with swedish
-    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ]*")]
+    #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ_]*")]
     Lower(&'t str),
 
     #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", priority = 20)]
