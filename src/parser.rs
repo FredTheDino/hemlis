@@ -157,7 +157,10 @@ q!(qop, op, QOp, QOp);
 
 pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
     let h = header(p)?;
-    let ds = many(p, "decl_with_recovery", decl_with_recovery).into_iter().filter_map(|x| x).collect();
+    let ds = many(p, "decl_with_recovery", decl_with_recovery)
+        .into_iter()
+        .filter_map(|x| x)
+        .collect();
     Some(Module(h, ds))
 }
 
@@ -174,7 +177,7 @@ fn decl_with_recovery<'t>(p: &mut P<'t>) -> Option<Option<Decl<'t>>> {
 
 fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
     while matches!(p.peek().0, Some(T::LayTop)) {
-        p.skip();
+        kw_top(p)?;
     }
     kw_module(p)?;
     let name = qproper(p)?;
@@ -258,13 +261,14 @@ where
 }
 
 fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
-    fn f<'t>(p: &mut P<'t>) -> Option<Vec<Export<'t>>> {
-        kw_lp(p)?;
+    if matches!(p.peekt(), Some(T::LeftParen)) {
+        kw_lp(p);
         let exports = sep(p, "export", kw_comma, export);
-        kw_rp(p)?;
-        Some(exports)
+        kw_rp(p);
+        exports
+    } else {
+        Vec::new()
     }
-    choice!(p: "'export", f, |_| { Some(Vec::<Export<'t>>::new()) }).unwrap()
 }
 
 fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
@@ -713,15 +717,13 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<
 }
 
 fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
-    let e = choice!(p: "expr_atom" ,
-        |p: &mut P<'t>| {
+    let e = match p.peek2t() {
+        (Some(T::Symbol("-")), _) => {
             kw_minus(p)?;
             Some(Expr::Negate(b!(expr_atom(p)?)))
-        },
-        |p: &mut P<'t>| {
-            Some(Expr::Boolean(boolean(p)?))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Lower("true" | "false")), _) => Some(Expr::Boolean(boolean(p)?)),
+        (Some(T::If), _) => {
             let start = p.span();
             kw_if(p)?;
             let a = b!(expr(p)?);
@@ -730,8 +732,8 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             kw_else(p)?;
             let c = b!(expr(p)?);
             Some(Expr::IfThenElse(start, a, b, c))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Let), _) => {
             let start = p.span();
             kw_let(p)?;
             // Handle inline ones?
@@ -748,8 +750,8 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             kw_in(p)?;
             let e = b!(expr(p)?);
             Some(Expr::Let(start, b, e))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Ado), _) => {
             kw_ado(p)?;
             if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
@@ -764,8 +766,8 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             kw_in(p)?;
             let e = expr(p)?;
             Some(Expr::Ado(ds, b!(e)))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Do), _) => {
             kw_do(p)?;
             if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
@@ -778,16 +780,16 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
                 kw_sep(p)?;
             }
             Some(Expr::Do(ds))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Symbol("\\")), _) => {
             let start = p.span();
             kw_backslash(p)?;
             let binders = many(p, "lambda binder", binder_no_type);
             kw_right_arrow(p)?;
             let body = b!(expr(p)?);
             Some(Expr::Lambda(start, binders, body))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Case), _) => {
             let start = p.span();
             kw_case(p)?;
             let xs = sep(p, "case expr", kw_sep, expr);
@@ -797,88 +799,91 @@ fn expr_atom<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             kw_end(p)?;
             kw_sep(p)?;
             Some(Expr::Case(start, xs, branches))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Symbol("_")), _) => {
             let start = p.span();
             kw_underscore(p)?;
             Some(Expr::Section(start))
-        },
-        |p: &mut P<'t>| {
-            Some(Expr::Hole(hole(p)?))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Hole(_)), _) => Some(Expr::Hole(hole(p)?)),
+        // TODO: Lexer group quals into one token
+        (Some(T::Lower(_)), _) | (Some(T::Qual(_)), Some(T::Lower(_))) => {
             Some(Expr::Ident(qname(p)?))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Upper(_)), _) | (Some(T::Qual(_)), Some(T::Upper(_))) => {
             Some(Expr::Constructor(qproper(p)?))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Symbol(_)), _) | (Some(T::Qual(_)), Some(T::Symbol(_))) => {
             Some(Expr::Symbol(qsymbol(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Expr::Char(char(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Expr::Str(string(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Expr::Number(number(p)?))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Qual(_)), Some(T::Qual(_))) => {
+            choice!(p: "some kind of name",
+                |p: &mut P<'t>| Some(Expr::Symbol(qsymbol(p)?)),
+                |p: &mut P<'t>| Some(Expr::Constructor(qproper(p)?)),
+                |p: &mut P<'t>| Some(Expr::Ident(qname(p)?)),
+            )
+        }
+        (Some(T::Char(_)), _) => Some(Expr::Char(char(p)?)),
+        (Some(T::String(_) | T::RawString(_)), _) => Some(Expr::Str(string(p)?)),
+        (Some(T::Number(_)), _) => Some(Expr::Number(number(p)?)),
+        (Some(T::LeftSquare), _) => {
             let start = p.span();
             kw_ls(p)?;
             let inner = sep(p, "array expr", kw_comma, expr);
             kw_rs(p)?;
             let end = p.span();
             Some(Expr::Array(start, inner, end))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::LeftBrace), _) => {
             let start = p.span();
             kw_lb(p)?;
             let inner = sep(p, "record expr", kw_comma, record_label);
             kw_rb(p)?;
             let end = p.span();
             Some(Expr::Record(start, inner, end))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::LeftParen), _) => {
             kw_lp(p)?;
             let inner = expr(p)?;
             kw_rp(p)?;
             Some(Expr::Paren(b!(inner)))
-        },
-    );
+        }
+        _ => {
+            // Not a valid start of an expression - but that isn't nessecarily an error
+            return None;
+        }
+    };
     let mut e = if let Some(e) = e {
         e
     } else {
         return p.raise_("Invalid expression");
     };
 
-    if let Some(labels) = choice!(p: "expr_access" ,
-        |p: &mut P<'t>| {
+    if let Some(labels) = {
+        if matches!(p.peekt(), Some(T::Symbol("."))) {
             kw_dot(p)?;
             Some(sep(p, "expr_access", kw_dot, label))
-        },
-        |_| None::<Vec<Label<'t>>>)
-    {
+        } else {
+            None
+        }
+    } {
         e = Expr::Access(b!(e), labels);
     }
 
-    if let Some(x) = choice!(p: "expr_access" ,
-        // NOTE: This isn't as good as it can be - we can know the user intends to do
-        // this if we see a `=` in side the record
-            record_updates,
-        |_| None::<Vec<RecordUpdate<'t>>>)
-    {
+    if let Some(x) = if matches!(p.peekt(), Some(T::LeftBrace)) {
+        choice!(p: "record_update", record_updates, |_| None::<Vec<RecordUpdate<'t>>>)
+    } else {
+        None
+    } {
         e = Expr::Update(b!(e), x);
     }
 
-    while let Some(labels) = choice!(p: "expr_vta" ,
-        |p: &mut P<'t>| {
-            kw_at(p)?;
-            Some(typ(p)?)
-        },
-        |_| None::<Typ<'t>>)
-    {
+    while let Some(labels) = if matches!(p.peekt(), Some(T::Symbol("@"))) {
+        kw_at(p)?;
+        Some(typ(p)?)
+    } else {
+        None
+    } {
         e = Expr::Vta(b!(e), labels);
     }
     Some(e)
@@ -954,59 +959,51 @@ fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
 }
 
 fn binder_atom<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
-    choice!(p: "binder_atom",
-        |p: &mut P<'t>| {
+    match p.peek2t() {
+        (Some(T::Symbol("_")), _) => {
             let start = p.span();
             kw_underscore(p)?;
             Some(Binder::Wildcard(start))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Lower(_)), _) => {
             let n = name(p)?;
-            kw_at(p)?;
-            let t = binder_atom(p)?;
-            Some(Binder::Named(n, b!(t)))
-        },
-        |p: &mut P<'t>| {
-            Some(Binder::Var(name(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Binder::Constructor(qproper(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Binder::Boolean(boolean(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Binder::Char(char(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Binder::Str(string(p)?))
-        },
-        |p: &mut P<'t>| {
+            if matches!(p.peekt(), Some(T::Symbol("@"))) {
+                kw_at(p)?;
+                let t = binder_atom(p)?;
+                Some(Binder::Named(n, b!(t)))
+            } else {
+                Some(Binder::Var(n))
+            }
+        }
+        (Some(T::Upper(_)), _) | (Some(T::Qual(_)), _) => Some(Binder::Constructor(qproper(p)?)),
+        (Some(T::Lower("true" | "false")), _) => Some(Binder::Boolean(boolean(p)?)),
+        (Some(T::Char(_)), _) => Some(Binder::Char(char(p)?)),
+        (Some(T::String(_) | T::RawString(_)), _) => Some(Binder::Str(string(p)?)),
+        (Some(T::Symbol("-")), _) => {
             kw_minus(p)?;
             Some(Binder::Number(true, number(p)?))
-        },
-        |p: &mut P<'t>| {
-            Some(Binder::Number(false, number(p)?))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::Number(_)), _) => Some(Binder::Number(false, number(p)?)),
+        (Some(T::LeftSquare), _) => {
             kw_ls(p)?;
             let bs = sep(p, "array binder", kw_comma, binder);
             kw_rs(p)?;
             Some(Binder::Array(bs))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::LeftBrace), _) => {
             kw_lb(p)?;
             let bs = sep(p, "record binder", kw_comma, record_binder);
             kw_rb(p)?;
             Some(Binder::Record(bs))
-        },
-        |p: &mut P<'t>| {
+        }
+        (Some(T::LeftParen), _) => {
             kw_lp(p)?;
             let b = b!(binder(p)?);
             kw_rp(p)?;
             Some(Binder::Paren(b))
-        },
-    )
+        }
+        _ => p.raise_("Unknown binder"),
+    }
 }
 
 fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
@@ -1144,7 +1141,6 @@ fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_data(p)?;
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
-            kw_eq(p)?;
             let enums = choice!(p: "Data enums",
                 |p: &mut P<'t>| {
                     kw_eq(p);
@@ -1560,8 +1556,7 @@ impl<'s> P<'s> {
         }
     }
 
-    fn recover(&mut self)
-    {
+    fn recover(&mut self) {
         self.panic = false;
     }
 
@@ -1576,7 +1571,7 @@ impl<'s> P<'s> {
                 self.skip()
             }
         }
-        false       
+        false
     }
 
     fn iff<F>(&mut self, f: F, err: &'static str) -> Option<()>
