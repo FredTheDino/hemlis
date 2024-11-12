@@ -102,6 +102,19 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
     Skip
 }
 
+fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
+    while let Some(at) = lex.remainder().find(".") {
+        if !lex.remainder().get(0..(at - 1)).map(|x|
+                x.chars().take(1).all(|x| x.is_uppercase())
+                && x.chars().skip(1).all(|x| x.is_alphanumeric())
+            ).unwrap_or(false) { 
+            break
+        }
+        lex.bump(at + 1);
+    }
+    lex.slice()
+}
+
 fn update_newline<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) {
     lex.extras.0 = lex.span().start + lex.slice().rfind("\n").unwrap_or(0) + 1;
 }
@@ -188,7 +201,7 @@ pub enum Token<'t> {
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.
-    #[regex("[A-Z][[:alnum:]]*\\.")]
+    #[regex("[A-Z][[:alnum:]]*\\.", |lex| lex_qual(lex))]
     Qual(&'t str),
 
     // TODO: Might be too much of a wuzz when only extending the uncide with swedish
@@ -221,6 +234,7 @@ pub enum Token<'t> {
     RawString(&'t str),
 
     #[token("--", |lex| lex_line_comment(lex))]
+    #[token("--|", |lex| lex_line_comment(lex))]
     LineComment(&'t str),
 
     #[token("{-", |lex| lex_block_comment(lex))]

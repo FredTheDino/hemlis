@@ -172,11 +172,11 @@ where
     A: Ast,
 {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
-        (&*self as &A).show(indent, w)
+        (&**self as &A).show(indent, w)
     }
 
     fn span(&self) -> Span {
-        (&*self as &A).span()
+        (&**self as &A).span()
     }
 }
 
@@ -184,13 +184,13 @@ where
 pub struct S<T>(pub T, pub Span);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QProperName<'t>(pub S<Vec<Qual<'t>>>, pub ProperName<'t>);
+pub struct QProperName<'t>(pub Option<Qual<'t>>, pub ProperName<'t>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QName<'t>(pub S<Vec<Qual<'t>>>, pub Name<'t>);
+pub struct QName<'t>(pub Option<Qual<'t>>, pub Name<'t>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QSymbol<'t>(pub S<Vec<Qual<'t>>>, pub Symbol<'t>);
+pub struct QSymbol<'t>(pub Option<Qual<'t>>, pub Symbol<'t>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QOp<'t>(pub S<Vec<Qual<'t>>>, pub Op<'t>);
+pub struct QOp<'t>(pub Option<Qual<'t>>, pub Op<'t>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Qual<'t>(pub S<&'t str>);
@@ -365,7 +365,7 @@ pub enum Typ<'t> {
 }
 
 impl<'t> Typ<'t> {
-    pub fn to_constraint(self) -> Option<Constraint<'t>> {
+    pub fn as_constraint(self) -> Option<Constraint<'t>> {
         fn inner<'t>(a: Typ<'t>, mut args: Vec<Typ<'t>>) -> Option<Constraint<'t>> {
             match a {
                 Typ::Symbol(_)
@@ -422,7 +422,7 @@ pub enum Binder<'t> {
 
 impl<'t> Binder<'t> {
     pub fn to_constructor(bs: Vec<Binder<'t>>) -> Result<Binder<'t>, &'static str> {
-        Ok(match (bs.get(0).cloned(), bs.len()) {
+        Ok(match (bs.first().cloned(), bs.len()) {
             (None, 0) => return Err("Empty binder is not allowed"),
             (Some(a), 1) => a,
             (Some(a@Binder::Constructor(_)), _) => {
@@ -465,8 +465,8 @@ pub enum Expr<'t> {
     App(Box<Expr<'t>>, Box<Expr<'t>>),
     Vta(Box<Expr<'t>>, Typ<'t>),
     IfThenElse(Span, Box<Expr<'t>>, Box<Expr<'t>>, Box<Expr<'t>>),
-    Do(Vec<DoStmt<'t>>),
-    Ado(Vec<DoStmt<'t>>, Box<Expr<'t>>),
+    Do(Option<Qual<'t>>, Vec<DoStmt<'t>>),
+    Ado(Option<Qual<'t>>, Vec<DoStmt<'t>>, Box<Expr<'t>>),
     Lambda(Span, Vec<Binder<'t>>, Box<Expr<'t>>),
     Let(Span, Vec<LetBinding<'t>>, Box<Expr<'t>>),
     Where(Span, Box<Expr<'t>>, Vec<LetBinding<'t>>),
