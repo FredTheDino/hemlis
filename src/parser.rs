@@ -306,15 +306,11 @@ where
         if let Some(ee) = e(p) {
             out.push(ee);
         } else {
-            if p.panic {
-                println!("{}", err);
-            }
             break;
         }
         if f(p) {
             break;
         }
-        println!("{}: {:?}", err, p.peekt());
         if s(p).is_some() {
             continue;
         } else {
@@ -730,7 +726,6 @@ fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
         }
         _ => {
             let x = expr_atom(p, None)?;
-            println!("{:?}", x);
             Some(ExprOp::App)
         }
     }
@@ -1236,7 +1231,7 @@ fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
 }
 
 fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr<'t>> {
-    if matches!(p.peek2t(), (_, Some(T::Symbol("::")))) {
+    if matches!(p.peek2t(), (_, Some(T::Symbol(":")))) {
         let f = label(p)?;
         p.next();
         kw_colon(p)?;
