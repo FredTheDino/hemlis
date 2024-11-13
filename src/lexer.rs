@@ -104,11 +104,16 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
 
 fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
     while let Some(at) = lex.remainder().find(".") {
-        if !lex.remainder().get(0..(at - 1)).map(|x|
+        if !lex
+            .remainder()
+            .get(0..(at - 1))
+            .map(|x| {
                 x.chars().take(1).all(|x| x.is_uppercase())
-                && x.chars().skip(1).all(|x| x.is_alphanumeric())
-            ).unwrap_or(false) { 
-            break
+                    && x.chars().skip(1).all(|x| x.is_alphanumeric())
+            })
+            .unwrap_or(false)
+        {
+            break;
         }
         lex.bump(at + 1);
     }
@@ -149,6 +154,8 @@ pub enum Token<'t> {
     RightArrow,
     #[token("=>")]
     RightFatArrow,
+    #[token("|", priority = 3)]
+    Pipe,
     #[token("`")]
     Tick,
     #[token(",")]
@@ -174,7 +181,6 @@ pub enum Token<'t> {
     Foreign,
     #[token("instance")]
     Instance,
-
 
     #[token("if")]
     If,

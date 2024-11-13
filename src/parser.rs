@@ -75,7 +75,7 @@ kw!(kw_comma, Token::Comma);
 
 kw!(kw_left_imply, T::Symbol("<="));
 kw!(kw_at, T::Symbol("@"));
-kw!(kw_pipe, T::Symbol("|"));
+kw!(kw_pipe, T::Pipe);
 kw!(kw_dot, T::Symbol("."));
 kw!(kw_eq, T::Symbol("="));
 kw!(kw_dotdot, T::Symbol(".."));
@@ -147,19 +147,36 @@ q!(qsymbol, symbol, QSymbol, QSymbol);
 q!(qop, op, QOp, QOp);
 
 pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
-    let h = header(p)?;
+    let h = header(p);
     let mut ds = Vec::new();
     loop {
         if !p.skip_until(|x| matches!(x, T::LayTop)) {
             break;
         }
+
         while matches!(p.peekt(), Some(T::LayTop)) {
             kw_top(p)?;
         }
+
+        let start = p.span();
+        let i = p.i;
+        let e = p.errors.len();
+
         if let Some(out) = decl(p) {
             ds.push(out);
         }
         p.recover();
+
+        if !p.skip_until(|x| matches!(x, T::LayTop)) {
+            break;
+        }
+
+        if p.errors.len() != e {
+            let ii = p.i;
+            let end = p.span();
+            p.raise(Serror::FailedToParseDecl(start.merge(end), p.errors.len() - e, i, p.i));
+        }
+        
     }
     Some(Module(h, ds))
 }
@@ -179,38 +196,16 @@ fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
 
 // TODO: pick the errros from the branch that moved the most consumed tokens
 // TODO: Check some tokens first and then commit to a path?
-macro_rules! choice {
-    ($p:ident : $e:expr, $($t:expr),*) => {
-        {
-            let (p__, x) = (|| {
-            $(
-                if let (p_, Some(out)) = {
-                    let mut p_ = $p.fork();
-                    let out = $t(&mut p_);
-                    (p_, out)
-                } { return (p_, Ok(Some(out))) }
-            )*
-                let mut p_ = $p.fork();
-                p_.raise_::<usize>($e);
-                return (p_, Err(None))
-            })();
-
-            for err in p__.errors.into_iter() {
-                $p.errors.push(err)
-            }
-
-            match x {
-                Ok(e) => {
-                    // TODO: Join errors?
-                    $p.i = p__.i;
-                    e
-                }
-                Err(e) => e,
-            }
-
+macro_rules! ttry {
+    ($p:ident, $t:expr) => {{
+        let mut p_ = $p.fork();
+        if let Some(out) = $t(&mut p_) {
+            $p.i = p_.i;
+            Some(out)
+        } else {
+            None
         }
-    };
-    ($p:ident : $e:expr, $($t:expr),* ,) => { choice!($p: $e, $($t),*) };
+    }};
 }
 
 macro_rules! alt {
@@ -291,7 +286,7 @@ where
         } else {
             break;
         }
-        if choice!(p: err, s, |_| None::<S>).is_some() {
+        if ttry!(p, s).is_some() {
             continue;
         } else {
             break;
@@ -311,12 +306,16 @@ where
         if let Some(ee) = e(p) {
             out.push(ee);
         } else {
+            if p.panic {
+                println!("{}", err);
+            }
             break;
         }
         if f(p) {
             break;
         }
-        if choice!(p: err, s, |_| None::<S>).is_some() {
+        println!("{}: {:?}", err, p.peekt());
+        if s(p).is_some() {
             continue;
         } else {
             break;
@@ -337,8 +336,8 @@ fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
 }
 
 fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
-    choice!(
-        p: "export",
+    alt!(
+        p: Serror::Info("export"),
         |p: &mut _| {
             kw_type(p)?;
             Some(Export::TypSymbol(symbol(p)?))
@@ -429,8 +428,8 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
 }
 
 fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
-    choice!(
-        p: "'import",
+    alt!(
+        p: Serror::Info("import"),
         |p: &mut _| {
             kw_type(p)?;
             Some(Import::TypSymbol(symbol(p)?))
@@ -450,7 +449,7 @@ fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
     )
 }
 
-fn typ_atom<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
+fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ<'t>> {
     match p.peek2t() {
         (Some(T::Lower("_")), _) => {
             let span = p.span();
@@ -496,7 +495,13 @@ fn typ_atom<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
                 },
             )
         }
-        _ => p.raise_("Not a vaild type prefix"),
+        _ => {
+            if let Some(err) = err {
+                p.raise_(err)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -538,27 +543,27 @@ enum TypOp<'t> {
 }
 
 fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
-    choice!(
-        p: "typ_op",
-        |p| {
+    match p.peek2t() {
+        (Some(T::Symbol("::")), _) => {
             kw_coloncolon(p)?;
             Some(TypOp::Kind)
-        },
-        |p| {
+        }
+        (Some(T::RightArrow), _) => {
             kw_right_arrow(p)?;
             Some(TypOp::Arr)
-        },
-        |p| {
+        }
+        (Some(T::RightFatArrow), _) => {
             kw_right_imply(p)?;
             Some(TypOp::FatArr)
-        },
-        |p| { Some(TypOp::Op(qop(p)?)) },
-        |p: &mut P<'t>| {
-            typ_atom(&mut p.fork())?;
+        }
+        (Some(T::Qual(_)), Some(T::Symbol(_))) | (Some(T::Symbol(_)), _) => {
+            Some(TypOp::Op(qop(p)?))
+        }
+        _ => {
+            typ_atom(&mut p.fork(), None)?;
             Some(TypOp::App)
-        },
-        |_| None::<TypOp<'t>>
-    )
+        }
+    }
 }
 
 fn typ_fop(t: &TypOp<'_>) -> Prec {
@@ -598,7 +603,7 @@ fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
         let inner = typ(p)?;
         Some(Typ::Forall(vars, b!(inner)))
     } else {
-        typ_atom(p)
+        typ_atom(p, Some("Expected a typ"))
     }
 }
 
@@ -663,7 +668,7 @@ fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
     many_until(
         p,
         "typ_var_bindings",
-        |p| choice!(p: "typ_var_binding", typ_var_binding, |p: &mut P<'t>| None::<TypVarBinding<'t>>),
+        typ_var_binding,
         next_isnt!(T::LeftParen | T::Symbol("@") | T::Lower(_)),
     )
 }
@@ -679,10 +684,7 @@ fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
 }
 
 fn row_label<'t>(p: &mut P<'t>) -> Option<(Label<'t>, Typ<'t>)> {
-    let l = match p.peek() {
-        (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(n, s)),
-        _ => return None,
-    };
+    let l = label(p)?;
     p.skip();
     kw_coloncolon(p)?;
     let t = typ(p)?;
@@ -695,10 +697,10 @@ fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
         "row",
         kw_comma,
         row_label,
-        next_is!(T::Symbol("|") | T::Symbol(")")),
+        next_isnt!(T::Lower(_) | T::String(_) | T::RawString(_)),
     );
 
-    let x = if matches!(p.peekt(), Some(T::Symbol("|"))) {
+    let x = if matches!(p.peekt(), Some(T::Pipe)) {
         kw_pipe(p)?;
         typ(p).map(|x| b!(x))
     } else {
@@ -716,21 +718,22 @@ enum ExprOp<'t> {
 }
 
 fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
-    choice!(
-        p: "expr_op",
-        |p| { Some(ExprOp::Op(qop(p)?)) },
-        |p: &mut P<'t>| {
+    match p.peek2t() {
+        (Some(T::Qual(_)), Some(T::Symbol(_))) | (Some(T::Symbol(_)), _) => {
+            Some(ExprOp::Op(qop(p)?))
+        }
+        (Some(Token::Tick), _) => {
             kw_tick(p)?;
             let e = expr(p)?;
             kw_tick(p)?;
             Some(ExprOp::Infix(e))
-        },
-        |p: &mut P<'t>| {
-            expr_atom(p, Some("Expected op"))?;
+        }
+        _ => {
+            let x = expr_atom(p, None)?;
+            println!("{:?}", x);
             Some(ExprOp::App)
-        },
-        |_| None::<ExprOp<'t>>
-    )
+        }
+    }
 }
 
 fn expr_fop(t: &ExprOp<'_>) -> Prec {
@@ -915,7 +918,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
         (Some(T::Symbol("\\")), _) => {
             let start = p.span();
             kw_backslash(p)?;
-            let binders = many(p, "lambda binder", binder_no_type);
+            let binders = many_until(p, "lambda binder", binder_no_type, next_is!(T::RightArrow));
             kw_right_arrow(p)?;
             let body = b!(expr(p)?);
             Some(Expr::Lambda(start, binders, body))
@@ -1013,7 +1016,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
     }
 
     if let Some(x) = if matches!(p.peekt(), Some(T::LeftBrace)) {
-        choice!(p: "record_update", record_updates, |_| None::<Vec<RecordUpdate<'t>>>)
+        ttry!(p, record_updates)
     } else {
         None
     } {
@@ -1032,7 +1035,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
 }
 
 fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
-    choice!(p: "do_statement",
+    alt!(p: Serror::Info("do_statement"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
             kw_left_arrow(p)?;
@@ -1059,7 +1062,7 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
 }
 
 fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
-    choice!(p: "let_binding" ,
+    alt!(p: Serror::Info("let_binding"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
             kw_eq(p)?;
@@ -1094,10 +1097,21 @@ fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
 }
 
 fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
-    let bs = many(p, "binder_no_type", |x| binder_atom(x, None));
-    match Binder::to_constructor(bs) {
-        Ok(a) => Some(a),
-        Err(e) => p.raise_(e),
+    let head = binder_atom(p, Some("Expected a binder"))?;
+    if matches!(head, Binder::Constructor(_)) {
+        let bs = many_until(
+            p,
+            "binder_no_type",
+            |x| binder_atom(x, None),
+            next_is!(T::RightArrow),
+        );
+        let bs = [vec![head], bs].concat();
+        match Binder::to_constructor(bs) {
+            Ok(a) => Some(a),
+            Err(e) => p.raise_(e),
+        }
+    } else {
+        Some(head)
     }
 }
 
@@ -1159,7 +1173,7 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t
         }
         _ => {
             if let Some(err) = err {
-                p.raise_("Unknown binder")
+                p.raise_(err)
             } else {
                 None
             }
@@ -1168,18 +1182,15 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t
 }
 
 fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
-    choice!(p: "record_label",
-        |p: &mut P<'t>| {
-            let f = label(p)?;
-            p.next();
-            kw_colon(p)?;
-            let e = binder(p)?;
-            Some(RecordLabelBinder::Field(f, e))
-        },
-        |p: &mut P<'t>| {
-            Some(RecordLabelBinder::Pun(name(p)?))
-        },
-    )
+    if matches!(p.peek2t(), (_, Some(T::Symbol("::")))) {
+        let f = label(p)?;
+        p.next();
+        kw_colon(p)?;
+        let e = binder(p)?;
+        Some(RecordLabelBinder::Field(f, e))
+    } else {
+        Some(RecordLabelBinder::Pun(name(p)?))
+    }
 }
 
 fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
@@ -1196,7 +1207,7 @@ fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
 }
 
 fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
-    if !matches!(p.peekt(), Some(T::Symbol("|"))) {
+    if !matches!(p.peekt(), Some(T::Pipe)) {
         return None;
     }
     let gs = guard(p)?;
@@ -1211,7 +1222,7 @@ fn guard<'t>(p: &mut P<'t>) -> Option<Vec<Guard<'t>>> {
 }
 
 fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
-    choice!(p: "guard statements",
+    alt!(p: Serror::Info("guard statements"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
             kw_left_arrow(p)?;
@@ -1225,18 +1236,15 @@ fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
 }
 
 fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr<'t>> {
-    choice!(p: "record_label",
-        |p: &mut P<'t>| {
-            let f = label(p)?;
-            p.next();
-            kw_colon(p)?;
-            let e = expr(p)?;
-            Some(RecordLabelExpr::Field(f, e))
-        },
-        |p: &mut P<'t>| {
-            Some(RecordLabelExpr::Pun(name(p)?))
-        },
-    )
+    if matches!(p.peek2t(), (_, Some(T::Symbol("::")))) {
+        let f = label(p)?;
+        p.next();
+        kw_colon(p)?;
+        let e = expr(p)?;
+        Some(RecordLabelExpr::Field(f, e))
+    } else {
+        Some(RecordLabelExpr::Pun(name(p)?))
+    }
 }
 
 fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate<'t>>> {
@@ -1260,7 +1268,7 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
     p.next();
     kw_eq(p)?;
 
-    choice!(p: "record_label",
+    alt!(p: Serror::Info("record_label"),
         |p: &mut P<'t>| {
             Some(RecordUpdate::Leaf(f.clone(), expr(p)?))
         },
@@ -1276,7 +1284,7 @@ fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
         "case_branch",
         kw_comma,
         binder_no_type,
-        next_is!(T::RightArrow | T::Symbol("|")),
+        next_is!(T::RightArrow | T::Pipe),
     );
     let x = guarded_case(p)?;
     Some(CaseBranch(bs, x))
@@ -1310,7 +1318,7 @@ fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
     Some((gs, e))
 }
 
-fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
+pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
     match p.peek3t() {
         (Some(T::Data), _, Some(T::Symbol("::"))) => {
             kw_data(p)?;
@@ -1323,13 +1331,12 @@ fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_data(p)?;
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
-            let enums = choice!(p: "Data enums",
-                |p: &mut P<'t>| {
-                    kw_eq(p);
-                    Some(sep_until(p, "data-decl", kw_pipe, data_cnstr, next_is!(T::LayTop)))
-                },
-                |_| None::<Vec<(ProperName<'t>, Vec<Typ<'t>>)>>,
-            )?;
+            let enums = if next_is!(T::Symbol("="))(p) {
+                kw_eq(p)?;
+                sep_until(p, "data-decl", kw_pipe, data_cnstr, next_is!(T::LayTop))
+            } else {
+                Vec::new()
+            };
             Some(Decl::Data(name, vars, enums))
         }
 
@@ -1400,26 +1407,29 @@ fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_instance(p)?;
             let head = instance_head(p)?;
 
-            let bs = choice!(p: "instance_head",
-                |p: &mut P<'t>| {
-                    kw_where(p)?;
-                    kw_begin(p)?;
-                    let xs = sep_until(p, "inst_bindings", kw_sep, inst_binding, next_is!(T::LayEnd | T::LayTop));
-                    // NOTE[et]: This might need to be more graciouse
-                    kw_end(p)?;
-                    Some(xs)
-                },
-                |_| {
-                    Some(Vec::<InstBinding<'t>>::new())
-                },
-            )?;
+            let bs = if next_is!(T::Where)(p) {
+                kw_where(p)?;
+                kw_begin(p)?;
+                let xs = sep_until(
+                    p,
+                    "inst_bindings",
+                    kw_sep,
+                    inst_binding,
+                    next_is!(T::LayEnd | T::LayTop),
+                );
+                // NOTE[et]: This might need to be more graciouse
+                kw_end(p)?;
+                xs
+            } else {
+                Vec::new()
+            };
 
             Some(Decl::Instance(is_else, head, bs))
         }
 
         (Some(T::Derive), _, _) => {
             kw_derive(p)?;
-            let is_newtype = if matches!(p.peekt(), Some(T::Lower("newtype"))) {
+            let is_newtype = if matches!(p.peekt(), Some(T::Newtype)) {
                 kw_newtype(p)?;
                 true
             } else {
@@ -1503,7 +1513,7 @@ fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
 
 fn role<'t>(p: &mut P<'t>) -> Option<S<Role>> {
     let start = p.span();
-    let d = choice!(p: "role",
+    let d = alt!(p: Serror::Info("role"),
             |p: &mut P<'t>| {
                 kw_nominal(p)?;
                 Some(Role::Nominal)
@@ -1524,12 +1534,12 @@ fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead<'t>> {
     let cs = constraints(p)?;
     kw_left_imply(p)?;
     let n = qproper(p)?;
-    let bs = many(p, "instance head", typ_atom);
+    let bs = many(p, "instance head", |p| typ_atom(p, None));
     Some(InstHead(cs, n, bs))
 }
 
 fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding<'t>> {
-    choice!(p: "inst_binding",
+    alt!(p: Serror::Info("inst_binding"),
         |p: &mut P<'t>| {
             let n = name(p)?;
             kw_coloncolon(p)?;
@@ -1547,12 +1557,12 @@ fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding<'t>> {
 
 fn data_cnstr<'t>(p: &mut P<'t>) -> Option<(ProperName<'t>, Vec<Typ<'t>>)> {
     let n = proper(p)?;
-    let ts = many(p, "data cnstr", typ);
+    let ts = many_until(p, "data cnstr", typ, next_is!(T::Pipe | T::LayTop));
     Some((n, ts))
 }
 
 fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
-    choice!(p: "constraints",
+    alt!(p: Serror::Info("constraints"),
         |p: &mut P<'t>| {
             kw_lp(p)?;
             let cs = sep_until(p, "constraints-sep", kw_comma, typ, next_is!(T::RightParen))
@@ -1575,7 +1585,7 @@ fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
 }
 
 fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep<'t>>> {
-    choice!(p: "fundeps",
+    alt!(p: Serror::Info("fundeps"),
         |p: &mut P<'t>| {
             kw_pipe(p)?;
             Some(Some(sep(p, "fundeps", kw_comma, fundep)))
@@ -1587,7 +1597,7 @@ fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep<'t>>> {
 }
 
 fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
-    choice!(p: "fundep",
+    alt!(p: Serror::Info("fundep"),
         |p: &mut P<'t>| {
             kw_right_arrow(p)?;
             Some(FunDep(Vec::new(), many(p, "fundep A", name)))
@@ -1628,6 +1638,21 @@ pub enum Serror<'s> {
     NotSimpleTypeVarBinding(Span),
     NotAConstraint(Span),
     NotAtEOF,
+    FailedToParseDecl(Span, usize, usize, usize),
+}
+
+impl<'s> Serror<'s> {
+    pub fn same_kind_of_error(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Serror::Info(a), Serror::Info(b)) => a == b,
+            (Serror::Unexpected(_, _, a), Serror::Unexpected(_, _, b)) => a == b,
+            (Serror::NotSimpleTypeVarBinding(_), Serror::NotSimpleTypeVarBinding(_)) => true,
+            (Serror::NotAConstraint(_), Serror::NotAConstraint(_)) => true,
+            (Serror::NotAtEOF, Serror::NotAtEOF) => true,
+            (Serror::FailedToParseDecl(_, _, _, _), Serror::FailedToParseDecl(_, _, _, _)) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -2240,6 +2265,59 @@ module D where
 
 type D = X.Z (A (B.C D)) E
             "
+        ))
+    }
+
+    #[test]
+    fn minimal_e() {
+        assert_snapshot!(p_module(
+            r"
+module E () where
+
+data E
+  = E
+      { e :: E
+      }
+  | E E
+            "
+        ));
+    }
+
+    #[test]
+    fn minimal_f() {
+        assert_snapshot!(p_module(
+            r"
+module F () where
+derive newtype instance Eq Tag
+"
+        ))
+    }
+
+    #[test]
+    fn minimal_g() {
+        assert_snapshot!(p_module(
+            r"
+module G () where
+
+g :: G.G (G.G G G) -> G G G
+g g =
+  g
+    <#> G.g (\k v -> G (G k) v)
+    # G.gfromFoldable
+        "
+        ))
+    }
+
+    #[test]
+    fn minimal_h() {
+        assert_snapshot!(p_module(
+            r"
+module H () where
+
+h = H { tag, attr, children }
+
+h = HH
+        "
         ))
     }
 }

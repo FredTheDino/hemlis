@@ -18,7 +18,7 @@ impl Span {
         match (self, other) {
             (Known(a_lo, a_hi, a_fi), Known(b_lo, b_hi, b_fi)) => {
                 assert_eq!(a_fi, b_fi);
-                Known(a_lo.min(b_lo), a_hi.min(b_hi), a_fi)
+                Known(a_lo.min(b_lo), a_hi.max(b_hi), a_fi)
             }
             (a @ Known(_, _, _), Zero) | (Zero, a @ Known(_, _, _)) => a,
             _ => self,
@@ -227,7 +227,7 @@ pub struct Header<'t>(
 );
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Module<'t>(pub Header<'t>, pub Vec<Decl<'t>>);
+pub struct Module<'t>(pub Option<Header<'t>>, pub Vec<Decl<'t>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DataMember<'t> {
