@@ -27,7 +27,8 @@ t!(proper, Upper, ProperName);
 t!(qual, Qual, Qual);
 t!(number, Number, Number);
 t!(char, Char, Char);
-t!(op, Symbol, Op);
+t!(op, Op, Op);
+t!(symbol, Symbol, Symbol);
 t!(hole, Hole, Hole);
 
 fn boolean<'t>(p: &mut P<'t>) -> Option<Boolean<'t>> {
@@ -68,20 +69,20 @@ kw!(kw_rs, Token::RightSquare);
 kw!(kw_left_arrow, Token::LeftArrow);
 kw!(kw_right_arrow, Token::RightArrow);
 kw!(kw_right_imply, Token::RightFatArrow);
-kw!(kw_coloncolon, Token::Symbol("::"));
-kw!(kw_colon, Token::Symbol(":"));
+kw!(kw_coloncolon, Token::ColonColon);
+kw!(kw_colon, Token::Op(":"));
 kw!(kw_tick, Token::Tick);
 kw!(kw_comma, Token::Comma);
 
-kw!(kw_left_imply, T::Symbol("<="));
-kw!(kw_at, T::Symbol("@"));
+kw!(kw_left_imply, T::Op("<="));
+kw!(kw_at, T::At);
 kw!(kw_pipe, T::Pipe);
-kw!(kw_dot, T::Symbol("."));
-kw!(kw_eq, T::Symbol("="));
-kw!(kw_dotdot, T::Symbol(".."));
+kw!(kw_dot, T::Op("."));
+kw!(kw_eq, T::Op("="));
+kw!(kw_dotdot, T::Op(".."));
 kw!(kw_underscore, T::Lower("_"));
-kw!(kw_minus, T::Symbol("-"));
-kw!(kw_backslash, T::Symbol("\\"));
+kw!(kw_minus, T::Op("-"));
+kw!(kw_backslash, T::Slash);
 
 kw!(kw_module, T::Lower("module"));
 kw!(kw_where, T::Where);
@@ -119,13 +120,6 @@ kw!(kw_begin, T::LayBegin);
 kw!(kw_end, T::LayEnd);
 kw!(kw_sep, T::LaySep);
 kw!(kw_top, T::LayTop);
-
-fn symbol<'t>(p: &mut P<'t>) -> Option<Symbol<'t>> {
-    kw_lp(p)?;
-    let sym = op(p)?.0;
-    kw_rp(p)?;
-    Some(Symbol::<'t>(sym))
-}
 
 macro_rules! q {
     ($name:ident, $inner:expr, $token:expr, $thing:ident) => {
@@ -360,7 +354,7 @@ fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
 fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
     kw_lp(p)?;
     let out = match p.peek().0 {
-        Some(T::Symbol("..")) => {
+        Some(T::Op("..")) => {
             p.skip();
             DataMember::All
         }
@@ -456,7 +450,7 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ<'t>> {
         (Some(T::Upper(_)), _) | (Some(T::Qual(_)), Some(T::Upper(_))) => {
             Some(Typ::Constructor(qproper(p)?))
         }
-        (Some(T::Symbol(_)), _) | (Some(T::Qual(_)), Some(T::Symbol(_))) => {
+        (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_))) => {
             Some(Typ::Symbol(qsymbol(p)?))
         }
 
@@ -540,7 +534,7 @@ enum TypOp<'t> {
 
 fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
     match p.peek2t() {
-        (Some(T::Symbol("::")), _) => {
+        (Some(T::ColonColon), _) => {
             kw_coloncolon(p)?;
             Some(TypOp::Kind)
         }
@@ -552,7 +546,7 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
             kw_right_imply(p)?;
             Some(TypOp::FatArr)
         }
-        (Some(T::Qual(_)), Some(T::Symbol(_))) | (Some(T::Symbol(_)), _) => {
+        (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => {
             Some(TypOp::Op(qop(p)?))
         }
         _ => {
@@ -643,12 +637,12 @@ fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding<'t>> {
         kw_lp(p)?;
     }
 
-    let is_at = matches!(p.peekt(), Some(T::Symbol("@")));
+    let is_at = matches!(p.peekt(), Some(T::At));
     if is_at {
         kw_at(p)?;
     }
     let name = name(p)?;
-    let ty = if matches!(p.peekt(), Some(T::Symbol("::"))) {
+    let ty = if matches!(p.peekt(), Some(T::ColonColon)) {
         kw_coloncolon(p)?;
         typ(p)
     } else {
@@ -665,7 +659,7 @@ fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
         p,
         "typ_var_bindings",
         typ_var_binding,
-        next_isnt!(T::LeftParen | T::Symbol("@") | T::Lower(_)),
+        next_isnt!(T::LeftParen | T::At | T::Lower(_)),
     )
 }
 
@@ -693,7 +687,7 @@ fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
         "row",
         kw_comma,
         row_label,
-        next_isnt!(T::Lower(_) | T::String(_) | T::RawString(_)),
+        next_isnt!(T::Comma | T::Lower(_) | T::String(_) | T::RawString(_)),
     );
 
     let x = if matches!(p.peekt(), Some(T::Pipe)) {
@@ -715,7 +709,7 @@ enum ExprOp<'t> {
 
 fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
     match p.peek2t() {
-        (Some(T::Qual(_)), Some(T::Symbol(_))) | (Some(T::Symbol(_)), _) => {
+        (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => {
             Some(ExprOp::Op(qop(p)?))
         }
         (Some(Token::Tick), _) => {
@@ -752,7 +746,7 @@ fn expr_mrg<'t>(p: &mut P<'t>, op: ExprOp<'t>, lhs: Expr<'t>, rhs: Expr<'t>) -> 
 fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     let lhs = expr_atom(p, Some("Expected an expression"))?;
     let e = pratt_expr(p, lhs, Prec::zero())?;
-    Some(if matches!(p.peekt(), Some(T::Symbol("::"))) {
+    Some(if matches!(p.peekt(), Some(T::ColonColon)) {
         kw_coloncolon(p)?;
         let t = typ(p)?;
         Expr::Typed(b!(e), t)
@@ -778,9 +772,6 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
         );
         if matches!(p.peekt(), Some(T::LayEnd)) {
             kw_end(p)?;
-        }
-        if matches!(p.peekt(), Some(T::LaySep)) {
-            kw_sep(p)?;
         }
         Some(Expr::Where(start, b!(e), b))
     } else {
@@ -819,7 +810,7 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<
 
 fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
     let e = match p.peek2t() {
-        (Some(T::Symbol("-")), _) => {
+        (Some(T::Op("-")), _) => {
             kw_minus(p)?;
             Some(Expr::Negate(b!(expr_atom(p, err)?)))
         }
@@ -841,18 +832,14 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
             }
-            let b = sep_until(
+            let b = sep(
                 p,
                 "let-bindings",
                 kw_sep,
                 let_binding,
-                next_is!(T::LayEnd | T::LayTop | T::In),
             );
             if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
-            }
-            if matches!(p.peekt(), Some(T::LaySep)) {
-                kw_sep(p)?;
             }
             kw_in(p)?;
             let e = b!(expr(p)?);
@@ -868,18 +855,14 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
             }
-            let ds = sep_until(
+            let ds = sep(
                 p,
                 "ado-block",
                 kw_sep,
                 do_statement,
-                next_is!(T::In | T::LayTop | T::LayEnd),
             );
             if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
-            }
-            if matches!(p.peekt(), Some(T::LaySep)) {
-                kw_sep(p)?;
             }
             kw_in(p)?;
             let e = expr(p)?;
@@ -895,22 +878,18 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
             }
-            let ds = sep_until(
+            let ds = sep(
                 p,
                 "do-block",
                 kw_sep,
                 do_statement,
-                next_is!(T::LayTop | T::LayEnd),
             );
             if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
             }
-            if matches!(p.peekt(), Some(T::LaySep)) {
-                kw_sep(p)?;
-            }
             Some(Expr::Do(q, ds))
         }
-        (Some(T::Symbol("\\")), _) => {
+        (Some(T::Slash), _) => {
             let start = p.span();
             kw_backslash(p)?;
             let binders = many_until(p, "lambda binder", binder_no_type, next_is!(T::RightArrow));
@@ -926,12 +905,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
             }
-            let branches = sep_until(p, "case branch", kw_sep, case_branch, next_is!(T::LayEnd));
+            let branches = sep(p, "case branch", kw_sep, case_branch);
             if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
-            }
-            if matches!(p.peekt(), Some(T::LaySep)) {
-                kw_sep(p)?;
             }
             Some(Expr::Case(start, xs, branches))
         }
@@ -1000,7 +976,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
     };
 
     if let Some(labels) = {
-        if matches!(p.peekt(), Some(T::Symbol("."))) {
+        if matches!(p.peekt(), Some(T::Op("."))) {
             kw_dot(p)?;
             Some(sep(p, "expr_access", kw_dot, label))
         } else {
@@ -1018,7 +994,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
         e = Expr::Update(b!(e), x);
     }
 
-    while let Some(labels) = if matches!(p.peekt(), Some(T::Symbol("@"))) {
+    while let Some(labels) = if matches!(p.peekt(), Some(T::At)) {
         kw_at(p)?;
         Some(typ(p)?)
     } else {
@@ -1032,14 +1008,21 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
 fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
     alt!(p: Serror::Info("do_statement"),
         |p: &mut P<'t>| {
+            if next_is!(T::In)(p) {
+                Some(None)
+            } else {
+                None
+            }
+        },
+        |p: &mut P<'t>| {
             let b = binder(p)?;
             kw_left_arrow(p)?;
             let e = expr(p)?;
-            Some(DoStmt::Stmt(Some(b), e))
+            Some(Some(DoStmt::Stmt(Some(b), e)))
         },
         |p: &mut P<'t>| {
             let e = expr(p)?;
-            Some(DoStmt::Stmt(None, e))
+            Some(Some(DoStmt::Stmt(None, e)))
         },
         |p: &mut P<'t>| {
             kw_let(p)?;
@@ -1051,9 +1034,9 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
             if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
             }
-            Some(DoStmt::Let(b))
+            Some(Some(DoStmt::Let(b)))
         },
-    )
+    )?
 }
 
 fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
@@ -1082,7 +1065,7 @@ fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
 
 fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     let b = binder_no_type(p)?;
-    if matches!(p.peekt(), Some(T::Symbol("::"))) {
+    if matches!(p.peekt(), Some(T::ColonColon)) {
         kw_coloncolon(p)?;
         let t = typ(p)?;
         Some(Binder::Typed(b!(b), t))
@@ -1119,7 +1102,7 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t
         }
         (Some(T::Lower(_)), _) => {
             let n = name(p)?;
-            if matches!(p.peekt(), Some(T::Symbol("@"))) {
+            if matches!(p.peekt(), Some(T::At)) {
                 kw_at(p)?;
                 let t = binder_atom(p, Some("Expected binder atom after @"))?;
                 Some(Binder::Named(n, b!(t)))
@@ -1131,7 +1114,7 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t
         (Some(T::Lower("true" | "false")), _) => Some(Binder::Boolean(boolean(p)?)),
         (Some(T::Char(_)), _) => Some(Binder::Char(char(p)?)),
         (Some(T::String(_) | T::RawString(_)), _) => Some(Binder::Str(string(p)?)),
-        (Some(T::Symbol("-")), _) => {
+        (Some(T::Op("-")), _) => {
             kw_minus(p)?;
             Some(Binder::Number(true, number(p)?))
         }
@@ -1177,7 +1160,7 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t
 }
 
 fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
-    if matches!(p.peek2t(), (_, Some(T::Symbol("::")))) {
+    if matches!(p.peek2t(), (_, Some(T::Op(":")))) {
         let f = label(p)?;
         p.next();
         kw_colon(p)?;
@@ -1189,7 +1172,7 @@ fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
 }
 
 fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
-    if matches!(p.peekt(), Some(T::Symbol("="))) {
+    if matches!(p.peekt(), Some(T::Op("="))) {
         kw_eq(p)?;
         Some(GuardedExpr::Unconditional(expr_where(p)?))
     } else {
@@ -1231,7 +1214,7 @@ fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
 }
 
 fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr<'t>> {
-    if matches!(p.peek2t(), (_, Some(T::Symbol(":")))) {
+    if matches!(p.peek2t(), (_, Some(T::Op(":")))) {
         let f = label(p)?;
         p.next();
         kw_colon(p)?;
@@ -1257,7 +1240,7 @@ fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate<'t>>> {
 
 fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
     let f = label(p)?;
-    if !matches!(p.peek2t(), (Some(_), Some(T::Symbol("=")))) {
+    if !matches!(p.peek2t(), (Some(_), Some(T::Op("=")))) {
         return None;
     }
     p.next();
@@ -1315,7 +1298,7 @@ fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
 
 pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
     match p.peek3t() {
-        (Some(T::Data), _, Some(T::Symbol("::"))) => {
+        (Some(T::Data), _, Some(T::ColonColon)) => {
             kw_data(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
@@ -1326,7 +1309,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_data(p)?;
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
-            let enums = if next_is!(T::Symbol("="))(p) {
+            let enums = if next_is!(T::Op("="))(p) {
                 kw_eq(p)?;
                 sep_until(p, "data-decl", kw_pipe, data_cnstr, next_is!(T::LayTop))
             } else {
@@ -1342,7 +1325,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             let roles = many(p, "roles", role);
             Some(Decl::Role(name, roles))
         }
-        (Some(T::Type), _, Some(T::Symbol("::"))) => {
+        (Some(T::Type), _, Some(T::ColonColon)) => {
             kw_type(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
@@ -1358,7 +1341,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             Some(Decl::Type(name, vars, ty))
         }
 
-        (Some(T::Newtype), _, Some(T::Symbol("::"))) => {
+        (Some(T::Newtype), _, Some(T::ColonColon)) => {
             kw_newtype(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
@@ -1375,7 +1358,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             Some(Decl::NewType(name, vars, ctrc, t))
         }
 
-        (Some(T::Class), _, Some(T::Symbol("::"))) => {
+        (Some(T::Class), _, Some(T::ColonColon)) => {
             kw_class(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
@@ -1490,7 +1473,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             })
         }
 
-        (Some(T::Lower(_)), Some(T::Symbol("::")), _) => {
+        (Some(T::Lower(_)), Some(T::ColonColon), _) => {
             let n = name(p)?;
             kw_coloncolon(p)?;
             let t = typ(p)?;
@@ -1632,7 +1615,7 @@ pub enum Serror<'s> {
     Unexpected(Span, Option<Token<'s>>, &'static str),
     NotSimpleTypeVarBinding(Span),
     NotAConstraint(Span),
-    NotAtEOF,
+    NotAtEOF(Span, Option<Token<'s>>),
     FailedToParseDecl(Span, usize, usize, usize),
 }
 
@@ -1643,7 +1626,7 @@ impl<'s> Serror<'s> {
             (Serror::Unexpected(_, _, a), Serror::Unexpected(_, _, b)) => a == b,
             (Serror::NotSimpleTypeVarBinding(_), Serror::NotSimpleTypeVarBinding(_)) => true,
             (Serror::NotAConstraint(_), Serror::NotAConstraint(_)) => true,
-            (Serror::NotAtEOF, Serror::NotAtEOF) => true,
+            (Serror::NotAtEOF(_, _), Serror::NotAtEOF(_, _)) => true,
             (Serror::FailedToParseDecl(_, _, _, _), Serror::FailedToParseDecl(_, _, _, _)) => true,
             _ => false,
         }
@@ -1720,7 +1703,7 @@ impl<'s> P<'s> {
         }
     }
 
-    fn peekt(&self) -> Option<Token<'s>> {
+    pub fn peekt(&self) -> Option<Token<'s>> {
         if self.panic {
             None
         } else {
@@ -1741,7 +1724,7 @@ impl<'s> P<'s> {
         out
     }
 
-    fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         let s = self.tokens.get(self.i).or_else(|| self.tokens.last());
         Span::Known(
             s.map(|x| x.1.start).unwrap_or(0),

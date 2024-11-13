@@ -83,6 +83,19 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
                 || s.ends_with(" of")
         })
         .unwrap_or(false);
+
+    let implies_end = lex
+        .remainder()
+        .starts_with("in\n")
+        || lex
+        .remainder()
+        .starts_with("in ")
+        ;
+    if indent == lex.extras.1.last().copied().unwrap_or(0) && implies_end {
+        lex.extras.0 = lex.extras.1.last().copied().unwrap_or(0);
+        lex.extras.1.pop();
+        return Emit(End(lex.extras.1.len()));
+    }
     if indent > lex.extras.1.last().copied().unwrap_or(0) && implies_start {
         update_newline(lex);
         lex.extras.1.push(indent);
@@ -156,6 +169,12 @@ pub enum Token<'t> {
     RightFatArrow,
     #[token("|", priority = 3)]
     Pipe,
+    #[token("\\", priority = 3)]
+    Slash,
+    #[token("::", priority = 3)]
+    ColonColon,
+    #[token("@", priority=3)]
+    At,
     #[token("`")]
     Tick,
     #[token(",")]
@@ -218,6 +237,9 @@ pub enum Token<'t> {
     Upper(&'t str),
 
     #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+")]
+    Op(&'t str),
+
+    #[regex(r"\([!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+\)")]
     Symbol(&'t str),
 
     #[regex("\\?[_a-z][[:alnum:]]*")]
@@ -285,9 +307,8 @@ fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
         Top => {
             let out = (1..=*prev)
                 .rev()
-                .into_iter()
                 .map(|_| Token::LayEnd)
-                .chain([Token::LayTop].into_iter())
+                .chain([Token::LayTop])
                 .collect();
             *prev = 0;
             out
@@ -295,9 +316,8 @@ fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
         End(n) => {
             let out = (n + 1..=*prev)
                 .rev()
-                .into_iter()
                 .map(|_| Token::LayEnd)
-                .chain([Token::LaySep].into_iter())
+                .chain([Token::LaySep].into_iter().skip(if n == 0 {  1 } else { 0 }))
                 .collect();
             *prev = n;
             out
@@ -414,8 +434,13 @@ mod tests {
     }
 
     #[test]
-    fn symbol() {
+    fn op() {
         assert_snapshot!(p("<#>"))
+    }
+
+    #[test]
+    fn symbol() {
+        assert_snapshot!(p("(<#>)"))
     }
 
     #[test]

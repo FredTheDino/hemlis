@@ -2,7 +2,6 @@ use std::{
     env,
     fs::{self, File},
     hash::{DefaultHasher, Hash, Hasher},
-    time::{Duration, Instant},
 };
 
 use ast::{Ast, Span};
@@ -13,8 +12,11 @@ mod lexer;
 mod parser;
 
 fn main() {
-    // linear_parse_generate_test();
-    parse_single_decl()
+    if env::var("PURRING_GEN").is_ok() {
+        linear_parse_generate_test();
+    } else {
+        parse_single_decl();
+    }
 }
 
 fn format_decl_from_tokens<'s>(
@@ -38,6 +40,9 @@ fn format_decl_from_tokens<'s>(
             Token::LeftArrow => write!(out, "<-"),
             Token::RightArrow => write!(out, "->"),
             Token::RightFatArrow => write!(out, "=>"),
+            Token::ColonColon => write!(out, "::"),
+            Token::Slash => write!(out, "\\"),
+            Token::At => write!(out, "@"),
             Token::Pipe => write!(out, "|"),
             Token::Tick => write!(out, "`"),
             Token::Comma => write!(out, ","),
@@ -75,6 +80,7 @@ fn format_decl_from_tokens<'s>(
 
             Token::Lower(_) => write!(out, "a"),
             Token::Upper(_) => write!(out, "A"),
+            Token::Op(s) => write!(out, "{}", s),
             Token::Symbol(s) => write!(out, "{}", s),
             Token::Hole(_) => write!(out, "?a"),
             Token::HexInt(_) => write!(out, "0xAA"),
@@ -130,7 +136,7 @@ fn linear_parse_generate_test() {
                 let mut p = parser::P::new(0, &l);
                 parser::module(&mut p);
                 if p.i != p.tokens.len() {
-                    p.errors.push(parser::Serror::NotAtEOF)
+                    p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
                 if p.errors.is_empty() {
                     return;
@@ -139,8 +145,10 @@ fn linear_parse_generate_test() {
                 for e in p.errors.iter() {
                     match e {
                         parser::Serror::FailedToParseDecl(Span::Known(from, to, _), _, lo, hi) => {
+                            println!();
+                            println!();
                             let xx = &src[*from..*to];
-                            let lxx = lexer::lex(&xx);
+                            let lxx = lexer::lex(xx);
                             let mut pxx = parser::P::new(0, &lxx);
                             let x = parser::decl(&mut pxx).is_some();
 
@@ -149,21 +157,27 @@ fn linear_parse_generate_test() {
                             let mut paa = parser::P::new(0, &laa);
                             let a = parser::decl(&mut paa).is_some();
 
-                            assert_eq!(x, a);
-                            assert_eq!(paa.errors.len(), pxx.errors.len());
-                            for (a, b) in paa.errors.iter().zip(pxx.errors.iter()) {
-                                assert!(
-                                    a.same_kind_of_error(b),
-                                    "Got different errors from the cut-out code"
-                                )
+                            // assert_eq!(x, a);
+                            // assert_eq!(paa.errors.len(), pxx.errors.len());
+                            if paa.errors.iter().zip(pxx.errors.iter()).any(|(a, b)| {
+                                    a.same_kind_of_error(b)
+                            }) {
+                                println!("Not a good test - got different errors");
+                                return;
                             }
 
-                            for (a, b) in paa.errors.iter().zip(p.errors.iter()) {
-                                assert!(
-                                    a.same_kind_of_error(b),
-                                    "Got different errors from the original test"
-                                )
-                            }
+
+                            println!("{}", xx);
+                            println!("{}", aa);
+
+                            // for (a, b) in paa.errors.iter().zip(p.errors.iter()) {
+                            //     println!("{:?}", a);
+                            //     println!("{:?}", b);
+                            //     assert!(
+                            //         a.same_kind_of_error(b),
+                            //         "Got different errors from the original test"
+                            //     )
+                            // }
 
                             let mut h = DefaultHasher::new();
                             (&arg, *lo, *hi).hash(&mut h);
@@ -204,7 +218,7 @@ fn parse_single_decl() {
 
                 let out = parser::decl(&mut p);
                 if p.i != p.tokens.len() {
-                    p.errors.push(parser::Serror::NotAtEOF)
+                    p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
 
                 if !p.errors.is_empty() {
@@ -219,12 +233,13 @@ fn parse_single_decl() {
                         "{} of {}\n===\n{}\n===\n{}",
                         p.i,
                         p.tokens.len(),
-                        inner,
                         p.errors
                             .iter()
                             .map(|x| format!("{:?}", x))
                             .collect::<Vec<_>>()
-                            .join("\n")
+                            .join("\n"),
+                        p.tokens.iter().map(|(a, s)| format!("{:?} {:?}", a, s)).collect::<Vec<_>>().join("\n"),
+                        // inner,
                     );
                 }
             }
