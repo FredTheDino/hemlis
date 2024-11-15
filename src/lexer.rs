@@ -70,6 +70,14 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
         lex.extras.1 = Vec::new();
         return Emit(Top);
     }
+
+    let implies_end = lex.remainder().starts_with("in\n") || lex.remainder().starts_with("in ");
+    if indent == lex.extras.1.last().copied().unwrap_or(0) && implies_end {
+        lex.extras.0 = lex.extras.1.last().copied().unwrap_or(0);
+        lex.extras.1.pop();
+        return Emit(End(lex.extras.1.len()));
+    }
+
     let implies_start = lex
         .source()
         .slice(0..lex.span().start)
@@ -84,18 +92,6 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
         })
         .unwrap_or(false);
 
-    let implies_end = lex
-        .remainder()
-        .starts_with("in\n")
-        || lex
-        .remainder()
-        .starts_with("in ")
-        ;
-    if indent == lex.extras.1.last().copied().unwrap_or(0) && implies_end {
-        lex.extras.0 = lex.extras.1.last().copied().unwrap_or(0);
-        lex.extras.1.pop();
-        return Emit(End(lex.extras.1.len()));
-    }
     if indent > lex.extras.1.last().copied().unwrap_or(0) && implies_start {
         update_newline(lex);
         lex.extras.1.push(indent);
@@ -108,7 +104,9 @@ fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
         }
         return Emit(End(lex.extras.1.len()));
     }
-    if Some(&indent) == lex.extras.1.last() {
+
+    let implies_no_new_line = lex.remainder().starts_with(",") || lex.remainder().starts_with("}");
+    if Some(&indent) == lex.extras.1.last() && !implies_no_new_line {
         update_newline(lex);
         return Emit(Sep(lex.extras.1.len()));
     }
@@ -173,7 +171,7 @@ pub enum Token<'t> {
     Slash,
     #[token("::", priority = 3)]
     ColonColon,
-    #[token("@", priority=3)]
+    #[token("@", priority = 3)]
     At,
     #[token("`")]
     Tick,
@@ -317,7 +315,7 @@ fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
             let out = (n + 1..=*prev)
                 .rev()
                 .map(|_| Token::LayEnd)
-                .chain([Token::LaySep].into_iter().skip(if n == 0 {  1 } else { 0 }))
+                .chain([Token::LaySep].into_iter().skip(if n == 0 { 1 } else { 0 }))
                 .collect();
             *prev = n;
             out

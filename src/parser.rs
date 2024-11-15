@@ -864,6 +864,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
             }
+            if matches!(p.peekt(), Some(T::LaySep)) {
+                kw_sep(p)?;
+            }
             kw_in(p)?;
             let e = expr(p)?;
             Some(Expr::Ado(q, ds, b!(e)))
@@ -996,7 +999,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
 
     while let Some(labels) = if matches!(p.peekt(), Some(T::At)) {
         kw_at(p)?;
-        Some(typ(p)?)
+        Some(typ_atom(p, Some("Expected type for VTA"))?)
     } else {
         None
     } {

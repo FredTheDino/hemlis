@@ -28,7 +28,7 @@ fn format_decl_from_tokens<'s>(
 
     let mut out = BufWriter::new(Vec::new());
     let ii = 2;
-    let mut indent = 0;
+    let mut indent = 2;
     for (t, _) in &toks[lo..hi] {
         match t.unwrap() {
             Token::LeftParen => write!(out, "("),
@@ -109,7 +109,6 @@ fn format_decl_from_tokens<'s>(
                 continue;
             }
             Token::LayTop => {
-                assert_eq!(indent, ii);
                 indent -= ii;
                 write!(out, "\n{:indent$}", "", indent = indent).unwrap();
                 continue;
@@ -145,8 +144,6 @@ fn linear_parse_generate_test() {
                 for e in p.errors.iter() {
                     match e {
                         parser::Serror::FailedToParseDecl(Span::Known(from, to, _), _, lo, hi) => {
-                            println!();
-                            println!();
                             let xx = &src[*from..*to];
                             let lxx = lexer::lex(xx);
                             let mut pxx = parser::P::new(0, &lxx);
@@ -157,12 +154,17 @@ fn linear_parse_generate_test() {
                             let mut paa = parser::P::new(0, &laa);
                             let a = parser::decl(&mut paa).is_some();
 
-                            // assert_eq!(x, a);
-                            // assert_eq!(paa.errors.len(), pxx.errors.len());
+                            if x != a {
+                                continue;
+                            }
+
+                            if paa.errors.len() != pxx.errors.len() {
+                                continue;
+                            }
+
                             if paa.errors.iter().zip(pxx.errors.iter()).any(|(a, b)| {
                                     a.same_kind_of_error(b)
                             }) {
-                                println!("Not a good test - got different errors");
                                 return;
                             }
 
@@ -170,14 +172,14 @@ fn linear_parse_generate_test() {
                             println!("{}", xx);
                             println!("{}", aa);
 
-                            // for (a, b) in paa.errors.iter().zip(p.errors.iter()) {
-                            //     println!("{:?}", a);
-                            //     println!("{:?}", b);
-                            //     assert!(
-                            //         a.same_kind_of_error(b),
-                            //         "Got different errors from the original test"
-                            //     )
-                            // }
+                            for (a, b) in paa.errors.iter().zip(p.errors.iter()) {
+                                println!("A: {:?}", a);
+                                println!("B: {:?}", b);
+                                assert!(
+                                    a.same_kind_of_error(b),
+                                    "Got different errors from the original test"
+                                )
+                            }
 
                             let mut h = DefaultHasher::new();
                             (&arg, *lo, *hi).hash(&mut h);
@@ -186,7 +188,7 @@ fn linear_parse_generate_test() {
 
                             use std::io::Write;
 
-                            let mut file = File::create_new(name.clone()).unwrap();
+                            let mut file = File::create_new(name.clone()).expect(&name.clone());
                             write!(file, "{}", aa).unwrap();
                             drop(file);
 
