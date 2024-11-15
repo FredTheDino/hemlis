@@ -93,7 +93,7 @@ fn format_decl_from_tokens<'s>(
                 continue;
             }
             Token::BlockComment(_) => write!(out, "{{- -}}"),
-            Token::Lay(_) => panic!("Should pre translated to LayBegin and friends"),
+            Token::Indent(_) => panic!("Should pre translated to LayBegin and friends"),
             Token::LayBegin => {
                 indent += ii;
                 write!(out, "\n{:indent$}", "", indent = indent).unwrap();

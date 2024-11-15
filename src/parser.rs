@@ -168,9 +168,13 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
         if p.errors.len() != e {
             let ii = p.i;
             let end = p.span();
-            p.raise(Serror::FailedToParseDecl(start.merge(end), p.errors.len() - e, i, p.i));
+            p.raise(Serror::FailedToParseDecl(
+                start.merge(end),
+                p.errors.len() - e,
+                i,
+                p.i,
+            ));
         }
-        
     }
     Some(Module(h, ds))
 }
@@ -450,9 +454,7 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ<'t>> {
         (Some(T::Upper(_)), _) | (Some(T::Qual(_)), Some(T::Upper(_))) => {
             Some(Typ::Constructor(qproper(p)?))
         }
-        (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_))) => {
-            Some(Typ::Symbol(qsymbol(p)?))
-        }
+        (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_))) => Some(Typ::Symbol(qsymbol(p)?)),
 
         (Some(T::Qual(_)), Some(T::Qual(_))) => unreachable!("Illegal double-qual"),
         (Some(T::String(x) | T::RawString(x)), s) => Some(Typ::Str(string(p)?)),
@@ -546,9 +548,7 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
             kw_right_imply(p)?;
             Some(TypOp::FatArr)
         }
-        (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => {
-            Some(TypOp::Op(qop(p)?))
-        }
+        (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(TypOp::Op(qop(p)?)),
         _ => {
             typ_atom(&mut p.fork(), None)?;
             Some(TypOp::App)
@@ -709,9 +709,7 @@ enum ExprOp<'t> {
 
 fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
     match p.peek2t() {
-        (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => {
-            Some(ExprOp::Op(qop(p)?))
-        }
+        (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(ExprOp::Op(qop(p)?)),
         (Some(Token::Tick), _) => {
             kw_tick(p)?;
             let e = expr(p)?;
@@ -760,9 +758,7 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     if matches!(p.peekt(), Some(T::Where)) {
         let start = p.span();
         kw_where(p)?;
-        if matches!(p.peekt(), Some(T::LayBegin)) {
-            kw_begin(p)?;
-        }
+        kw_begin(p)?;
         let b = sep_until(
             p,
             "where-bindings",
@@ -770,9 +766,7 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
             let_binding,
             next_is!(T::LayEnd | T::LayTop),
         );
-        if matches!(p.peekt(), Some(T::LayEnd)) {
-            kw_end(p)?;
-        }
+        kw_end(p)?;
         Some(Expr::Where(start, b!(e), b))
     } else {
         Some(e)
@@ -829,18 +823,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             let start = p.span();
             kw_let(p)?;
             // Handle inline ones?
-            if matches!(p.peekt(), Some(T::LayBegin)) {
-                kw_begin(p)?;
-            }
-            let b = sep(
-                p,
-                "let-bindings",
-                kw_sep,
-                let_binding,
-            );
-            if matches!(p.peekt(), Some(T::LayEnd)) {
-                kw_end(p)?;
-            }
+            kw_begin(p)?;
+            let b = sep(p, "let-bindings", kw_sep, let_binding);
+            kw_end(p)?;
             kw_in(p)?;
             let e = b!(expr(p)?);
             Some(Expr::Let(start, b, e))
@@ -852,21 +837,10 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
                 None
             };
             kw_ado(p)?;
-            if matches!(p.peekt(), Some(T::LayBegin)) {
-                kw_begin(p)?;
-            }
-            let ds = sep(
-                p,
-                "ado-block",
-                kw_sep,
-                do_statement,
-            );
-            if matches!(p.peekt(), Some(T::LayEnd)) {
-                kw_end(p)?;
-            }
-            if matches!(p.peekt(), Some(T::LaySep)) {
-                kw_sep(p)?;
-            }
+            kw_begin(p)?;
+            let ds = sep(p, "ado-block", kw_sep, do_statement);
+            kw_end(p)?;
+            kw_sep(p)?;
             kw_in(p)?;
             let e = expr(p)?;
             Some(Expr::Ado(q, ds, b!(e)))
@@ -878,18 +852,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
                 None
             };
             kw_do(p)?;
-            if matches!(p.peekt(), Some(T::LayBegin)) {
-                kw_begin(p)?;
-            }
-            let ds = sep(
-                p,
-                "do-block",
-                kw_sep,
-                do_statement,
-            );
-            if matches!(p.peekt(), Some(T::LayEnd)) {
-                kw_end(p)?;
-            }
+            kw_begin(p)?;
+            let ds = sep(p, "do-block", kw_sep, do_statement);
+            kw_end(p)?;
             Some(Expr::Do(q, ds))
         }
         (Some(T::Slash), _) => {
@@ -905,13 +870,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             kw_case(p)?;
             let xs = sep_until(p, "case expr", kw_sep, expr, next_is!(T::Of));
             kw_of(p)?;
-            if matches!(p.peekt(), Some(T::LayBegin)) {
-                kw_begin(p)?;
-            }
+            kw_begin(p)?;
             let branches = sep(p, "case branch", kw_sep, case_branch);
-            if matches!(p.peekt(), Some(T::LayEnd)) {
-                kw_end(p)?;
-            }
+            kw_end(p)?;
             Some(Expr::Case(start, xs, branches))
         }
         (Some(T::Lower("_")), _) => {
@@ -1030,13 +991,9 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
         |p: &mut P<'t>| {
             kw_let(p)?;
             // Handle inline ones?
-            if matches!(p.peekt(), Some(T::LayBegin)) {
                 kw_begin(p)?;
-            }
             let b = sep_until(p, "let-bindings", kw_sep, let_binding, next_is!(T::LayEnd));
-            if matches!(p.peekt(), Some(T::LayEnd)) {
                 kw_end(p)?;
-            }
             Some(Some(DoStmt::Let(b)))
         },
     )?

@@ -1,13 +1,14 @@
+#![allow(non_snake_case)]
+
 use std::ops::Range;
 
-use logos::{FilterResult, Logos, Source};
+use logos::Logos;
 // NOTE: Might not support unicode?
 
 fn lex_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     while let Some(at) = lex.remainder().find("\"") {
         if at == 0 {
             lex.bump(at + 1);
-            update_newline(lex);
             return Some(lex.slice());
         }
         match lex.remainder().get(at - 1..at + 1) {
@@ -16,7 +17,6 @@ fn lex_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
             }
             _ => {
                 lex.bump(at + 1);
-                update_newline(lex);
                 return Some(lex.slice());
             }
         }
@@ -32,7 +32,6 @@ fn lex_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> 
             }
             _ => {
                 lex.bump(at + 3);
-                update_newline(lex);
                 return Some(lex.slice());
             }
         }
@@ -43,7 +42,6 @@ fn lex_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> 
 fn lex_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     if let Some(at) = lex.remainder().find("-}") {
         lex.bump(at + 2);
-        update_newline(lex);
         return Some(lex.slice());
     }
     None
@@ -51,66 +49,15 @@ fn lex_block_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t st
 
 fn lex_line_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
     if let Some(at) = lex.remainder().find("\n") {
-        lex.bump(at + 1);
-        update_newline(lex);
+        lex.bump(at);
         return Some(lex.slice());
     }
     None
 }
 
-fn lex_lay<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> FilterResult<Lay, ()> {
-    use self::Lay::*;
-    use FilterResult::*;
-
+fn lex_indent<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> usize {
     let at = lex.slice().rfind("\n").unwrap_or(0);
-    let indent = lex.span().end - lex.span().start - at - 1;
-
-    update_newline(lex);
-    if indent == 0 && lex.remainder().starts_with(|c: char| c.is_lowercase()) {
-        lex.extras.1 = Vec::new();
-        return Emit(Top);
-    }
-
-    let implies_end = lex.remainder().starts_with("in\n") || lex.remainder().starts_with("in ");
-    if indent == lex.extras.1.last().copied().unwrap_or(0) && implies_end {
-        lex.extras.0 = lex.extras.1.last().copied().unwrap_or(0);
-        lex.extras.1.pop();
-        return Emit(End(lex.extras.1.len()));
-    }
-
-    let implies_start = lex
-        .source()
-        .slice(0..lex.span().start)
-        .map(|s| {
-            s.ends_with(".do")
-                || s.ends_with(" do")
-                || s.ends_with(" ado")
-                || s.ends_with(".ado")
-                || s.ends_with(" where")
-                || s.ends_with(" let")
-                || s.ends_with(" of")
-        })
-        .unwrap_or(false);
-
-    if indent > lex.extras.1.last().copied().unwrap_or(0) && implies_start {
-        update_newline(lex);
-        lex.extras.1.push(indent);
-        return Emit(Begin(lex.extras.1.len()));
-    }
-    if indent < lex.extras.1.last().copied().unwrap_or(0) {
-        update_newline(lex);
-        while indent < lex.extras.1.last().copied().unwrap_or(0) {
-            lex.extras.1.pop();
-        }
-        return Emit(End(lex.extras.1.len()));
-    }
-
-    let implies_no_new_line = lex.remainder().starts_with(",") || lex.remainder().starts_with("}");
-    if Some(&indent) == lex.extras.1.last() && !implies_no_new_line {
-        update_newline(lex);
-        return Emit(Sep(lex.extras.1.len()));
-    }
-    Skip
+    lex.span().end - lex.span().start - at - 1
 }
 
 fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
@@ -129,18 +76,6 @@ fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
         lex.bump(at + 1);
     }
     lex.slice()
-}
-
-fn update_newline<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) {
-    lex.extras.0 = lex.span().start + lex.slice().rfind("\n").unwrap_or(0) + 1;
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Lay {
-    Top,
-    Sep(usize),
-    Begin(usize),
-    End(usize),
 }
 
 #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy)]
@@ -266,8 +201,8 @@ pub enum Token<'t> {
     #[token("{-", |lex| lex_block_comment(lex))]
     BlockComment(&'t str),
 
-    #[regex("\\s*\n\\s*", lex_lay, priority = 12)]
-    Lay(Lay),
+    #[regex("\\s*\n\\s*", lex_indent, priority = 12)]
+    Indent(usize),
 
     LayBegin,
     LayEnd,
@@ -280,55 +215,541 @@ pub fn contains_lex_errors(content: &str) -> bool {
     lex(content).into_iter().any(|x| x.0.is_err())
 }
 
-pub fn lex<'s>(content: &'s str) -> Vec<(Result<Token<'s>, ()>, Range<usize>)> {
-    let mut state = 0;
-    Token::lexer(content)
-        .spanned()
-        .map(|(x, s)| match x {
-            Ok(ok) => spread(&mut state, ok)
-                .into_iter()
-                .map(|y| (Ok::<_, ()>(y), s.clone()))
-                .collect::<Vec<_>>(),
-            _ => [(x, s)].into_iter().collect(),
-        })
-        .flatten()
-        .filter(|(x, _)| !matches!(x, Ok(Token::LineComment(_) | Token::BlockComment(_))))
-        .collect::<Vec<_>>()
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
+#[allow(clippy::enum_variant_names)]
+enum Delim {
+    LytRoot,
+    LytTopDecl,
+    LytTopDeclHead,
+    LytDeclGuard,
+    LytCase,
+    LytCaseBinders,
+    LytCaseGuard,
+    LytLambdaBinders,
+    LytParen,
+    LytBrace,
+    LytSquare,
+    LytIf,
+    LytThen,
+    LytProperty,
+    LytForall,
+    LytTick,
+    LytLet,
+    LytLetStmt,
+    LytWhere,
+    LytOf,
+    LytDo,
+    LytAdo,
 }
 
-fn spread<'t, 's>(prev: &mut usize, t: Token<'s>) -> Vec<Token<'s>> {
-    use self::Lay::*;
-    match match t {
-        Token::Lay(l) => l,
-        x => return vec![x],
-    } {
-        Top => {
-            let out = (1..=*prev)
-                .rev()
-                .map(|_| Token::LayEnd)
-                .chain([Token::LayTop])
-                .collect();
-            *prev = 0;
-            out
+impl Delim {
+    fn is_indented(&self) -> bool {
+        use Delim::*;
+        matches!(
+            self,
+            LytLet | LytLetStmt | LytWhere | LytOf | LytDo | LytAdo
+        )
+    }
+}
+
+pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
+    let mut indent = 0;
+    let mut line = 0;
+    let mut state = vec![((0, 0), Delim::LytRoot)];
+    let mut out = Vec::new();
+    let toks = Token::lexer(content).spanned().collect::<Vec<_>>();
+    for (i, (t, s)) in toks.iter().enumerate() {
+        match t {
+            Ok(Token::Indent(at)) => {
+                // We need to know the indentation of every token - even if there are tokens before it.
+                indent = s.start - at;
+                if *at == 0 {
+                    out.push((Ok(Token::LayTop), s.clone()));
+                }
+                line += 1;
+            }
+            Ok(tt) => {
+                let next = match toks.get(i + 1) {
+                    Some((Ok(Token::Indent(at)), x)) => (x.start - at, line + 1),
+                    _ => (s.end - indent, line),
+                };
+                let mut c = C {
+                    t: *tt,
+                    at: (s.start - indent, line),
+                    next,
+                    s: s.clone(),
+                    state,
+                    out,
+                };
+                process(&mut c);
+                state = c.state;
+                out = c.out;
+            }
+            Err(_) => {
+                out.push((t.clone(), s.clone()));
+            }
         }
-        End(n) => {
-            let out = (n + 1..=*prev)
-                .rev()
-                .map(|_| Token::LayEnd)
-                .chain([Token::LaySep].into_iter().skip(if n == 0 { 1 } else { 0 }))
-                .collect();
-            *prev = n;
-            out
+    }
+    out
+}
+
+struct C<'t> {
+    t: Token<'t>,
+    s: Range<usize>,
+    at: (usize, usize),
+    next: (usize, usize),
+    state: Vec<((usize, usize), Delim)>,
+    out: Vec<(Result<Token<'t>, ()>, Range<usize>)>,
+}
+
+impl<'t> C<'t> {
+    fn is_top(&self) -> bool {
+        // NOTE[et]: The original Haskell code is slightly different here - since the lexer keeps track
+        // of if it's lexing the `header` or the `body`.
+        self.at.0 == 0
+    }
+
+    fn src(&self) -> (Result<Token<'t>, ()>, Range<usize>) {
+        (Ok(self.t), self.s.clone())
+    }
+
+    fn pushStack(&mut self, t: (usize, usize), d: Delim) {
+        self.state.push((t, d))
+    }
+
+    fn popStack(&mut self) {
+        self.state.pop();
+    }
+
+    fn popIf<P>(&mut self, p: P)
+    where
+        P: Fn(Delim) -> bool,
+    {
+        if let Some((_, d)) = self.state.last() {
+            if p(*d) {
+                self.state.pop();
+            }
         }
-        Begin(x) => {
-            assert!(x == *prev + 1, "A");
-            *prev = x;
-            vec![Token::LayBegin]
+    }
+
+    fn app(&mut self, o: (Result<Token<'t>, ()>, Range<usize>)) {
+        self.out.push(o)
+    }
+
+    fn appSrc(&mut self) {
+        let s = self.src();
+        self.app(s);
+    }
+
+    fn app_(&mut self, t: Token<'t>, s: Range<usize>) {
+        self.app((Ok(t), s))
+    }
+
+    fn head(&self) -> ((usize, usize), Delim) {
+        *self.state.last().unwrap_or(&((0, 0), Delim::LytRoot))
+    }
+
+    fn head2(&self) -> (Option<Delim>, Option<Delim>) {
+        match self.state.len() {
+            0 => (None, None),
+            1 => (self.state.last().map(|x| x.1), None),
+            _ => (
+                self.state.last().map(|x| x.1),
+                self.state.get(self.state.len() - 2).map(|x| x.1),
+            ),
         }
-        Sep(x) => {
-            assert!(x == *prev, "B");
-            *prev = x;
-            vec![Token::LaySep]
+    }
+
+    fn default(&mut self) {
+        let cc = self.at.0;
+        self.collapse(|i, d| d.is_indented() && cc < i.0);
+        self.insertSep();
+        self.appSrc();
+    }
+
+    fn collapse<P>(&mut self, p: P)
+    where
+        P: Fn((usize, usize), Delim) -> bool,
+    {
+        while let Some((a, b)) = self.state.last() {
+            if p(*a, *b) {
+                println!("POPIN'! {:?}", self.t);
+                let is = b.is_indented();
+                self.popStack();
+                if is {
+                    self.app_(Token::LayEnd, self.s.clone());
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn insertStart(&mut self, d: Delim) {
+        match self.state.iter().rev().find(|(_, x)| x.is_indented()) {
+            Some((pos, _)) if self.next.0 <= pos.0 => (),
+            _ => {
+                self.pushStack(self.next, d);
+                self.app_(Token::LayBegin, self.s.clone());
+            }
+        }
+    }
+
+    fn insertEnd(&mut self) {
+        self.app_(Token::LayEnd, self.s.clone())
+    }
+
+    fn insertSep(&mut self) {
+        use Delim::*;
+        let sepP = |(x, y): (usize, usize)| -> bool { x == self.at.0 && y != self.at.1 };
+        let indentSepP = |p: (usize, usize), d: Delim| -> bool { d.is_indented() && sepP(p) };
+        match self.head() {
+            (p, LytTopDeclHead | LytTopDeclHead) if sepP(p) => {
+                self.popStack();
+                self.app_(Token::LaySep, self.s.clone());
+            }
+            (p, lyt) if indentSepP(p, lyt) => {
+                self.app_(Token::LaySep, self.s.clone());
+                if lyt == LytOf {
+                    self.pushStack(self.at, LytCaseBinders);
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+fn process(c: &mut C<'_>) {
+    use Delim::*;
+    use Token::*;
+    let cc = c.at.0;
+
+    let offsideEndP = |i: (usize, usize), d: Delim| -> bool { d.is_indented() && cc <= i.0 };
+
+    let whereP = |i: (usize, usize), d: Delim| -> bool { d == LytDo || offsideEndP(i, d) };
+
+    let indentedP = |_: (usize, usize), d: Delim| -> bool { d.is_indented() };
+
+    let offsideP = |i: (usize, usize), d: Delim| -> bool { d.is_indented() && cc < i.0 };
+
+    let inP = |_: (usize, usize), d: Delim| -> bool {
+        match d {
+            LytLet => false,
+            LytAdo => false,
+            _ => d.is_indented(),
+        }
+    };
+
+    match c.t {
+        Data => {
+            c.default();
+            if c.is_top() {
+                c.pushStack(c.at, LytTopDecl);
+            } else {
+                c.pushStack(c.at, LytProperty);
+            }
+        }
+        Class => {
+            c.default();
+            if c.is_top() {
+                c.pushStack(c.at, LytTopDeclHead);
+            } else {
+                c.pushStack(c.at, LytProperty);
+            }
+        }
+        Where => match c.head() {
+            (_, LytTopDeclHead) => {
+                c.popStack();
+                c.appSrc();
+                c.insertStart(LytWhere);
+            }
+            (_, LytProperty) => {
+                c.popStack();
+                c.appSrc();
+            }
+            _ => {
+                c.collapse(whereP);
+                c.appSrc();
+                c.insertStart(LytWhere);
+            }
+        },
+        In => {
+            c.collapse(inP);
+            match c.head2() {
+                (Some(LytLetStmt), Some(LytAdo)) => {
+                    c.popStack();
+                    c.popStack();
+                    c.insertEnd();
+                    c.insertEnd();
+                    c.appSrc();
+                }
+                (Some(lyt), _) if lyt.is_indented() => {
+                    c.popStack();
+                    c.insertEnd();
+                    c.appSrc();
+                }
+                _ => {
+                    c.default();
+                    c.popIf(|x| matches!(x, LytProperty));
+                }
+            }
+        }
+
+        Let => {
+            c.default();
+            match c.head() {
+                (_, LytProperty) => {
+                    c.popStack();
+                }
+                //////////
+                (p, LytDo | LytAdo) if p.0 == c.at.0 => c.insertStart(LytLetStmt),
+                _ => c.insertStart(LytLet),
+            }
+        }
+
+        Do => {
+            c.default();
+            match c.head() {
+                (_, LytProperty) => {
+                    c.popStack();
+                }
+                //////////
+                _ => c.insertStart(LytDo),
+            }
+        }
+        Ado => {
+            c.default();
+            match c.head() {
+                (_, LytProperty) => {
+                    c.popStack();
+                }
+                //////////
+                _ => c.insertStart(LytAdo),
+            }
+        }
+
+        Case => {
+            c.default();
+            match c.head() {
+                (_, LytProperty) => {
+                    c.popStack();
+                }
+                //////////
+                _ => c.insertStart(LytCase),
+            }
+        }
+        Of => {
+            c.collapse(indentedP);
+            match c.head() {
+                (_, LytCase) => {
+                    c.appSrc();
+                    c.insertStart(LytOf);
+                    c.pushStack(c.next, LytCaseBinders);
+                }
+                _ => {
+                    c.default();
+                    c.popIf(|x| matches!(x, LytProperty));
+                }
+            }
+        }
+
+        If => {
+            c.default();
+            match c.head() {
+                (_, LytProperty) => {
+                    c.popStack();
+                }
+                //////////
+                _ => c.pushStack(c.next, LytIf),
+            }
+        }
+        Then => {
+            c.collapse(indentedP);
+            match c.head() {
+                (_, LytIf) => {
+                    c.popStack();
+                    c.appSrc();
+                    c.pushStack(c.next, LytThen);
+                }
+                //////////
+                _ => {
+                    c.default();
+                    c.popIf(|x| matches!(x, LytProperty));
+                }
+            }
+        }
+        Else => {
+            c.collapse(indentedP);
+            match c.head() {
+                (_, LytThen) => {
+                    c.popStack();
+                    c.appSrc();
+                }
+                _ => {
+                    c.collapse(offsideP);
+                    if c.is_top() {
+                        c.appSrc();
+                    } else {
+                        c.insertSep();
+                        c.appSrc();
+                        c.popIf(|x| matches!(x, LytProperty));
+                    }
+                }
+            }
+        }
+
+        Lower("forall") => {
+            match c.head() {
+                (_, LytIf) => {
+                    c.popStack();
+                    c.appSrc();
+                    c.pushStack(c.next, LytThen);
+                }
+                //////////
+                _ => {
+                    c.default();
+                    c.pushStack(c.next, LytForall);
+                }
+            }
+        }
+
+        Slash => {
+            c.default();
+            c.pushStack(c.next, LytLambdaBinders);
+        }
+
+        RightArrow => {
+            let arrowP = |p: (usize, usize), d: Delim| -> bool {
+                match d {
+                    LytDo => true,
+                    LytOf => false,
+                    _ => offsideEndP(p, d),
+                }
+            };
+            c.collapse(arrowP);
+            let guardP = |d: Delim| -> bool {
+                matches!(d, LytCaseBinders | LytCaseGuard | LytLambdaBinders)
+            };
+            c.popIf(guardP);
+            c.appSrc();
+        }
+
+        Op("=") => {
+            let equalsP = |_: (usize, usize), d: Delim| -> bool {
+                matches!(d, LytWhere | LytLet | LytLetStmt)
+            };
+            c.collapse(equalsP);
+            match c.head() {
+                (_, LytDeclGuard) => {
+                    c.popStack();
+                    c.appSrc();
+                }
+                _ => {
+                    c.default();
+                }
+            };
+        }
+
+        Pipe => {
+            c.collapse(offsideEndP);
+            match c.head() {
+                (_, LytOf) => c.pushStack(c.next, LytCaseGuard),
+                (_, LytLet) => c.pushStack(c.next, LytDeclGuard),
+                (_, LytLetStmt) => c.pushStack(c.next, LytDeclGuard),
+                (_, LytWhere) => c.pushStack(c.next, LytDeclGuard),
+                _ => c.default(),
+            }
+        }
+
+        Tick => {
+            c.collapse(indentedP);
+            match c.head() {
+                (_, LytTick) => {
+                    c.popStack();
+                    c.appSrc();
+                }
+                _ => {
+                    c.collapse(offsideEndP);
+                    c.insertSep();
+                    c.appSrc();
+                    c.pushStack(c.next, LytTick);
+                }
+            }
+        }
+
+        Comma => {
+            c.collapse(indentedP);
+            match c.head() {
+                (_, LytBrace) => {
+                    c.appSrc();
+                    c.pushStack(c.next, LytProperty);
+                }
+                _ => {
+                    c.appSrc();
+                }
+            };
+        }
+
+        Op(".") => {
+            c.default();
+            match c.head() {
+                (_, LytForall) => {
+                    c.popStack();
+                }
+                _ => {
+                    c.pushStack(c.at, LytProperty);
+                }
+            }
+        }
+
+        LeftParen => {
+            c.default();
+            c.pushStack(c.at, LytParen);
+        }
+        LeftBrace => {
+            c.default();
+            c.pushStack(c.at, LytBrace);
+            c.pushStack(c.at, LytProperty);
+        }
+        LeftSquare => {
+            c.default();
+            c.pushStack(c.at, LytSquare);
+        }
+        RightParen => {
+            c.collapse(indentedP);
+            c.popIf(|x| matches!(x, LytParen));
+            c.appSrc();
+        }
+        RightBrace => {
+            c.collapse(indentedP);
+            c.popIf(|x| matches!(x, LytProperty));
+            c.popIf(|x| matches!(x, LytBrace));
+            c.appSrc();
+        }
+        RightSquare => {
+            c.collapse(indentedP);
+            c.popIf(|x| matches!(x, LytSquare));
+            c.appSrc();
+        }
+
+        String(_) | RawString(_) => {
+            c.default();
+            c.popIf(|x| matches!(x, LytProperty));
+        }
+
+        Lower(_) => {
+            c.default();
+            c.popIf(|x| matches!(x, LytProperty));
+        }
+
+        Op(_) => {
+            c.collapse(offsideEndP);
+            c.insertSep();
+            c.appSrc();
+        }
+
+        _ => {
+            c.default();
         }
     }
 }
