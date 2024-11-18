@@ -145,6 +145,7 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
     let mut ds = Vec::new();
     loop {
         if !p.skip_until(|x| matches!(x, T::LayTop)) {
+            println!("C");
             break;
         }
 
@@ -153,6 +154,7 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
         }
 
         if p.peekt().is_none() {
+            println!("B");
             break;
         }
 
@@ -166,6 +168,7 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
         p.recover();
 
         if !p.skip_until(|x| matches!(x, T::LayTop)) {
+            println!("A");
             break;
         }
 
@@ -1748,13 +1751,18 @@ impl<'s> P<'s> {
     where
         F: Fn(Token<'s>) -> bool,
     {
-        while let (Some(x), _) = self.peek_() {
-            if f(x) {
-                return true;
-            } else {
-                self.skip()
+        loop {
+            if self.i > self.tokens.len() {
+                break;
             }
+            if let (Some(x), _) = self.peek_() {
+                if f(x) {
+                    return true;
+                }
+            }
+            self.skip();
         }
+        dbg!(self.peek_());
         false
     }
 

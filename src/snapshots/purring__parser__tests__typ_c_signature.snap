@@ -40,14 +40,14 @@ Typ::Forall
  Typ::Constrained
   Constraint
    QProperName
-    61..66
+    NULL
     ProperName
      61..66
     Typ::App
      Typ::App
       Typ::Constructor
        QProperName
-        68..69
+        NULL
         ProperName
          68..69
       Typ::Var
@@ -55,7 +55,7 @@ Typ::Forall
         70..73
      Typ::Constructor
       QProperName
-       74..75
+       NULL
        ProperName
         74..75
     Typ::Var
@@ -64,7 +64,7 @@ Typ::Forall
   Typ::Constrained
    Constraint
     QProperName
-     89..101
+     NULL
      ProperName
       89..101
      Typ::Var
@@ -73,7 +73,7 @@ Typ::Forall
    Typ::Constrained
     Constraint
      QProperName
-      111..126
+      NULL
       ProperName
        111..126
       Typ::Var
@@ -85,7 +85,7 @@ Typ::Forall
     Typ::Constrained
      Constraint
       QProperName
-       142..152
+       NULL
        ProperName
         142..152
        Typ::Var
@@ -97,7 +97,7 @@ Typ::Forall
      Typ::Constrained
       Constraint
        QProperName
-        170..184
+        NULL
         ProperName
          170..184
         Typ::Var
@@ -118,14 +118,14 @@ Typ::Forall
       Typ::Constrained
        Constraint
         QProperName
-         220..225
+         NULL
          ProperName
           220..225
          Typ::App
           Typ::App
            Typ::Constructor
             QProperName
-             227..228
+             NULL
              ProperName
               227..228
            Typ::Var
@@ -133,7 +133,7 @@ Typ::Forall
              229..232
           Typ::Constructor
            QProperName
-            233..234
+            NULL
             ProperName
              233..234
          Typ::Var
@@ -142,7 +142,7 @@ Typ::Forall
        Typ::Constrained
         Constraint
          QProperName
-          248..260
+          NULL
           ProperName
            248..260
           Typ::Var
@@ -151,7 +151,7 @@ Typ::Forall
         Typ::Constrained
          Constraint
           QProperName
-           270..285
+           NULL
            ProperName
             270..285
            Typ::Var
@@ -165,7 +165,7 @@ Typ::Forall
            Typ::App
             Typ::Constructor
              QProperName
-              301..306
+              NULL
               ProperName
                301..306
             Typ::Var
@@ -179,7 +179,7 @@ Typ::Forall
             Typ::App
              Typ::Constructor
               QProperName
-               324..329
+               NULL
                ProperName
                 324..329
              Typ::Var
@@ -193,7 +193,7 @@ Typ::Forall
              Typ::App
               Typ::Constructor
                QProperName
-                348..354
+                NULL
                 ProperName
                  348..354
               Typ::Var
@@ -202,7 +202,7 @@ Typ::Forall
              Typ::App
               Typ::Constructor
                QProperName
-                362..368
+                NULL
                 ProperName
                  362..368
               Typ::Var
@@ -211,12 +211,12 @@ Typ::Forall
             Typ::App
              Typ::Constructor
               QProperName
-               380..383
+               NULL
                ProperName
                 380..383
              Typ::Constructor
               QProperName
-               384..388
+               NULL
                ProperName
                 384..388
 ===

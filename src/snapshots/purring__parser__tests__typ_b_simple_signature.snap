@@ -7,13 +7,13 @@ expression: "p_typ(\"Foo => Bar => b -> b\")"
 Typ::Constrained
  Constraint
   QProperName
-   0..3
+   NULL
    ProperName
     0..3
  Typ::Constrained
   Constraint
    QProperName
-    7..10
+    NULL
     ProperName
      7..10
   Typ::Arr

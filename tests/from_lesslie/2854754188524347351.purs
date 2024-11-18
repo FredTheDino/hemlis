@@ -28,3 +28,14 @@ paymentVouchers exchangeRateToSEK payment invoiceDate { invoiceId, transactionKi
             in
               Right { invoiceId }
     pure { voucher }
+
+--+ expected stdout:
+--+ B
+--+ 103 of 103
+--+ ===
+--+ Unexpected(Known(0, 15, 0), Some(Lower("paymentVouchers")), "T::Lower(\"module\")")
+--+ >>>>>
+--+ paymentVouchers exchangeRateToSEK payment invoiceDate { invoiceId, transactionKind, balance } creditInvoices =
+--+ <<<<<<
+--+ ===
+

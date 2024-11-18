@@ -1,14 +1,20 @@
-a = do 
-  A.a { a : "a", a } 
-  A.a
+a =
+  let 
+    a = ado 
+      a
+      in { }
+
+    b = foo
+    
+  in 1
 
 --+ expected stdout:
 --+ B
---+ 16 of 16
+--+ 20 of 20
 --+ ===
 --+ Unexpected(Known(0, 1, 0), Some(Lower("a")), "T::Lower(\"module\")")
 --+ >>>>>
---+ a = do 
+--+ a =
 --+ <<<<<<
 --+ ===
 

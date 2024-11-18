@@ -7,7 +7,7 @@ expression: "p_expr(\"foo { a = 1, b = { c = 1 }, d = { e: 1 } }\")"
 Expr::Update
  Expr::Ident
   QName
-   0..3
+   NULL
    Name
     0..3
   RecordUpdate::Leaf

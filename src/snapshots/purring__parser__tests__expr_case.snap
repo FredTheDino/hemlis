@@ -11,7 +11,7 @@ Expr::Case
     Number
      14..15
    QOp
-    16..17
+    NULL
     Op
      16..17
    Expr::Number
@@ -24,7 +24,7 @@ Expr::Case
    GuardedExpr::Unconditional
     Expr::Ident
      QName
-      40..43
+      NULL
       Name
        40..43
   CaseBranch
@@ -37,28 +37,27 @@ Expr::Case
         Binder::App
          Binder::Constructor
           QProperName
-           60..64
+           NULL
            ProperName
             60..64
-         Binder::Var
-          Name
-           65..66
+         Binder::Wildcard
+          65..66
         Expr::App
          Expr::Ident
           QName
-           70..73
+           NULL
            Name
             70..73
          Expr::Ident
           QName
-           74..77
+           NULL
            Name
             74..77
       Expr::Where
        105..110
        Expr::Ident
         QName
-         81..84
+         NULL
          Name
           81..84
         LetBinding::Pattern

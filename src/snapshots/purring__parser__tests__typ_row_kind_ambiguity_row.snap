@@ -4,13 +4,17 @@ expression: "p_typ(\"( a :: A )\")"
 ---
 5 of 5
 ===
-Typ::Kinded
- Typ::Var
-  Name
-   2..3
- Typ::Constructor
-  QProperName
-   7..8
-   ProperName
-    7..8
+Typ::Row
+ 0..10
+  Row
+    (
+     Label
+      2..3
+     Typ::Constructor
+      QProperName
+       NULL
+       ProperName
+        7..8
+    )
+   NULL
 ===

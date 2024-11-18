@@ -7,7 +7,7 @@ expression: "p_expr(\"foo { a : 1 }\")"
 Expr::App
  Expr::Ident
   QName
-   0..3
+   NULL
    Name
     0..3
  Expr::Record

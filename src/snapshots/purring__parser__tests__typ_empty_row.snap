@@ -5,7 +5,7 @@ expression: "p_typ(\"()\")"
 2 of 2
 ===
 Typ::Row
- 0..1
+ 0..2
   Row
    NULL
 ===

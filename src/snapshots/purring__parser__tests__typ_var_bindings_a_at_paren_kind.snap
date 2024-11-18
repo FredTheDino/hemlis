@@ -9,7 +9,7 @@ TypVarBinding
   3..4
  Typ::Constructor
   QProperName
-   8..12
+   NULL
    ProperName
     8..12
 ===

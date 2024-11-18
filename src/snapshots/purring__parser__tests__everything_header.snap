@@ -2,15 +2,12 @@
 source: src/parser.rs
 expression: "p_header(r#\"\nmodule A.B.C (a, class B, C, D(..), E(F, G), \n (+), type (+), module H) where\n\nimport A\nimport A as A\nimport A.B.C as A.C\nimport A.B.C (a, class B, \n C, D(..), E(F, G), (+), type (+))\nimport A.B.C hiding (foo)\n        \"#)"
 ---
-97 of 97
+82 of 81
 ===
 Header
  QProperName
-  8..10
-    Qual
-     8..10
-    Qual
-     10..12
+  Qual
+   8..12
   ProperName
    12..13
   Export::Value
@@ -36,51 +33,44 @@ Header
       42..43
   Export::Symbol
    Symbol
-    49..50
+    48..51
   Export::TypSymbol
    Symbol
-    59..60
+    58..61
   Export::Module
    QProperName
-    70..71
+    NULL
     ProperName
      70..71
   ImportDecl::Bulk
    QProperName
-    87..88
+    NULL
     ProperName
      87..88
   ImportDecl::As
    QProperName
-    96..97
+    NULL
     ProperName
      96..97
    QProperName
-    101..102
+    NULL
     ProperName
      101..102
   ImportDecl::As
    QProperName
-    110..112
-      Qual
-       110..112
-      Qual
-       112..114
+    Qual
+     110..114
     ProperName
      114..115
    QProperName
-    119..121
-      Qual
-       119..121
+    Qual
+     119..121
     ProperName
      121..122
   ImportDecl::Multiple
    QProperName
-    130..132
-      Qual
-       130..132
-      Qual
-       132..134
+    Qual
+     130..134
     ProperName
      134..135
     Import::Value
@@ -106,17 +96,14 @@ Header
         166..167
     Import::Symbol
      Symbol
-      171..172
+      170..173
     Import::TypSymbol
      Symbol
-      181..182
+      180..183
   ImportDecl::Hiding
    QProperName
-    192..194
-      Qual
-       192..194
-      Qual
-       194..196
+    Qual
+     192..196
     ProperName
      196..197
     Import::Value

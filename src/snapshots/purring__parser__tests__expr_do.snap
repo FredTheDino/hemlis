@@ -5,6 +5,7 @@ expression: "p_expr(r\"\n        do\n            a <- f 2\n            b <- g a\
 31 of 31
 ===
 Expr::Do
+ NULL
   DoStmt::Stmt
    Binder::Var
     Name
@@ -12,7 +13,7 @@ Expr::Do
    Expr::App
     Expr::Ident
      QName
-      29..30
+      NULL
       Name
        29..30
     Expr::Number
@@ -25,12 +26,12 @@ Expr::Do
    Expr::App
     Expr::Ident
      QName
-      50..51
+      NULL
       Name
        50..51
     Expr::Ident
      QName
-      52..53
+      NULL
       Name
        52..53
   DoStmt::Stmt
@@ -39,7 +40,7 @@ Expr::Do
     Expr::App
      Expr::Ident
       QName
-       66..70
+       NULL
        Name
         66..70
      Expr::Number
@@ -61,23 +62,23 @@ Expr::Do
    Expr::App
     Expr::Ident
      QName
-      126..130
+      NULL
       Name
        126..130
     Expr::Paren
      Expr::Op
       Expr::Ident
        QName
-        132..133
+        NULL
         Name
          132..133
       QOp
-       134..135
+       NULL
        Op
         134..135
       Expr::Ident
        QName
-        136..137
+        NULL
         Name
          136..137
 ===

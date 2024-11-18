@@ -12,7 +12,7 @@ Typ::Forall
  Typ::Constrained
   Constraint
    QProperName
-    10..16
+    NULL
     ProperName
      10..16
     Typ::Var

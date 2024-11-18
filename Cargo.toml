@@ -11,6 +11,7 @@ purring_macros = { path = "purring_macros/" }
 
 [dev-dependencies]
 insta = "1.40.0"
+goldentests = "1.1"
 
 [build-dependencies]
 lalrpop = "0.22.0"

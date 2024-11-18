@@ -9,7 +9,7 @@ Expr::Op
   Number
    0..1
  QOp
-  2..3
+  NULL
   Op
    2..3
  Expr::Number

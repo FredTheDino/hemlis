@@ -6,11 +6,11 @@ expression: "p_import(\"import A as A\")"
 ===
 ImportDecl::As
  QProperName
-  7..8
+  NULL
   ProperName
    7..8
  QProperName
-  12..13
+  NULL
   ProperName
    12..13
 ===

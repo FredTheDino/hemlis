@@ -4,7 +4,7 @@ expression: "p(\"forall f. Monad f => f a -> f Unit\")"
 ---
 Ok(Lower("forall"))
 Ok(Lower("f"))
-Ok(Symbol("."))
+Ok(Op("."))
 Ok(Upper("Monad"))
 Ok(Lower("f"))
 Ok(RightFatArrow)

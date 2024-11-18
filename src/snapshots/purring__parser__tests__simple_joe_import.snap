@@ -6,7 +6,7 @@ expression: "p_import(\"import Joe\")"
 ===
 ImportDecl::Bulk
  QProperName
-  7..10
+  NULL
   ProperName
    7..10
 ===

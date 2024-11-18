@@ -3,5 +3,6 @@ source: src/lexer.rs
 expression: "p(\"a + -- this is a comment\\nb\")"
 ---
 Ok(Lower("a"))
-Ok(Symbol("+"))
+Ok(Op("+"))
+Ok(LayTop)
 Ok(Lower("b"))

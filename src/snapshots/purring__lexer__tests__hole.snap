@@ -3,7 +3,7 @@ source: src/lexer.rs
 expression: "p(\"a = ?foo 1 2\")"
 ---
 Ok(Lower("a"))
-Ok(Symbol("="))
+Ok(Op("="))
 Ok(Hole("?foo"))
 Ok(Number("1"))
 Ok(Number("2"))

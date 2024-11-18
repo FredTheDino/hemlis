@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\"let x = 1 in 2\")"
 ---
-6 of 6
+8 of 8
 ===
 Expr::Let
  0..3

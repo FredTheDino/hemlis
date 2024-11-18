@@ -254,12 +254,16 @@ fn parse_modules() {
                             })
                             .collect::<Vec<_>>()
                             .join("\n"),
-                        "" /*p.tokens
-                           .iter()
-                           .map(|(a, s)| format!("{:?} {:?}", a, s))
-                           .collect::<Vec<_>>()
-                           .join("\n"), // */
-                           // inner,
+                        if env::var("PURRING_TOKENS").is_ok() {
+                            p.tokens
+                                .iter()
+                                .map(|(a, s)| format!("{:?} {:?}", a, s))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        } else {
+                            "".to_string()
+                        },
+                        // inner,
                     );
                 }
             }

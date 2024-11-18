@@ -1,5 +1,5 @@
 ---
 source: src/lexer.rs
-expression: "p(\"<#>\")"
+expression: "p(\"(<#>)\")"
 ---
-Ok(Symbol("<#>"))
+Ok(Symbol("(<#>)"))

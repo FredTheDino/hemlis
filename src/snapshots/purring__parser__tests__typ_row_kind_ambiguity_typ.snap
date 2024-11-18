@@ -7,12 +7,12 @@ expression: "p_typ(\"A :: Type\")"
 Typ::Kinded
  Typ::Constructor
   QProperName
-   0..1
+   NULL
    ProperName
     0..1
  Typ::Constructor
   QProperName
-   5..9
+   NULL
    ProperName
     5..9
 ===

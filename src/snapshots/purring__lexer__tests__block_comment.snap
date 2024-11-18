@@ -3,5 +3,5 @@ source: src/lexer.rs
 expression: "p(\"a + {- this\\n is\\n a\\n comment\\n -} b\")"
 ---
 Ok(Lower("a"))
-Ok(Symbol("+"))
+Ok(Op("+"))
 Ok(Lower("b"))

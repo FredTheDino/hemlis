@@ -7,17 +7,17 @@ expression: "p_expr(\"a `b` c\")"
 Expr::Infix
  Expr::Ident
   QName
-   0..1
+   NULL
    Name
     0..1
  Expr::Ident
   QName
-   3..4
+   NULL
    Name
     3..4
  Expr::Ident
   QName
-   6..7
+   NULL
    Name
     6..7
 ===

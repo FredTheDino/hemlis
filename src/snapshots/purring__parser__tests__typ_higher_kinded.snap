@@ -8,7 +8,7 @@ Typ::App
  Typ::App
   Typ::Constructor
    QProperName
-    0..3
+    NULL
     ProperName
      0..3
   Typ::Var

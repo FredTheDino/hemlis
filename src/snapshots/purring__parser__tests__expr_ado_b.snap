@@ -5,6 +5,7 @@ expression: "p_expr(r\" ado\n                    a <- f 2\n                    i
 9 of 11
 ===
 Expr::Ado
+ NULL
   DoStmt::Stmt
    Binder::Var
     Name
@@ -12,7 +13,7 @@ Expr::Ado
    Expr::App
     Expr::Ident
      QName
-      30..31
+      NULL
       Name
        30..31
     Expr::Number
@@ -20,7 +21,7 @@ Expr::Ado
       32..33
  Expr::Ident
   QName
-   57..58
+   NULL
    Name
     57..58
 ===

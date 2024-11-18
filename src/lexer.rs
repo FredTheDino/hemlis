@@ -267,7 +267,7 @@ pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
             Ok(Token::Indent(at)) => {
                 // We need to know the indentation of every token - even if there are tokens before it.
                 indent = s.start - at;
-                if *at == 0 {
+                if *at == 0 && !matches!(out.last(), Some((Ok(Token::LayTop), _))) {
                     out.push((Ok(Token::LayTop), s.clone()));
                 }
                 line += 1;

@@ -16,7 +16,7 @@ Typ::Forall
  Typ::Constrained
   Constraint
    QProperName
-    13..16
+    NULL
     ProperName
      13..16
     Typ::Var
@@ -28,7 +28,7 @@ Typ::Forall
   Typ::Constrained
    Constraint
     QProperName
-     24..27
+     NULL
      ProperName
       24..27
      Typ::Var
