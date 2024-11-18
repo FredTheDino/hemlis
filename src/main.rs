@@ -162,12 +162,14 @@ fn linear_parse_generate_test() {
                                 continue;
                             }
 
-                            if paa.errors.iter().zip(pxx.errors.iter()).any(|(a, b)| {
-                                    a.same_kind_of_error(b)
-                            }) {
+                            if paa
+                                .errors
+                                .iter()
+                                .zip(pxx.errors.iter())
+                                .any(|(a, b)| a.same_kind_of_error(b))
+                            {
                                 return;
                             }
-
 
                             println!("{}", xx);
                             println!("{}", aa);
@@ -218,7 +220,7 @@ fn parse_single_decl() {
                 let l = lexer::lex(&src);
                 let mut p = parser::P::new(0, &l);
 
-                let out = parser::decl(&mut p);
+                let out = parser::module(&mut p);
                 if p.i != p.tokens.len() {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
@@ -240,7 +242,11 @@ fn parse_single_decl() {
                             .map(|x| format!("{:?}", x))
                             .collect::<Vec<_>>()
                             .join("\n"),
-                        p.tokens.iter().map(|(a, s)| format!("{:?} {:?}", a, s)).collect::<Vec<_>>().join("\n"),
+                        ""/*p.tokens
+                            .iter()
+                            .map(|(a, s)| format!("{:?} {:?}", a, s))
+                            .collect::<Vec<_>>()
+                            .join("\n"),*/
                         // inner,
                     );
                 }

@@ -257,7 +257,10 @@ pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
     let mut line = 0;
     let mut state = vec![((0, 0), Delim::LytRoot)];
     let mut out = Vec::new();
-    let toks = Token::lexer(content).spanned().collect::<Vec<_>>();
+    let toks = Token::lexer(content)
+        .spanned()
+        .filter(|(t, _)| !matches!(t, Ok(Token::LineComment(_) | Token::BlockComment(_))))
+        .collect::<Vec<_>>();
     for (i, (t, s)) in toks.iter().enumerate() {
         match t {
             Ok(Token::Indent(at)) => {
@@ -279,20 +282,23 @@ pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
                     next,
                     s: s.clone(),
                     state,
-                    out,
+                    out: Vec::new(),
                 };
                 process(&mut c);
                 state = c.state;
-                out = c.out;
+                for t in c.out {
+                    out.push(t);
+                }
             }
             Err(_) => {
-                out.push((t.clone(), s.clone()));
+                out.push((*t, s.clone()));
             }
         }
     }
     out
 }
 
+#[derive(Clone)]
 struct C<'t> {
     t: Token<'t>,
     s: Range<usize>,
@@ -372,16 +378,13 @@ impl<'t> C<'t> {
         P: Fn((usize, usize), Delim) -> bool,
     {
         while let Some((a, b)) = self.state.last() {
-            if p(*a, *b) {
-                println!("POPIN'! {:?}", self.t);
-                let is = b.is_indented();
-                self.popStack();
-                if is {
-                    self.app_(Token::LayEnd, self.s.clone());
-                }
-            } else {
+            if !p(*a, *b) {
                 break;
             }
+            if b.is_indented() {
+                self.app_(Token::LayEnd, self.s.clone());
+            }
+            self.popStack();
         }
     }
 
@@ -564,9 +567,11 @@ fn process(c: &mut C<'_>) {
             }
         }
         Then => {
-            c.collapse(indentedP);
-            match c.head() {
+            let mut cc = c.clone();
+            cc.collapse(indentedP);
+            match cc.head() {
                 (_, LytIf) => {
+                    c.collapse(indentedP);
                     c.popStack();
                     c.appSrc();
                     c.pushStack(c.next, LytThen);
@@ -579,9 +584,11 @@ fn process(c: &mut C<'_>) {
             }
         }
         Else => {
-            c.collapse(indentedP);
-            match c.head() {
+            let mut cc = c.clone();
+            cc.collapse(indentedP);
+            match cc.head() {
                 (_, LytThen) => {
+                    c.collapse(indentedP);
                     c.popStack();
                     c.appSrc();
                 }
@@ -638,9 +645,11 @@ fn process(c: &mut C<'_>) {
             let equalsP = |_: (usize, usize), d: Delim| -> bool {
                 matches!(d, LytWhere | LytLet | LytLetStmt)
             };
-            c.collapse(equalsP);
-            match c.head() {
+            let mut cc = c.clone();
+            cc.collapse(equalsP);
+            match cc.head() {
                 (_, LytDeclGuard) => {
+                    c.collapse(equalsP);
                     c.popStack();
                     c.appSrc();
                 }
@@ -651,20 +660,39 @@ fn process(c: &mut C<'_>) {
         }
 
         Pipe => {
-            c.collapse(offsideEndP);
-            match c.head() {
-                (_, LytOf) => c.pushStack(c.next, LytCaseGuard),
-                (_, LytLet) => c.pushStack(c.next, LytDeclGuard),
-                (_, LytLetStmt) => c.pushStack(c.next, LytDeclGuard),
-                (_, LytWhere) => c.pushStack(c.next, LytDeclGuard),
+            let mut cc = c.clone();
+            cc.collapse(offsideEndP);
+            match cc.head() {
+                (_, LytOf) => {
+                    c.collapse(offsideEndP);
+                    c.pushStack(c.next, LytCaseGuard);
+                    c.appSrc();
+                }
+                (_, LytLet) => {
+                    c.collapse(offsideEndP);
+                    c.pushStack(c.next, LytDeclGuard);
+                    c.appSrc();
+                }
+                (_, LytLetStmt) => {
+                    c.collapse(offsideEndP);
+                    c.pushStack(c.next, LytDeclGuard);
+                    c.appSrc();
+                }
+                (_, LytWhere) => {
+                    c.collapse(offsideEndP);
+                    c.pushStack(c.next, LytDeclGuard);
+                    c.appSrc();
+                }
                 _ => c.default(),
             }
         }
 
         Tick => {
-            c.collapse(indentedP);
-            match c.head() {
+            let mut cc = c.clone();
+            cc.collapse(indentedP);
+            match cc.head() {
                 (_, LytTick) => {
+                    c.collapse(indentedP);
                     c.popStack();
                     c.appSrc();
                 }
