@@ -152,6 +152,10 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
             kw_top(p)?;
         }
 
+        if p.peekt().is_none() {
+            break;
+        }
+
         let start = p.span();
         let i = p.i;
         let e = p.errors.len();
@@ -188,6 +192,9 @@ fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
     let exports = exports(p);
     p.recover();
     kw_where(p)?;
+    if matches!(p.peekt(), Some(T::LayBegin)) {
+        p.skip();
+    }
     let imports = imports(p);
     Some(Header(name, exports, imports))
 }
@@ -356,6 +363,11 @@ fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
 }
 
 fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
+    if next_is!(T::Symbol("(..)"))(p) {
+        p.skip();
+        return Some(DataMember::All);
+    }
+
     kw_lp(p)?;
     let out = match p.peek().0 {
         Some(T::Op("..")) => {
@@ -1589,6 +1601,17 @@ impl<'s> Serror<'s> {
             (Serror::NotAtEOF(_, _), Serror::NotAtEOF(_, _)) => true,
             (Serror::FailedToParseDecl(_, _, _, _), Serror::FailedToParseDecl(_, _, _, _)) => true,
             _ => false,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            Serror::Info(_) => Span::Zero,
+            Serror::Unexpected(a, _, _) => *a,
+            Serror::NotSimpleTypeVarBinding(a) => *a,
+            Serror::NotAConstraint(a) => *a,
+            Serror::NotAtEOF(a, _) => *a,
+            Serror::FailedToParseDecl(a, _, _, _) => *a,
         }
     }
 }

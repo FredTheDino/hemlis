@@ -219,6 +219,7 @@ pub fn contains_lex_errors(content: &str) -> bool {
 #[allow(clippy::enum_variant_names)]
 enum Delim {
     LytRoot,
+    LytModuleDecl,
     LytTopDecl,
     LytTopDeclHead,
     LytDeclGuard,
@@ -444,6 +445,12 @@ fn process(c: &mut C<'_>) {
     };
 
     match c.t {
+        Lower("module") => {
+            if c.is_top() {
+                c.pushStack(c.at, LytModuleDecl);
+            }
+            c.default();
+        }
         Data => {
             c.default();
             if c.is_top() {
@@ -467,6 +474,10 @@ fn process(c: &mut C<'_>) {
                 c.insertStart(LytWhere);
             }
             (_, LytProperty) => {
+                c.popStack();
+                c.appSrc();
+            }
+            (_, LytModuleDecl) => {
                 c.popStack();
                 c.appSrc();
             }

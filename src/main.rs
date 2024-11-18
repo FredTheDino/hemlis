@@ -15,7 +15,7 @@ fn main() {
     if env::var("PURRING_GEN").is_ok() {
         linear_parse_generate_test();
     } else {
-        parse_single_decl();
+        parse_modules();
     }
 }
 
@@ -204,7 +204,7 @@ fn linear_parse_generate_test() {
         });
 }
 
-fn parse_single_decl() {
+fn parse_modules() {
     let args = env::args()
         .map(|x| x.to_string())
         .skip(1)
@@ -228,7 +228,7 @@ fn parse_single_decl() {
                 if !p.errors.is_empty() {
                     let mut buf = BufWriter::new(Vec::new());
                     out.show(0, &mut buf).unwrap();
-                    let inner = String::from_utf8(
+                    let _inner = String::from_utf8(
                         buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap(),
                     )
                     .map_err(|x| format!("{:?}", x))
@@ -239,15 +239,27 @@ fn parse_single_decl() {
                         p.tokens.len(),
                         p.errors
                             .iter()
-                            .map(|x| format!("{:?}", x))
+                            .map(|x| {
+                                let xx = match x.span() {
+                                    Span::Known(lo, hi, _) => {
+                                        assert!(lo < hi);
+                                        let lo = src[..lo].rfind("\n").unwrap_or(lo);
+                                        let hi = src[hi..].find("\n").map(|x| x + hi).unwrap_or(hi);
+                                        assert!(lo < hi);
+                                        &src[lo..hi]
+                                    }
+                                    Span::Zero => "-- NO SOURCE",
+                                };
+                                format!("{:?}\n>>>>>\n{}\n<<<<<<", x, xx)
+                            })
                             .collect::<Vec<_>>()
                             .join("\n"),
-                        ""/*p.tokens
-                            .iter()
-                            .map(|(a, s)| format!("{:?} {:?}", a, s))
-                            .collect::<Vec<_>>()
-                            .join("\n"),*/
-                        // inner,
+                        "" /*p.tokens
+                           .iter()
+                           .map(|(a, s)| format!("{:?} {:?}", a, s))
+                           .collect::<Vec<_>>()
+                           .join("\n"), // */
+                           // inner,
                     );
                 }
             }
