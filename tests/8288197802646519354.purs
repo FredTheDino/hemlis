@@ -1,7 +1,11 @@
-a = case 1 of
-      1 -> A.do
-          1
-      1 -> 1
+module T where
+
+a =
+  case 1 of
+    1 ->
+      A.do
+        1
+    1 -> 1
 
 --+ expected stdout:
 --+ B
@@ -12,4 +16,3 @@ a = case 1 of
 --+ a = case 1 of
 --+ <<<<<<
 --+ ===
-

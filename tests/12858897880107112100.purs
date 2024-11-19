@@ -1,3 +1,5 @@
+module T where
+
 a (A { a: a }) = 1
 
 --+ expected stdout:
@@ -9,4 +11,3 @@ a (A { a: a }) = 1
 --+ a (A { a: a }) = 1
 --+ <<<<<<
 --+ ===
-

@@ -1,4 +1,6 @@
-a :: A -> { a :: A , a :: A } -> A a a A
+module T where
+
+a :: A -> { a :: A, a :: A } -> A a a A
 
 --+ expected stdout:
 --+ B
@@ -9,4 +11,3 @@ a :: A -> { a :: A , a :: A } -> A a a A
 --+ a :: A -> { a :: A , a :: A } -> A a a A
 --+ <<<<<<
 --+ ===
-

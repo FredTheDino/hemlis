@@ -1,3 +1,4 @@
-type role Set representational
+module T where
 
+type role Set representational
 

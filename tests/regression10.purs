@@ -1,3 +1,5 @@
+module T where
+
 f =
   case 1 of
     SEK ->
@@ -13,5 +15,4 @@ f =
     3 -> baz
       where
       baz = 3
-
 

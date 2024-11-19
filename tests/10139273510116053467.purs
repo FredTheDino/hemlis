@@ -1,11 +1,19 @@
-a = let 
+module T where
+
+a =
+  let
     a = a
-  in A.ado 
+  in
+  A.ado
     a <- A.a
-    in A.a ( \a ->
-            A.ado 
+    in
+      A.a
+        ( \a ->
+            A.ado
               a <- A.a
-              in A a) a
+              in A a
+        )
+        a
 
 --+ expected stdout:
 --+ B
@@ -16,4 +24,3 @@ a = let
 --+ a = let 
 --+ <<<<<<
 --+ ===
-

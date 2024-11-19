@@ -1,6 +1,9 @@
-a = do 
-  A.a { a : "a", a } 
-  A.a
+module T where
+
+a =
+  do
+    A.a { a: "a", a }
+    A.a
 
 --+ expected stdout:
 --+ B
@@ -11,4 +14,3 @@ a = do
 --+ a = do 
 --+ <<<<<<
 --+ ===
-

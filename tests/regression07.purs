@@ -1,3 +1,4 @@
-f = ado in 1
+module T where
 
+f = ado in 1
 

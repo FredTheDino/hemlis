@@ -1,3 +1,5 @@
+module T where
+
 a =
   let
     -- A
@@ -14,5 +16,4 @@ a =
       )
   in
   1
-
 

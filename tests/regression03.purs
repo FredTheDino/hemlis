@@ -1,3 +1,4 @@
-a (X a /\ b) = a * b
+module T where
 
+a (X a /\ b) = a * b
 

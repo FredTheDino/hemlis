@@ -1,3 +1,5 @@
+module T where
+
 a = A.a (<>)
 
 --+ expected stdout:
@@ -9,4 +11,3 @@ a = A.a (<>)
 --+ a = A.a (<>)
 --+ <<<<<<
 --+ ===
-

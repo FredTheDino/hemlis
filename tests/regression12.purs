@@ -1,3 +1,4 @@
+module T where
 a ps =
   case unit of
     -- A

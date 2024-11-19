@@ -1,12 +1,16 @@
+module T where
+
 a =
-  let 
-    a = ado 
-      a
-      in { }
+  let
+    a =
+      ado
+        a
+        in {}
 
     b = foo
-    
-  in 1
+
+  in
+  1
 
 --+ expected stdout:
 --+ B
@@ -17,4 +21,3 @@ a =
 --+ a =
 --+ <<<<<<
 --+ ===
-
