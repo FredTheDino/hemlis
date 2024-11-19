@@ -325,6 +325,30 @@ where
     out
 }
 
+fn sep_until_<'t, FE, E>(p: &mut P<'t>, err: &'static str, e: FE) -> Option<Vec<E>>
+where
+    FE: Fn(&mut P<'t>) -> Option<E>,
+{
+    kw_begin(p)?;
+    let mut out = Vec::new();
+    while !next_is!(T::LayEnd)(p) {
+        while next_is!(T::LaySep)(p) {
+            kw_sep(p)?;
+        }
+        if let Some(ee) = e(p) {
+            out.push(ee);
+        } else {
+            break;
+        }
+        if !next_is!(T::LaySep)(p) {
+            break;
+        }
+        kw_sep(p)?;
+    }
+    kw_end(p)?;
+    Some(out)
+}
+
 fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
     if matches!(p.peekt(), Some(T::LeftParen)) {
         kw_lp(p);
@@ -771,13 +795,7 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
         let start = p.span();
         kw_where(p)?;
         kw_begin(p)?;
-        let b = sep_until(
-            p,
-            "where-bindings",
-            kw_sep,
-            let_binding,
-            next_is!(T::LayEnd | T::LayTop),
-        );
+        let b = sep_until_(p, "where-bindings", let_binding)?;
         kw_end(p)?;
         Some(Expr::Where(start, b!(e), b))
     } else {
@@ -820,6 +838,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             kw_minus(p)?;
             Some(Expr::Negate(b!(expr_atom(p, err)?)))
         }
+        (Some(T::Lower("where")), _) => return None,
         (Some(T::Lower("true" | "false")), _) => Some(Expr::Boolean(boolean(p)?)),
         (Some(T::If), _) => {
             let start = p.span();
@@ -835,9 +854,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             let start = p.span();
             kw_let(p)?;
             // Handle inline ones?
-            kw_begin(p)?;
-            let b = sep(p, "let-bindings", kw_sep, let_binding);
-            kw_end(p)?;
+            let b = sep_until_(p, "let-bindings", let_binding)?;
             kw_in(p)?;
             let e = b!(expr(p)?);
             Some(Expr::Let(start, b, e))
@@ -849,9 +866,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
                 None
             };
             kw_ado(p)?;
-            kw_begin(p)?;
-            let ds = sep_until(p, "ado-block", kw_sep, do_statement, next_is!(T::LayEnd));
-            kw_end(p)?;
+            let ds = sep_until_(p, "ado-block", do_statement)?;
             kw_in(p)?;
             let e = expr(p)?;
             Some(Expr::Ado(q, ds, b!(e)))
@@ -863,9 +878,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
                 None
             };
             kw_do(p)?;
-            kw_begin(p)?;
-            let ds = sep_until(p, "do-block", kw_sep, do_statement, next_is!(T::LayEnd));
-            kw_end(p)?;
+            let ds = sep_until_(p, "do-block", do_statement)?;
             Some(Expr::Do(q, ds))
         }
         (Some(T::Slash), _) => {
@@ -879,11 +892,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
         (Some(T::Case), _) => {
             let start = p.span();
             kw_case(p)?;
-            let xs = sep_until(p, "case expr", kw_sep, expr, next_is!(T::Of));
+            let xs = sep_until(p, "case expr", kw_comma, expr, next_is!(T::Of));
             kw_of(p)?;
-            kw_begin(p)?;
-            let branches = sep(p, "case branch", kw_sep, case_branch);
-            kw_end(p)?;
+            let branches = sep_until_(p, "case branch", case_branch)?;
             Some(Expr::Case(start, xs, branches))
         }
         (Some(T::Lower("_")), _) => {
@@ -981,8 +992,8 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
 }
 
 fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
-    if !p.skip_until(|x| !matches!(x, T::LaySep)) {
-        return None;
+    while next_is!(T::LaySep)(p) {
+        kw_sep(p)?;
     }
     alt!(p: Serror::Info("do_statement"),
         |p: &mut P<'t>| {
@@ -1005,9 +1016,7 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
         |p: &mut P<'t>| {
             kw_let(p)?;
             // Handle inline ones?
-                kw_begin(p)?;
-            let b = sep_until(p, "let-bindings", kw_sep, let_binding, next_is!(T::LayEnd));
-                kw_end(p)?;
+            let b = sep_until_(p, "let-bindings", let_binding)?;
             Some(Some(DoStmt::Let(b)))
         },
     )?
@@ -1350,16 +1359,8 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
 
             let bs = if next_is!(T::Lower("where"))(p) {
                 kw_where(p)?;
-                kw_begin(p)?;
-                let xs = sep_until(
-                    p,
-                    "inst_bindings",
-                    kw_sep,
-                    inst_binding,
-                    next_is!(T::LayEnd | T::LayTop),
-                );
+                let xs = sep_until_(p, "inst_bindings", inst_binding)?;
                 // NOTE[et]: This might need to be more graciouse
-                kw_end(p)?;
                 xs
             } else {
                 Vec::new()
@@ -1555,10 +1556,8 @@ fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember<'t>>> {
     if matches!(p.peekt(), Some(T::Lower("where"))) {
         kw_where(p)?;
-        kw_begin(p)?;
-        let xs = sep_until(p, "members", kw_sep, member, next_is!(T::LayEnd));
+        let xs = sep_until_(p, "members", member)?;
         // NOTE[et]: This might need to be more graciouse
-        kw_end(p)?;
         Some(xs)
     } else {
         Some(Vec::new())

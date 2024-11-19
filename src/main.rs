@@ -35,6 +35,8 @@ fn format_decl_from_tokens<'s>(
             continue;
         }
         match t.unwrap() {
+            Token::SymbolOrParen(_) => unreachable!(),
+
             Token::LeftParen => write!(out, "("),
             Token::RightParen => write!(out, ")"),
             Token::LeftBrace => write!(out, "{{"),

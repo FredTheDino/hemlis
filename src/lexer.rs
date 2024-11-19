@@ -57,7 +57,11 @@ fn lex_line_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str
 
 fn lex_indent<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> usize {
     let at = lex.slice().rfind("\n").unwrap_or(0);
-    lex.span().end.saturating_sub(lex.span().start).saturating_sub(at).saturating_sub(1)
+    lex.span()
+        .end
+        .saturating_sub(lex.span().start)
+        .saturating_sub(at)
+        .saturating_sub(1)
 }
 
 fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
@@ -78,11 +82,54 @@ fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
     lex.slice()
 }
 
+fn lex_symbol<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
+    while let Some(at) = lex.remainder().find(")") {
+        if !lex
+            .remainder()
+            .get(1..(at.saturating_sub(1)))
+            .map(|x| {
+                x.chars().all(|x| {
+                    matches!(
+                        x,
+                        '!' | '#'
+                            | '$'
+                            | '%'
+                            | '&'
+                            | '*'
+                            | '+'
+                            | '.'
+                            | '-'
+                            | '\\'
+                            | '|'
+                            | '/'
+                            | '<'
+                            | '='
+                            | '>'
+                            | '?'
+                            | '@'
+                            | '^'
+                            | '~'
+                            | ':'
+                            | ';'
+                            | '¤'
+                    )
+                })
+            })
+            .unwrap_or(false)
+        {
+            break;
+        }
+        lex.bump(at + 1);
+    }
+    lex.slice()
+}
+
 #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy)]
 #[logos(extras = (usize, Vec<usize>))]
 pub enum Token<'t> {
     #[regex("\\s+", logos::skip)]
-    #[token("(")]
+    // Conflicts with symbol too-much
+    // #[token("(")]
     LeftParen,
     #[token(")")]
     RightParen,
@@ -94,20 +141,16 @@ pub enum Token<'t> {
     LeftSquare,
     #[token("]")]
     RightSquare,
-    #[token("<-")]
+
+    // Conclifcts with operators
     LeftArrow,
-    #[token("->", priority = 10000)]
     RightArrow,
-    #[token("=>")]
     RightFatArrow,
-    #[token("|", priority = 3)]
     Pipe,
-    #[token("\\", priority = 3)]
     Slash,
-    #[token("::", priority = 3)]
     ColonColon,
-    #[token("@", priority = 3)]
     At,
+
     #[token("`")]
     Tick,
     #[token(",")]
@@ -161,12 +204,12 @@ pub enum Token<'t> {
     #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ_]*", priority = 20)]
     Upper(&'t str),
 
-    #[token(r"\\")]
-    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|^|\-|~|:|¤]+")]
+    #[regex(r"[!|#|$|%|&|*|+|.|\-|\||\\|/|<|=|>|?|@|^|~|:|;|¤]+")]
     Op(&'t str),
 
-    #[token(r"(\\)")]
-    #[regex(r"\([!|#|$|%|&|*|+|.|/|<|=|>|?|@|^|\-|~|:|¤]+\)")]
+    #[token("(", |lex| lex_symbol(lex))]
+    SymbolOrParen(&'t str),
+
     Symbol(&'t str),
 
     #[regex("\\?[_a-z][[:alnum:]]*")]
@@ -255,6 +298,28 @@ pub fn lex(content: &str) -> Vec<SourceToken<'_>> {
     let toks = Token::lexer(content)
         .spanned()
         .filter(|(t, _)| !matches!(t, Ok(Token::LineComment(_) | Token::BlockComment(_))))
+        .map(|(t, r)| {
+            if t.is_err() {
+                return (t, r);
+            }
+            (
+                Ok(match t.unwrap() {
+                    Token::SymbolOrParen("(") => Token::LeftParen,
+                    Token::SymbolOrParen(sym) => Token::Symbol(sym),
+
+                    Token::Op("<-") => Token::LeftArrow,
+                    Token::Op("->") => Token::RightArrow,
+                    Token::Op("=>") => Token::RightFatArrow,
+                    Token::Op("|") => Token::Pipe,
+                    Token::Op("\\") => Token::Slash,
+                    Token::Op("::") => Token::ColonColon,
+                    Token::Op("@") => Token::At,
+                    Token::Op("`") => Token::Tick,
+                    x => x,
+                }),
+                r,
+            )
+        })
         .collect::<Vec<_>>();
     for (i, (t, s)) in toks.iter().enumerate() {
         match t {
@@ -288,12 +353,13 @@ pub fn lex(content: &str) -> Vec<SourceToken<'_>> {
             }
         }
     }
-    for (_, d) in state.iter() {
-        if d.is_indented() {
-            out.push((Ok(Token::LayEnd), 0..0));
+    let last_span = toks.last().map(|(_, x)| x.clone()).unwrap_or(0..0);
+    for (s, d) in state.iter() {
+        if d.is_indented() && *s != (0, 0) {
+            out.push((Ok(Token::LayEnd), last_span.clone()));
         }
     }
-    out.push((Ok(Token::LayTop), 0..0));
+    out.push((Ok(Token::LayTop), last_span.clone()));
     out
 }
 
@@ -464,7 +530,7 @@ fn process(c: &mut C<'_>) {
             if c.is_top() {
                 c.pushStack(c.at, LytTopDecl);
             } else {
-                c.pushStack(c.at, LytProperty);
+                c.popIf(|x| matches!(x, LytProperty));
             }
         }
         Lower("class") => {
@@ -472,7 +538,7 @@ fn process(c: &mut C<'_>) {
             if c.is_top() {
                 c.pushStack(c.at, LytTopDeclHead);
             } else {
-                c.pushStack(c.at, LytProperty);
+                c.popIf(|x| matches!(x, LytProperty));
             }
         }
         Lower("where") => match c.head() {
