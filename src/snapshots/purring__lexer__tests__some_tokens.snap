@@ -4,7 +4,7 @@ expression: "p(\"module A where (a, b, c)\\nimport B as B\\nfoo = 1 + B.t\")"
 ---
 Ok(Lower("module"))
 Ok(Upper("A"))
-Ok(Where)
+Ok(Lower("where"))
 Ok(LeftParen)
 Ok(Lower("a"))
 Ok(Comma)

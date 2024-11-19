@@ -60,19 +60,19 @@ macro_rules! kw {
     };
 }
 
-kw!(kw_lp, Token::LeftParen);
-kw!(kw_rp, Token::RightParen);
-kw!(kw_lb, Token::LeftBrace);
-kw!(kw_rb, Token::RightBrace);
-kw!(kw_ls, Token::LeftSquare);
-kw!(kw_rs, Token::RightSquare);
-kw!(kw_left_arrow, Token::LeftArrow);
-kw!(kw_right_arrow, Token::RightArrow);
-kw!(kw_right_imply, Token::RightFatArrow);
-kw!(kw_coloncolon, Token::ColonColon);
-kw!(kw_colon, Token::Op(":"));
-kw!(kw_tick, Token::Tick);
-kw!(kw_comma, Token::Comma);
+kw!(kw_lp, T::LeftParen);
+kw!(kw_rp, T::RightParen);
+kw!(kw_lb, T::LeftBrace);
+kw!(kw_rb, T::RightBrace);
+kw!(kw_ls, T::LeftSquare);
+kw!(kw_rs, T::RightSquare);
+kw!(kw_left_arrow, T::LeftArrow);
+kw!(kw_right_arrow, T::RightArrow);
+kw!(kw_right_imply, T::RightFatArrow);
+kw!(kw_coloncolon, T::ColonColon);
+kw!(kw_colon, T::Op(":"));
+kw!(kw_tick, T::Tick);
+kw!(kw_comma, T::Comma);
 
 kw!(kw_left_imply, T::Op("<="));
 kw!(kw_at, T::At);
@@ -85,20 +85,20 @@ kw!(kw_minus, T::Op("-"));
 kw!(kw_backslash, T::Slash);
 
 kw!(kw_module, T::Lower("module"));
-kw!(kw_where, T::Where);
-kw!(kw_class, T::Class);
+kw!(kw_where, T::Lower("where"));
+kw!(kw_class, T::Lower("class"));
 kw!(kw_as, T::As);
 kw!(kw_import, T::Lower("import"));
 kw!(kw_foreign, T::Foreign);
 kw!(kw_hiding, T::Lower("hiding"));
-kw!(kw_type, T::Type);
+kw!(kw_type, T::Lower("type"));
 kw!(kw_role, T::Lower("role"));
 kw!(kw_nominal, T::Lower("nominal"));
 kw!(kw_representational, T::Lower("representational"));
 kw!(kw_phantom, T::Lower("phantom"));
 kw!(kw_newtype, T::Newtype);
 kw!(kw_derive, T::Derive);
-kw!(kw_data, T::Data);
+kw!(kw_data, T::Lower("data"));
 kw!(kw_fixityr, T::Infixr);
 kw!(kw_fixityl, T::Infixl);
 kw!(kw_fixity, T::Infix);
@@ -145,7 +145,6 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
     let mut ds = Vec::new();
     loop {
         if !p.skip_until(|x| matches!(x, T::LayTop)) {
-            println!("C");
             break;
         }
 
@@ -154,7 +153,6 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
         }
 
         if p.peekt().is_none() {
-            println!("B");
             break;
         }
 
@@ -168,7 +166,6 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
         p.recover();
 
         if !p.skip_until(|x| matches!(x, T::LayTop)) {
-            println!("A");
             break;
         }
 
@@ -725,7 +722,7 @@ enum ExprOp<'t> {
 fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
     match p.peek2t() {
         (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(ExprOp::Op(qop(p)?)),
-        (Some(Token::Tick), _) => {
+        (Some(T::Tick), _) => {
             kw_tick(p)?;
             let e = expr(p)?;
             kw_tick(p)?;
@@ -770,7 +767,7 @@ fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
 
 fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     let e = expr(p)?;
-    if matches!(p.peekt(), Some(T::Where)) {
+    if matches!(p.peekt(), Some(T::Lower("where"))) {
         let start = p.span();
         kw_where(p)?;
         kw_begin(p)?;
@@ -984,6 +981,9 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
 }
 
 fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
+    if !p.skip_until(|x| !matches!(x, T::LaySep)) {
+        return None;
+    }
     alt!(p: Serror::Info("do_statement"),
         |p: &mut P<'t>| {
             if next_is!(T::In)(p) {
@@ -1231,13 +1231,7 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
 }
 
 fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
-    let bs = sep_until(
-        p,
-        "case_branch",
-        kw_comma,
-        binder_no_type,
-        next_is!(T::RightArrow | T::Pipe),
-    );
+    let bs = sep(p, "case_branch", kw_comma, binder_no_type);
     let x = guarded_case(p)?;
     Some(CaseBranch(bs, x))
 }
@@ -1248,12 +1242,7 @@ fn guarded_case<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
         Some(GuardedExpr::Unconditional(expr_where(p)?))
     } else {
         kw_pipe(p)?;
-        Some(GuardedExpr::Guarded(sep(
-            p,
-            "guarded_case_expr",
-            kw_sep,
-            guarded_case_expr,
-        )))
+        Some(GuardedExpr::Guarded(vec![guarded_case_expr(p)?]))
     }
 }
 
@@ -1272,14 +1261,14 @@ fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
 
 pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
     match p.peek3t() {
-        (Some(T::Data), _, Some(T::ColonColon)) => {
+        (Some(T::Lower("data")), _, Some(T::ColonColon)) => {
             kw_data(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
             let t = typ(p)?;
             Some(Decl::DataKind(name, t))
         }
-        (Some(T::Data), _, _) => {
+        (Some(T::Lower("data")), _, _) => {
             kw_data(p)?;
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
@@ -1292,21 +1281,21 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             Some(Decl::Data(name, vars, enums))
         }
 
-        (Some(T::Type), Some(T::Lower("role")), _) => {
+        (Some(T::Lower("type")), Some(T::Lower("role")), _) => {
             kw_type(p)?;
             kw_role(p)?;
             let name = proper(p)?;
             let roles = many(p, "roles", role);
             Some(Decl::Role(name, roles))
         }
-        (Some(T::Type), _, Some(T::ColonColon)) => {
+        (Some(T::Lower("type")), _, Some(T::ColonColon)) => {
             kw_type(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
             let t = typ(p)?;
             Some(Decl::TypeKind(name, t))
         }
-        (Some(T::Type), _, _) => {
+        (Some(T::Lower("type")), _, _) => {
             kw_type(p)?;
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
@@ -1332,14 +1321,14 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             Some(Decl::NewType(name, vars, ctrc, t))
         }
 
-        (Some(T::Class), _, Some(T::ColonColon)) => {
+        (Some(T::Lower("class")), _, Some(T::ColonColon)) => {
             kw_class(p)?;
             let name = proper(p)?;
             kw_coloncolon(p)?;
             let t = typ(p)?;
             Some(Decl::ClassKind(name, t))
         }
-        (Some(T::Class), _, _) => {
+        (Some(T::Lower("class")), _, _) => {
             kw_class(p)?;
             let cs = constraints(p)?;
             let name = proper(p)?;
@@ -1359,7 +1348,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_instance(p)?;
             let head = instance_head(p)?;
 
-            let bs = if next_is!(T::Where)(p) {
+            let bs = if next_is!(T::Lower("where"))(p) {
                 kw_where(p)?;
                 kw_begin(p)?;
                 let xs = sep_until(
@@ -1395,7 +1384,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
         }
 
         // NOTE: "data" is a "name" => It's placed earlier in the parser
-        (Some(T::Foreign), Some(T::Lower("import")), Some(T::Data)) => {
+        (Some(T::Foreign), Some(T::Lower("import")), Some(T::Lower("data"))) => {
             kw_foreign(p)?;
             kw_import(p)?;
             kw_data(p)?;
@@ -1431,7 +1420,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             let i = number(p)?;
 
             Some(match p.peekt() {
-                Some(T::Type) => {
+                Some(T::Lower("type")) => {
                     kw_type(p)?;
                     let x = typ(p)?;
                     kw_as(p)?;
@@ -1463,18 +1452,18 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
     }
 }
 
-fn role<'t>(p: &mut P<'t>) -> Option<S<Role>> {
+fn role(p: &mut P<'_>) -> Option<S<Role>> {
     let start = p.span();
     let d = alt!(p: Serror::Info("role"),
-            |p: &mut P<'t>| {
+            |p: &mut P<'_>| {
                 kw_nominal(p)?;
                 Some(Role::Nominal)
             },
-            |p: &mut P<'t>| {
+            |p: &mut P<'_>| {
                 kw_representational(p)?;
                 Some(Role::Representational)
             },
-            |p: &mut P<'t>| {
+            |p: &mut P<'_>| {
                 kw_phantom(p)?;
                 Some(Role::Phantom)
             },
@@ -1564,7 +1553,7 @@ fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
 }
 
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember<'t>>> {
-    if matches!(p.peekt(), Some(T::Where)) {
+    if matches!(p.peekt(), Some(T::Lower("where"))) {
         kw_where(p)?;
         kw_begin(p)?;
         let xs = sep_until(p, "members", kw_sep, member, next_is!(T::LayEnd));
@@ -1734,10 +1723,7 @@ impl<'s> P<'s> {
         *self.steps.borrow_mut() = 0;
         self.i += 1;
         // NOTE: For now we skipp some of the tokens in this parser
-        while matches!(
-            self.peek_().0,
-            Some(Token::LineComment(_) | Token::BlockComment(_))
-        ) {
+        while matches!(self.peek_().0, Some(T::LineComment(_) | T::BlockComment(_))) {
             self.i += 1;
         }
     }
@@ -1832,7 +1818,7 @@ mod tests {
 
     macro_rules! gen_parser {
         ($a:ident, $p:ident) => {
-            pub fn $a<'t>(src: &'t str) -> String {
+            pub fn $a(src: &str) -> String {
                 use super::*;
                 use crate::lexer;
                 use std::io::BufWriter;

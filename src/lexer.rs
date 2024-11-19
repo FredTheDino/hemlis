@@ -57,14 +57,14 @@ fn lex_line_comment<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str
 
 fn lex_indent<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> usize {
     let at = lex.slice().rfind("\n").unwrap_or(0);
-    lex.span().end - lex.span().start - at - 1
+    lex.span().end.saturating_sub(lex.span().start).saturating_sub(at).saturating_sub(1)
 }
 
 fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
     while let Some(at) = lex.remainder().find(".") {
         if !lex
             .remainder()
-            .get(0..(at - 1))
+            .get(0..(at.saturating_sub(1)))
             .map(|x| {
                 x.chars().take(1).all(|x| x.is_uppercase())
                     && x.chars().skip(1).all(|x| x.is_alphanumeric())
@@ -113,10 +113,6 @@ pub enum Token<'t> {
     #[token(",")]
     Comma,
 
-    #[token("class")]
-    Class,
-    #[token("data")]
-    Data,
     #[token("infixr")]
     Infixr,
     #[token("infixl")]
@@ -125,8 +121,6 @@ pub enum Token<'t> {
     Infix,
     #[token("derive")]
     Derive,
-    #[token("type")]
-    Type,
     #[token("newtype")]
     Newtype,
     #[token("foreign")]
@@ -148,8 +142,6 @@ pub enum Token<'t> {
     Let,
     #[token("in")]
     In,
-    #[token("where")]
-    Where,
     #[token("do")]
     Do,
     #[token("ado")]
@@ -169,10 +161,12 @@ pub enum Token<'t> {
     #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ_]*", priority = 20)]
     Upper(&'t str),
 
-    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+")]
+    #[token(r"\\")]
+    #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|^|\-|~|:|¤]+")]
     Op(&'t str),
 
-    #[regex(r"\([!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+\)")]
+    #[token(r"(\\)")]
+    #[regex(r"\([!|#|$|%|&|*|+|.|/|<|=|>|?|@|^|\-|~|:|¤]+\)")]
     Symbol(&'t str),
 
     #[regex("\\?[_a-z][[:alnum:]]*")]
@@ -355,7 +349,7 @@ impl<'t> C<'t> {
         self.app(s);
     }
 
-    fn app_(&mut self, t: Token<'t>, a: (usize, usize), s: Range<usize>) {
+    fn app_(&mut self, t: Token<'t>, s: Range<usize>) {
         self.app((Ok(t), s))
     }
 
@@ -390,7 +384,7 @@ impl<'t> C<'t> {
                 break;
             }
             if b.is_indented() {
-                self.app_(Token::LayEnd, self.at, self.s.clone());
+                self.app_(Token::LayEnd, self.s.clone());
             }
             self.popStack();
         }
@@ -401,13 +395,13 @@ impl<'t> C<'t> {
             Some((pos, _)) if self.next.0 <= pos.0 => (),
             _ => {
                 self.pushStack(self.next, d);
-                self.app_(Token::LayBegin, self.at, self.s.clone());
+                self.app_(Token::LayBegin, self.s.clone());
             }
         }
     }
 
     fn insertEnd(&mut self) {
-        self.app_(Token::LayEnd, self.at, self.s.clone())
+        self.app_(Token::LayEnd, self.s.clone())
     }
 
     fn insertSep(&mut self) {
@@ -417,7 +411,7 @@ impl<'t> C<'t> {
         match self.head() {
             (p, LytTopDeclHead | LytTopDecl) if sepP(p) => {
                 self.popStack();
-                self.app_(Token::LayTop, self.at, self.s.clone());
+                self.app_(Token::LayTop, self.s.clone());
             }
             (p, lyt) if indentSepP(p, lyt) => {
                 self.app_(
@@ -426,7 +420,6 @@ impl<'t> C<'t> {
                     } else {
                         Token::LaySep
                     },
-                    self.at,
                     self.s.clone(),
                 );
                 if lyt == LytOf {
@@ -466,7 +459,7 @@ fn process(c: &mut C<'_>) {
             }
             c.default();
         }
-        Data => {
+        Lower("data") => {
             c.default();
             if c.is_top() {
                 c.pushStack(c.at, LytTopDecl);
@@ -474,7 +467,7 @@ fn process(c: &mut C<'_>) {
                 c.pushStack(c.at, LytProperty);
             }
         }
-        Class => {
+        Lower("class") => {
             c.default();
             if c.is_top() {
                 c.pushStack(c.at, LytTopDeclHead);
@@ -482,7 +475,7 @@ fn process(c: &mut C<'_>) {
                 c.pushStack(c.at, LytProperty);
             }
         }
-        Where => match c.head() {
+        Lower("where") => match c.head() {
             (_, LytTopDeclHead) => {
                 c.popStack();
                 c.appSrc();

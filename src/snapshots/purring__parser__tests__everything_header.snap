@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_module(r#\"\nmodule A.B.C (a, class B, C, D(..), E(F, G), \n (+), type (+), module H) where\n\nimport A\nimport A as A\nimport A.B.C as A.C\nimport A.B.C (a, class B, \n C, D(..), E(F, G), (+), type (+))\nimport A.B.C hiding (foo)\n        \"#)"
 ---
-77 of 77
+82 of 82
 ===
 Module
  Header
@@ -43,4 +43,71 @@ Module
      NULL
      ProperName
       70..71
+   ImportDecl::Bulk
+    QProperName
+     NULL
+     ProperName
+      87..88
+   ImportDecl::As
+    QProperName
+     NULL
+     ProperName
+      96..97
+    QProperName
+     NULL
+     ProperName
+      101..102
+   ImportDecl::As
+    QProperName
+     Qual
+      110..114
+     ProperName
+      114..115
+    QProperName
+     Qual
+      119..121
+     ProperName
+      121..122
+   ImportDecl::Multiple
+    QProperName
+     Qual
+      130..134
+     ProperName
+      134..135
+     Import::Value
+      Name
+       137..138
+     Import::Class
+      ProperName
+       146..147
+     Import::Typ
+      ProperName
+       151..152
+     Import::TypDat
+      ProperName
+       154..155
+      DataMember::All
+     Import::TypDat
+      ProperName
+       161..162
+      DataMember::Some
+        ProperName
+         163..164
+        ProperName
+         166..167
+     Import::Symbol
+      Symbol
+       170..173
+     Import::TypSymbol
+      Symbol
+       180..183
+   ImportDecl::Hiding
+    QProperName
+     Qual
+      192..196
+     ProperName
+      196..197
+     Import::Value
+      Name
+       206..209
 ===

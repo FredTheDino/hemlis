@@ -50,13 +50,10 @@ fn format_decl_from_tokens<'s>(
             Token::Pipe => write!(out, "|"),
             Token::Tick => write!(out, "`"),
             Token::Comma => write!(out, ","),
-            Token::Class => write!(out, "class"),
-            Token::Data => write!(out, "data"),
             Token::Infixr => write!(out, "infixr"),
             Token::Infixl => write!(out, "infixl"),
             Token::Infix => write!(out, "infix"),
             Token::Derive => write!(out, "derive"),
-            Token::Type => write!(out, "type"),
             Token::Newtype => write!(out, "newtype"),
             Token::Foreign => write!(out, "foreign"),
             Token::Instance => write!(out, "instance"),
@@ -67,7 +64,6 @@ fn format_decl_from_tokens<'s>(
             Token::Of => write!(out, "of"),
             Token::Let => write!(out, "let"),
             Token::In => write!(out, "in"),
-            Token::Where => write!(out, "where"),
             Token::Do => write!(out, "do"),
             Token::Ado => write!(out, "ado"),
             Token::As => write!(out, "as"),
@@ -229,7 +225,7 @@ fn parse_modules() {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
 
-                if !p.errors.is_empty() || true {
+                if !p.errors.is_empty() {
                     let mut buf = BufWriter::new(Vec::new());
                     out.show(0, &mut buf).unwrap();
                     let _inner = String::from_utf8(
@@ -267,7 +263,7 @@ fn parse_modules() {
                         } else {
                             "".to_string()
                         },
-                        _inner,
+                        "" // _inner,
                     );
                 }
             }
