@@ -78,7 +78,7 @@ kw!(kw_left_imply, T::Op("<="));
 kw!(kw_at, T::At);
 kw!(kw_pipe, T::Pipe);
 kw!(kw_dot, T::Op("."));
-kw!(kw_eq, T::Op("="));
+kw!(kw_eq, T::Equals);
 kw!(kw_dotdot, T::Op(".."));
 kw!(kw_underscore, T::Lower("_"));
 kw!(kw_minus, T::Op("-"));
@@ -794,9 +794,7 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     if matches!(p.peekt(), Some(T::Lower("where"))) {
         let start = p.span();
         kw_where(p)?;
-        kw_begin(p)?;
         let b = sep_until_(p, "where-bindings", let_binding)?;
-        kw_end(p)?;
         Some(Expr::Where(start, b!(e), b))
     } else {
         Some(e)
@@ -1058,6 +1056,19 @@ fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
 }
 
 fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+    let mut lhs = binder_call(p)?;
+    while matches!(
+        p.peek2t(),
+        (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_)))
+    ) {
+        let op = qop(p)?;
+        let rhs = binder_call(p)?;
+        lhs = Binder::Op(b!(lhs), op, b!(rhs));
+    }
+    Some(lhs)
+}
+
+fn binder_call<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     let head = binder_atom(p, Some("Expected a binder"))?;
     if matches!(head, Binder::Constructor(_)) {
         let bs = many_until(
@@ -1155,7 +1166,7 @@ fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
 }
 
 fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
-    if matches!(p.peekt(), Some(T::Op("="))) {
+    if matches!(p.peekt(), Some(T::Equals)) {
         kw_eq(p)?;
         Some(GuardedExpr::Unconditional(expr_where(p)?))
     } else {
@@ -1171,15 +1182,11 @@ fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
     if !matches!(p.peekt(), Some(T::Pipe)) {
         return None;
     }
-    let gs = guard(p)?;
+    kw_pipe(p)?;
+    let gs = sep(p, "guard", kw_comma, guard_statement);
     kw_eq(p)?;
     let e = expr_where(p)?;
     Some((gs, e))
-}
-
-fn guard<'t>(p: &mut P<'t>) -> Option<Vec<Guard<'t>>> {
-    kw_pipe(p)?;
-    Some(sep(p, "guard", kw_comma, guard_statement))
 }
 
 fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
@@ -1223,7 +1230,7 @@ fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate<'t>>> {
 
 fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
     let f = label(p)?;
-    if !matches!(p.peek2t(), (Some(_), Some(T::Op("=")))) {
+    if !matches!(p.peek2t(), (Some(_), Some(T::Equals))) {
         return None;
     }
     p.next();
@@ -1241,18 +1248,20 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
 
 fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
     let bs = sep(p, "case_branch", kw_comma, binder_no_type);
-    let x = guarded_case(p)?;
-    Some(CaseBranch(bs, x))
-}
-
-fn guarded_case<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
-    if matches!(p.peekt(), Some(T::RightArrow)) {
+    let x = if matches!(p.peekt(), Some(T::RightArrow)) {
         kw_right_arrow(p)?;
-        Some(GuardedExpr::Unconditional(expr_where(p)?))
+        GuardedExpr::Unconditional(expr_where(p)?)
     } else {
         kw_pipe(p)?;
-        Some(GuardedExpr::Guarded(vec![guarded_case_expr(p)?]))
-    }
+        GuardedExpr::Guarded(sep_until(
+            p,
+            "guarded_case",
+            kw_pipe,
+            guarded_case_expr,
+            next_is!(T::LaySep | T::LayEnd),
+        ))
+    };
+    Some(CaseBranch(bs, x))
 }
 
 fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
@@ -1281,7 +1290,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_data(p)?;
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
-            let enums = if next_is!(T::Op("="))(p) {
+            let enums = if next_is!(T::Equals)(p) {
                 kw_eq(p)?;
                 sep_until(p, "data-decl", kw_pipe, data_cnstr, next_is!(T::LayTop))
             } else {
@@ -1294,7 +1303,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             kw_type(p)?;
             kw_role(p)?;
             let name = proper(p)?;
-            let roles = many(p, "roles", role);
+            let roles = many_until(p, "roles", role, next_is!(T::LayTop));
             Some(Decl::Role(name, roles))
         }
         (Some(T::Lower("type")), _, Some(T::ColonColon)) => {
@@ -1359,9 +1368,8 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
 
             let bs = if next_is!(T::Lower("where"))(p) {
                 kw_where(p)?;
-                let xs = sep_until_(p, "inst_bindings", inst_binding)?;
                 // NOTE[et]: This might need to be more graciouse
-                xs
+                sep_until_(p, "inst_bindings", inst_binding)?
             } else {
                 Vec::new()
             };
@@ -1445,7 +1453,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
         }
         (Some(T::Lower(_)), _, _) => {
             let n = name(p)?;
-            let bs = many(p, "let-binder", |x| binder_atom(x, None));
+            let bs = many(p, "binders", |x| binder_atom(x, None));
             let decl = guarded_decl(p)?;
             Some(Decl::Def(n, bs, decl))
         }
@@ -1556,9 +1564,8 @@ fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember<'t>>> {
     if matches!(p.peekt(), Some(T::Lower("where"))) {
         kw_where(p)?;
-        let xs = sep_until_(p, "members", member)?;
+        sep_until_(p, "members", member)
         // NOTE[et]: This might need to be more graciouse
-        Some(xs)
     } else {
         Some(Vec::new())
     }
@@ -1746,7 +1753,6 @@ impl<'s> P<'s> {
             }
             self.skip();
         }
-        dbg!(self.peek_());
         false
     }
 

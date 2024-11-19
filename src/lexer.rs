@@ -83,10 +83,10 @@ fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
 }
 
 fn lex_symbol<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
-    while let Some(at) = lex.remainder().find(")") {
-        if !lex
+    if let Some(at) = lex.remainder().find(")") {
+        if at != 0 && lex
             .remainder()
-            .get(1..(at.saturating_sub(1)))
+            .get(0..at)
             .map(|x| {
                 x.chars().all(|x| {
                     matches!(
@@ -117,9 +117,8 @@ fn lex_symbol<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
             })
             .unwrap_or(false)
         {
-            break;
+            lex.bump(at + 1);
         }
-        lex.bump(at + 1);
     }
     lex.slice()
 }
@@ -150,6 +149,7 @@ pub enum Token<'t> {
     Slash,
     ColonColon,
     At,
+    Equals,
 
     #[token("`")]
     Tick,
@@ -314,7 +314,7 @@ pub fn lex(content: &str) -> Vec<SourceToken<'_>> {
                     Token::Op("\\") => Token::Slash,
                     Token::Op("::") => Token::ColonColon,
                     Token::Op("@") => Token::At,
-                    Token::Op("`") => Token::Tick,
+                    Token::Op("=") => Token::Equals,
                     x => x,
                 }),
                 r,
@@ -727,7 +727,7 @@ fn process(c: &mut C<'_>) {
             c.appSrc();
         }
 
-        Op("=") => {
+        Equals => {
             let equalsP = |_: (usize, usize), d: Delim| -> bool {
                 matches!(d, LytWhere | LytLet | LytLetStmt)
             };

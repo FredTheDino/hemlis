@@ -52,6 +52,7 @@ fn format_decl_from_tokens<'s>(
             Token::Pipe => write!(out, "|"),
             Token::Tick => write!(out, "`"),
             Token::Comma => write!(out, ","),
+            Token::Equals => write!(out, "="),
             Token::Infixr => write!(out, "infixr"),
             Token::Infixl => write!(out, "infixl"),
             Token::Infix => write!(out, "infix"),
