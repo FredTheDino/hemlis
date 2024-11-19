@@ -3,3 +3,5 @@ source: src/lexer.rs
 expression: "p(\"0xFEE\")"
 ---
 Ok(HexInt("0xFEE"))
+Ok(LayEnd)
+Ok(LayTop)

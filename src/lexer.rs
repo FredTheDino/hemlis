@@ -166,7 +166,7 @@ pub enum Token<'t> {
     #[regex("[_a-zåäö][[:alnum:]'åäöÅÄÖ_]*")]
     Lower(&'t str),
 
-    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ]*", priority = 20)]
+    #[regex("[A-ZÅÄÖ][[:alnum:]'åäöÅÄÖ_]*", priority = 20)]
     Upper(&'t str),
 
     #[regex(r"[!|#|$|%|&|*|+|.|/|<|=|>|?|@|\\|^||\\|\-|~|:|¤]+")]
@@ -194,8 +194,8 @@ pub enum Token<'t> {
     #[regex("\"\"\"", |lex| lex_raw_string(lex))]
     RawString(&'t str),
 
-    #[token("--", |lex| lex_line_comment(lex))]
-    #[token("--|", |lex| lex_line_comment(lex))]
+    #[regex("--+", |lex| lex_line_comment(lex), priority=100)]
+    #[token("--|", |lex| lex_line_comment(lex), priority=100)]
     LineComment(&'t str),
 
     #[token("{-", |lex| lex_block_comment(lex))]
@@ -253,10 +253,10 @@ impl Delim {
     }
 }
 
-pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
+pub fn lex(content: &str) -> Vec<SourceToken<'_>> {
     let mut indent = 0;
     let mut line = 0;
-    let mut state = vec![((0, 0), Delim::LytRoot)];
+    let mut state = vec![((0, 0), Delim::LytRoot), ((0, 0), Delim::LytWhere)];
     let mut out = Vec::new();
     let toks = Token::lexer(content)
         .spanned()
@@ -266,17 +266,15 @@ pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
         match t {
             Ok(Token::Indent(at)) => {
                 // We need to know the indentation of every token - even if there are tokens before it.
-                indent = s.start - at;
-                if *at == 0 && !matches!(out.last(), Some((Ok(Token::LayTop), _))) {
-                    out.push((Ok(Token::LayTop), s.clone()));
-                }
+                indent = s.end.saturating_sub(*at);
                 line += 1;
             }
             Ok(tt) => {
                 let next = match toks.get(i + 1) {
-                    Some((Ok(Token::Indent(at)), x)) => (x.start - at, line + 1),
+                    Some((Ok(Token::Indent(at)), _)) => (*at, line + 1),
                     _ => (s.end - indent, line),
                 };
+                // println!("{:?} {:?}", tt, state);
                 let mut c = C {
                     t: *tt,
                     at: (s.start - indent, line),
@@ -288,7 +286,7 @@ pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
                 process(&mut c);
                 state = c.state;
                 for t in c.out {
-                    out.push(t);
+                    out.push(t.clone());
                 }
             }
             Err(_) => {
@@ -296,8 +294,16 @@ pub fn lex(content: &str) -> Vec<(Result<Token<'_>, ()>, Range<usize>)> {
             }
         }
     }
+    for (_, d) in state.iter() {
+        if d.is_indented() {
+            out.push((Ok(Token::LayEnd), 0..0));
+        }
+    }
+    out.push((Ok(Token::LayTop), 0..0));
     out
 }
+
+pub type SourceToken<'t> = (Result<Token<'t>, ()>, Range<usize>);
 
 #[derive(Clone)]
 struct C<'t> {
@@ -306,7 +312,8 @@ struct C<'t> {
     at: (usize, usize),
     next: (usize, usize),
     state: Vec<((usize, usize), Delim)>,
-    out: Vec<(Result<Token<'t>, ()>, Range<usize>)>,
+    // We clone this a but - but it's fine since it's usually small (< 3 elements)
+    out: Vec<SourceToken<'t>>,
 }
 
 impl<'t> C<'t> {
@@ -316,7 +323,7 @@ impl<'t> C<'t> {
         self.at.0 == 0
     }
 
-    fn src(&self) -> (Result<Token<'t>, ()>, Range<usize>) {
+    fn src(&self) -> SourceToken<'t> {
         (Ok(self.t), self.s.clone())
     }
 
@@ -339,7 +346,7 @@ impl<'t> C<'t> {
         }
     }
 
-    fn app(&mut self, o: (Result<Token<'t>, ()>, Range<usize>)) {
+    fn app(&mut self, o: SourceToken<'t>) {
         self.out.push(o)
     }
 
@@ -348,7 +355,7 @@ impl<'t> C<'t> {
         self.app(s);
     }
 
-    fn app_(&mut self, t: Token<'t>, s: Range<usize>) {
+    fn app_(&mut self, t: Token<'t>, a: (usize, usize), s: Range<usize>) {
         self.app((Ok(t), s))
     }
 
@@ -368,8 +375,8 @@ impl<'t> C<'t> {
     }
 
     fn default(&mut self) {
-        let cc = self.at.0;
-        self.collapse(|i, d| d.is_indented() && cc < i.0);
+        let col = self.at.0;
+        self.collapse(|i, d| d.is_indented() && col < i.0);
         self.insertSep();
         self.appSrc();
     }
@@ -383,7 +390,7 @@ impl<'t> C<'t> {
                 break;
             }
             if b.is_indented() {
-                self.app_(Token::LayEnd, self.s.clone());
+                self.app_(Token::LayEnd, self.at, self.s.clone());
             }
             self.popStack();
         }
@@ -394,13 +401,13 @@ impl<'t> C<'t> {
             Some((pos, _)) if self.next.0 <= pos.0 => (),
             _ => {
                 self.pushStack(self.next, d);
-                self.app_(Token::LayBegin, self.s.clone());
+                self.app_(Token::LayBegin, self.at, self.s.clone());
             }
         }
     }
 
     fn insertEnd(&mut self) {
-        self.app_(Token::LayEnd, self.s.clone())
+        self.app_(Token::LayEnd, self.at, self.s.clone())
     }
 
     fn insertSep(&mut self) {
@@ -408,12 +415,20 @@ impl<'t> C<'t> {
         let sepP = |(x, y): (usize, usize)| -> bool { x == self.at.0 && y != self.at.1 };
         let indentSepP = |p: (usize, usize), d: Delim| -> bool { d.is_indented() && sepP(p) };
         match self.head() {
-            (p, LytTopDeclHead | LytTopDeclHead) if sepP(p) => {
+            (p, LytTopDeclHead | LytTopDecl) if sepP(p) => {
                 self.popStack();
-                self.app_(Token::LaySep, self.s.clone());
+                self.app_(Token::LayTop, self.at, self.s.clone());
             }
             (p, lyt) if indentSepP(p, lyt) => {
-                self.app_(Token::LaySep, self.s.clone());
+                self.app_(
+                    if self.at.0 == 0 {
+                        Token::LayTop
+                    } else {
+                        Token::LaySep
+                    },
+                    self.at,
+                    self.s.clone(),
+                );
                 if lyt == LytOf {
                     self.pushStack(self.at, LytCaseBinders);
                 }
@@ -426,15 +441,15 @@ impl<'t> C<'t> {
 fn process(c: &mut C<'_>) {
     use Delim::*;
     use Token::*;
-    let cc = c.at.0;
+    let col = c.at.0;
 
-    let offsideEndP = |i: (usize, usize), d: Delim| -> bool { d.is_indented() && cc <= i.0 };
+    let offsideEndP = |i: (usize, usize), d: Delim| -> bool { d.is_indented() && col <= i.0 };
 
     let whereP = |i: (usize, usize), d: Delim| -> bool { d == LytDo || offsideEndP(i, d) };
 
     let indentedP = |_: (usize, usize), d: Delim| -> bool { d.is_indented() };
 
-    let offsideP = |i: (usize, usize), d: Delim| -> bool { d.is_indented() && cc < i.0 };
+    let offsideP = |i: (usize, usize), d: Delim| -> bool { d.is_indented() && col < i.0 };
 
     let inP = |_: (usize, usize), d: Delim| -> bool {
         match d {
@@ -549,13 +564,14 @@ fn process(c: &mut C<'_>) {
                     c.popStack();
                 }
                 //////////
-                _ => c.insertStart(LytCase),
+                _ => c.pushStack(c.at, LytCase),
             }
         }
         Of => {
             c.collapse(indentedP);
             match c.head() {
                 (_, LytCase) => {
+                    c.popStack();
                     c.appSrc();
                     c.insertStart(LytOf);
                     c.pushStack(c.next, LytCaseBinders);
@@ -1013,6 +1029,19 @@ f =
         e v
 
 foo = bar + baz
+        "#))
+    }
+
+    #[test]
+    fn leaking_where() {
+        assert_snapshot!(p(r#"
+module A where
+
+instance A A where
+  f = F
+
+a :: A
+a = 1
         "#))
     }
 }

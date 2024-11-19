@@ -2,14 +2,29 @@
 source: src/parser.rs
 expression: "p_typ_var_binding(\"( @a :: Kind )\")"
 ---
-6 of 6
+17 of 17
 ===
-TypVarBinding
- Name
-  3..4
- Typ::Constructor
+Module
+ Header
   QProperName
    NULL
    ProperName
-    8..12
+    7..13
+  Decl::Sig
+   Name
+    21..22
+   Typ::Forall
+     TypVarBinding
+      Name
+       36..37
+      Typ::Constructor
+       QProperName
+        NULL
+        ProperName
+         41..45
+    Typ::Constructor
+     QProperName
+      NULL
+      ProperName
+       49..53
 ===

@@ -2,10 +2,19 @@
 source: src/parser.rs
 expression: "p_typ(\"()\")"
 ---
-2 of 2
+10 of 10
 ===
-Typ::Row
- 0..2
-  Row
+Module
+ Header
+  QProperName
    NULL
+   ProperName
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::Row
+    0..24
+     Row
+      NULL
 ===

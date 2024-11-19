@@ -588,7 +588,7 @@ fn typ_mrg<'t>(p: &mut P<'t>, op: TypOp<'t>, lhs: Typ<'t>, rhs: Typ<'t>) -> Typ<
         TypOp::Kind => Typ::Kinded(b!(lhs), b!(rhs)),
         TypOp::Arr => Typ::Arr(b!(lhs), b!(rhs)),
         TypOp::FatArr => {
-            if let Some(lhs) = lhs.clone().as_constraint() {
+            if let Some(lhs) = lhs.clone().cast_to_constraint() {
                 Typ::Constrained(lhs, b!(rhs))
             } else {
                 p.raise(Serror::NotAConstraint(lhs.span()));
@@ -1520,14 +1520,14 @@ fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
             kw_lp(p)?;
             let cs = sep_until(p, "constraints-sep", kw_comma, typ, next_is!(T::RightParen))
                 .into_iter()
-                .map(|x| x.as_constraint())
+                .map(|x| x.cast_to_constraint())
                 .collect::<Option<Vec<_>>>()?;
             kw_rp(p)?;
             kw_left_imply(p)?;
             Some(Some(cs))
         },
         |p: &mut P<'t>| {
-            let t = typ(p)?.as_constraint()?;
+            let t = typ(p)?.cast_to_constraint()?;
             kw_left_imply(p)?;
             Some(Some(vec![t]))
         },
@@ -1862,21 +1862,19 @@ mod tests {
         };
     }
 
-    gen_parser!(p_header, header);
-
     #[test]
     fn empty_string() {
-        assert_snapshot!(p_header(""));
+        assert_snapshot!(p_module(""));
     }
 
     #[test]
     fn normal_definition() {
-        assert_snapshot!(p_header("module A (a, b, c) where"));
+        assert_snapshot!(p_module("module A (a, b, c) where"));
     }
 
     #[test]
     fn everything_header() {
-        assert_snapshot!(p_header(
+        assert_snapshot!(p_module(
             r#"
 module A.B.C (a, class B, C, D(..), E(F, G), 
  (+), type (+), module H) where
@@ -1891,7 +1889,9 @@ import A.B.C hiding (foo)
         ));
     }
 
-    gen_parser!(p_import, import_decl);
+    fn p_import(s: &'static str) -> String {
+        p_module(&format!("module Import where\n\n{}", s))
+    }
 
     #[test]
     fn simple_joe_import() {
@@ -1908,7 +1908,9 @@ import A.B.C hiding (foo)
         assert_snapshot!(p_import("import A (foo\n , bar\n , baz)"))
     }
 
-    gen_parser!(p_typ, typ);
+    fn p_typ(s: &'static str) -> String {
+        p_module(&format!("module Typ where\n\nf :: {}", s))
+    }
 
     #[test]
     fn typ_empty_row() {
@@ -1970,11 +1972,13 @@ import A.B.C hiding (foo)
         assert_snapshot!(p_typ("Array $ Maybe $ Maybe $ Int"))
     }
 
-    gen_parser!(p_typ_var_binding, typ_var_binding);
+    fn p_typ_var_binding(s: &'static str) -> String {
+        p_module(&format!("module TypVar where\n\nf :: forall {}. Unit", s))
+    }
 
     #[test]
     fn typ_var_bindings_a() {
-        assert_snapshot!(p_typ_var_binding("a"))
+        assert_snapshot!(p_typ("a"))
     }
 
     #[test]
@@ -2002,7 +2006,9 @@ import A.B.C hiding (foo)
         assert_snapshot!(p_typ(" ( a :: {} , a :: {}) "))
     }
 
-    gen_parser!(p_expr, expr);
+    fn p_expr(s: &'static str) -> String {
+        p_module(&format!("module Expr where\n\nf = {}", s))
+    }
 
     #[test]
     fn expr_simple() {
@@ -2285,7 +2291,7 @@ module H () where
 
 h = H { tag, attr, children }
 
-h = HH
+h  =HH
         "
         ))
     }

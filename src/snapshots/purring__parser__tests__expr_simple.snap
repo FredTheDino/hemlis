@@ -2,17 +2,27 @@
 source: src/parser.rs
 expression: "p_expr(\"1 + 1\")"
 ---
-3 of 3
+11 of 11
 ===
-Expr::Op
- Expr::Number
-  Number
-   0..1
- QOp
-  NULL
-  Op
-   2..3
- Expr::Number
-  Number
-   4..5
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..11
+  Decl::Def
+   Name
+    19..20
+   GuardedExpr::Unconditional
+    Expr::Op
+     Expr::Number
+      Number
+       23..24
+     QOp
+      NULL
+      Op
+       25..26
+     Expr::Number
+      Number
+       27..28
 ===

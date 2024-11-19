@@ -1,0 +1,47 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"X.Z (A (B.C D)) E\")"
+---
+19 of 19
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::App
+    Typ::App
+     Typ::Constructor
+      QProperName
+       Qual
+        23..25
+       ProperName
+        25..26
+     Typ::App
+      Typ::Constructor
+       QProperName
+        NULL
+        ProperName
+         28..29
+      Typ::App
+       Typ::Constructor
+        QProperName
+         Qual
+          31..33
+         ProperName
+          33..34
+       Typ::Constructor
+        QProperName
+         NULL
+         ProperName
+          35..36
+    Typ::Constructor
+     QProperName
+      NULL
+      ProperName
+       39..40
+===

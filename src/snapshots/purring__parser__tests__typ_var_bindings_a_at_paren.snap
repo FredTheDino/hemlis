@@ -2,10 +2,25 @@
 source: src/parser.rs
 expression: "p_typ_var_binding(\"( @a )\")"
 ---
-4 of 4
+15 of 15
 ===
-TypVarBinding
- Name
-  3..4
- NULL
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..13
+  Decl::Sig
+   Name
+    21..22
+   Typ::Forall
+     TypVarBinding
+      Name
+       36..37
+      NULL
+    Typ::Constructor
+     QProperName
+      NULL
+      ProperName
+       41..45
 ===

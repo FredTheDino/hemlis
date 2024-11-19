@@ -2,25 +2,34 @@
 source: src/parser.rs
 expression: "p_typ(\"Foo => Bar => b -> b\")"
 ---
-7 of 7
+15 of 15
 ===
-Typ::Constrained
- Constraint
+Module
+ Header
   QProperName
    NULL
    ProperName
-    0..3
- Typ::Constrained
-  Constraint
-   QProperName
-    NULL
-    ProperName
-     7..10
-  Typ::Arr
-   Typ::Var
-    Name
-     14..15
-   Typ::Var
-    Name
-     19..20
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::Constrained
+    Constraint
+     QProperName
+      NULL
+      ProperName
+       23..26
+    Typ::Constrained
+     Constraint
+      QProperName
+       NULL
+       ProperName
+        30..33
+     Typ::Arr
+      Typ::Var
+       Name
+        37..38
+      Typ::Var
+       Name
+        42..43
 ===

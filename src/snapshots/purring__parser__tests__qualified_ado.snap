@@ -1,0 +1,15 @@
+---
+source: src/parser.rs
+expression: "p_expr(r\" A.B.ado\n                    a <- f 2\n                    in a\n            \")"
+---
+18 of 18
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..11
+===
+Unexpected(Known(81, 83, 0), Some(In), "T::LaySep")
+FailedToParseDecl(Known(0, 20, 0), 1, 4, 17)

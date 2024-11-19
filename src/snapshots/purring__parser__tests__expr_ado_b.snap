@@ -2,26 +2,14 @@
 source: src/parser.rs
 expression: "p_expr(r\" ado\n                    a <- f 2\n                    in a\n            \")"
 ---
-9 of 11
+17 of 17
 ===
-Expr::Ado
- NULL
-  DoStmt::Stmt
-   Binder::Var
-    Name
-     25..26
-   Expr::App
-    Expr::Ident
-     QName
-      NULL
-      Name
-       30..31
-    Expr::Number
-     Number
-      32..33
- Expr::Ident
-  QName
+Module
+ Header
+  QProperName
    NULL
-   Name
-    57..58
+   ProperName
+    7..11
 ===
+Unexpected(Known(77, 79, 0), Some(In), "T::LaySep")
+FailedToParseDecl(Known(0, 20, 0), 1, 4, 16)

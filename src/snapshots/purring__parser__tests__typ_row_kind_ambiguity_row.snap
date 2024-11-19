@@ -2,19 +2,28 @@
 source: src/parser.rs
 expression: "p_typ(\"( a :: A )\")"
 ---
-5 of 5
+13 of 13
 ===
-Typ::Row
- 0..10
-  Row
-    (
-     Label
-      2..3
-     Typ::Constructor
-      QProperName
-       NULL
-       ProperName
-        7..8
-    )
+Module
+ Header
+  QProperName
    NULL
+   ProperName
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::Row
+    0..24
+     Row
+       (
+        Label
+         25..26
+        Typ::Constructor
+         QProperName
+          NULL
+          ProperName
+           30..31
+       )
+      NULL
 ===

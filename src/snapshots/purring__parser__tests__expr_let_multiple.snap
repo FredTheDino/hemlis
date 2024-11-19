@@ -2,32 +2,42 @@
 source: src/parser.rs
 expression: "p_expr(r\"\n            let\n                x = 1\n                x = 1\n                x = 1\n            in 2\n    \")"
 ---
-17 of 17
+24 of 24
 ===
-Expr::Let
- 13..16
-  LetBinding::Pattern
-   Binder::Var
-    Name
-     33..34
-   Expr::Number
-    Number
-     37..38
-  LetBinding::Pattern
-   Binder::Var
-    Name
-     55..56
-   Expr::Number
-    Number
-     59..60
-  LetBinding::Pattern
-   Binder::Var
-    Name
-     77..78
-   Expr::Number
-    Number
-     81..82
- Expr::Number
-  Number
-   98..99
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..11
+  Decl::Def
+   Name
+    19..20
+   GuardedExpr::Unconditional
+    Expr::Let
+     36..39
+      LetBinding::Pattern
+       Binder::Var
+        Name
+         56..57
+       Expr::Number
+        Number
+         60..61
+      LetBinding::Pattern
+       Binder::Var
+        Name
+         78..79
+       Expr::Number
+        Number
+         82..83
+      LetBinding::Pattern
+       Binder::Var
+        Name
+         100..101
+       Expr::Number
+        Number
+         104..105
+     Expr::Number
+      Number
+       121..122
 ===

@@ -2,15 +2,21 @@
 source: src/parser.rs
 expression: "p_import(\"import A as A\")"
 ---
-4 of 4
+10 of 10
 ===
-ImportDecl::As
- QProperName
-  NULL
-  ProperName
-   7..8
- QProperName
-  NULL
-  ProperName
-   12..13
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..13
+   ImportDecl::As
+    QProperName
+     NULL
+     ProperName
+      28..29
+    QProperName
+     NULL
+     ProperName
+      33..34
 ===

@@ -2,17 +2,26 @@
 source: src/parser.rs
 expression: "p_typ(\"A :: Type\")"
 ---
-3 of 3
+11 of 11
 ===
-Typ::Kinded
- Typ::Constructor
+Module
+ Header
   QProperName
    NULL
    ProperName
-    0..1
- Typ::Constructor
-  QProperName
-   NULL
-   ProperName
-    5..9
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::Kinded
+    Typ::Constructor
+     QProperName
+      NULL
+      ProperName
+       23..24
+    Typ::Constructor
+     QProperName
+      NULL
+      ProperName
+       28..32
 ===

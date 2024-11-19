@@ -2,11 +2,17 @@
 source: src/parser.rs
 expression: "p_import(\"import Joe\")"
 ---
-2 of 2
+8 of 8
 ===
-ImportDecl::Bulk
- QProperName
-  NULL
-  ProperName
-   7..10
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..13
+   ImportDecl::Bulk
+    QProperName
+     NULL
+     ProperName
+      28..31
 ===

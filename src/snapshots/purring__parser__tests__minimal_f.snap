@@ -1,0 +1,13 @@
+---
+source: src/parser.rs
+expression: "p_module(r\"\nmodule F () where\nderive newtype instance Eq Tag\n\")"
+---
+13 of 13
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    8..9
+===

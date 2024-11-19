@@ -1,0 +1,45 @@
+---
+source: src/parser.rs
+expression: "p_module(r\"\nmodule E () where\n\ndata E\n  = E\n      { e :: E\n      }\n  | E E\n            \")"
+---
+20 of 20
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    8..9
+  Decl::Data
+   ProperName
+    25..26
+    (
+     ProperName
+      31..32
+      Typ::Record
+       39..59
+        Row
+          (
+           Label
+            41..42
+           Typ::Constructor
+            QProperName
+             NULL
+             ProperName
+              46..47
+          )
+         NULL
+    )
+    (
+     ProperName
+      60..61
+      Typ::Constructor
+       QProperName
+        NULL
+        ProperName
+         62..63
+    )
+===
+Unexpected(Known(0, 0, 0), Some(LayEnd), "Expected a typ")
+Unexpected(Known(0, 0, 0), Some(LayEnd), "T::Pipe")
+FailedToParseDecl(Known(0, 24, 0), 2, 6, 19)

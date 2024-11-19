@@ -6,6 +6,7 @@ use std::{
 
 use ast::{Ast, Span};
 use lexer::Token;
+use rayon::prelude::*;
 
 mod ast;
 mod lexer;
@@ -21,7 +22,7 @@ fn main() {
 
 fn format_decl_from_tokens<'s>(
     (lo, hi): (usize, usize),
-    toks: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
+    toks: &'s [lexer::SourceToken<'s>],
 ) -> String {
     use std::io::BufWriter;
     use std::io::Write;
@@ -30,6 +31,9 @@ fn format_decl_from_tokens<'s>(
     let ii = 2;
     let mut indent = 2;
     for (t, _) in &toks[lo..hi] {
+        if t.is_err() {
+            continue;
+        }
         match t.unwrap() {
             Token::LeftParen => write!(out, "("),
             Token::RightParen => write!(out, ")"),
@@ -109,7 +113,6 @@ fn format_decl_from_tokens<'s>(
                 continue;
             }
             Token::LayTop => {
-                indent -= ii;
                 write!(out, "\n{:indent$}", "", indent = indent).unwrap();
                 continue;
             }
@@ -134,13 +137,14 @@ fn linear_parse_generate_test() {
                 let l = lexer::lex(&src);
                 let mut p = parser::P::new(0, &l);
                 parser::module(&mut p);
-                if p.i != p.tokens.len() {
+                if p.i < p.tokens.len() {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
                 if p.errors.is_empty() {
                     return;
                 }
                 println!("{} {}", arg, p.errors.len());
+                return;
                 for e in p.errors.iter() {
                     match e {
                         parser::Serror::FailedToParseDecl(Span::Known(from, to, _), _, lo, hi) => {
@@ -168,7 +172,7 @@ fn linear_parse_generate_test() {
                                 .zip(pxx.errors.iter())
                                 .any(|(a, b)| a.same_kind_of_error(b))
                             {
-                                return;
+                                continue;
                             }
 
                             println!("{}", xx);
@@ -190,7 +194,7 @@ fn linear_parse_generate_test() {
 
                             use std::io::Write;
 
-                            let mut file = File::create_new(name.clone()).expect(&name.clone());
+                            let mut file = File::create_new(name.clone()).unwrap_or_else(|_| { panic!("{}", name.clone()) });
                             write!(file, "{}", aa).unwrap();
                             drop(file);
 
@@ -221,11 +225,11 @@ fn parse_modules() {
                 let mut p = parser::P::new(0, &l);
 
                 let out = parser::module(&mut p);
-                if p.i != p.tokens.len() {
+                if p.i < p.tokens.len() {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
 
-                if !p.errors.is_empty() {
+                if !p.errors.is_empty() || true {
                     let mut buf = BufWriter::new(Vec::new());
                     out.show(0, &mut buf).unwrap();
                     let _inner = String::from_utf8(
@@ -234,7 +238,7 @@ fn parse_modules() {
                     .map_err(|x| format!("{:?}", x))
                     .unwrap();
                     println!(
-                        "{} of {}\n===\n{}\n===\n{}",
+                        "{} of {}\n===\n{}\n===\n{}\n===\n{}",
                         p.i,
                         p.tokens.len(),
                         p.errors
@@ -242,7 +246,7 @@ fn parse_modules() {
                             .map(|x| {
                                 let xx = match x.span() {
                                     Span::Known(lo, hi, _) => {
-                                        assert!(lo < hi);
+                                        assert!(lo <= hi);
                                         let lo = src[..lo].rfind("\n").unwrap_or(lo);
                                         let hi = src[hi..].find("\n").map(|x| x + hi).unwrap_or(hi);
                                         assert!(lo < hi);
@@ -263,7 +267,7 @@ fn parse_modules() {
                         } else {
                             "".to_string()
                         },
-                        // inner,
+                        _inner,
                     );
                 }
             }

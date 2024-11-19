@@ -365,7 +365,7 @@ pub enum Typ<'t> {
 }
 
 impl<'t> Typ<'t> {
-    pub fn as_constraint(self) -> Option<Constraint<'t>> {
+    pub fn cast_to_constraint(self) -> Option<Constraint<'t>> {
         fn inner<'t>(a: Typ<'t>, mut args: Vec<Typ<'t>>) -> Option<Constraint<'t>> {
             match a {
                 Typ::Symbol(_)

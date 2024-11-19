@@ -2,39 +2,49 @@
 source: src/parser.rs
 expression: "p_expr(\"foo { a = 1, b = { c = 1 }, d = { e: 1 } }\")"
 ---
-22 of 22
+30 of 30
 ===
-Expr::Update
- Expr::Ident
-  QName
+Module
+ Header
+  QProperName
    NULL
+   ProperName
+    7..11
+  Decl::Def
    Name
-    0..3
-  RecordUpdate::Leaf
-   Label
-    6..7
-   Expr::Number
-    Number
-     10..11
-  RecordUpdate::Branch
-   Label
-    13..14
-    RecordUpdate::Leaf
-     Label
-      19..20
-     Expr::Number
-      Number
-       23..24
-  RecordUpdate::Leaf
-   Label
-    28..29
-   Expr::Record
-    32..33
-     RecordLabelExpr::Field
-      Label
-       34..35
-      Expr::Number
-       Number
-        37..38
-    41..42
+    19..20
+   GuardedExpr::Unconditional
+    Expr::Update
+     Expr::Ident
+      QName
+       NULL
+       Name
+        23..26
+      RecordUpdate::Leaf
+       Label
+        29..30
+       Expr::Number
+        Number
+         33..34
+      RecordUpdate::Branch
+       Label
+        36..37
+        RecordUpdate::Leaf
+         Label
+          42..43
+         Expr::Number
+          Number
+           46..47
+      RecordUpdate::Leaf
+       Label
+        51..52
+       Expr::Record
+        55..56
+         RecordLabelExpr::Field
+          Label
+           57..58
+          Expr::Number
+           Number
+            60..61
+        64..65
 ===

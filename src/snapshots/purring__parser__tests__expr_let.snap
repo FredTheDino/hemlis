@@ -2,18 +2,28 @@
 source: src/parser.rs
 expression: "p_expr(r\"\n            let\n                x = 1\n            in 2\n    \")"
 ---
-9 of 9
+16 of 16
 ===
-Expr::Let
- 13..16
-  LetBinding::Pattern
-   Binder::Var
-    Name
-     33..34
-   Expr::Number
-    Number
-     37..38
- Expr::Number
-  Number
-   54..55
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..11
+  Decl::Def
+   Name
+    19..20
+   GuardedExpr::Unconditional
+    Expr::Let
+     36..39
+      LetBinding::Pattern
+       Binder::Var
+        Name
+         56..57
+       Expr::Number
+        Number
+         60..61
+     Expr::Number
+      Number
+       77..78
 ===

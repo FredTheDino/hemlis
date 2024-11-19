@@ -1,21 +1,22 @@
 ---
 source: src/parser.rs
-expression: "p_header(\"module A (a, b, c) where\")"
+expression: "p_module(\"module A (a, b, c) where\")"
 ---
-10 of 10
+12 of 12
 ===
-Header
- QProperName
-  NULL
-  ProperName
-   7..8
-  Export::Value
-   Name
-    10..11
-  Export::Value
-   Name
-    13..14
-  Export::Value
-   Name
-    16..17
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..8
+   Export::Value
+    Name
+     10..11
+   Export::Value
+    Name
+     13..14
+   Export::Value
+    Name
+     16..17
 ===

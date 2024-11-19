@@ -1,0 +1,44 @@
+---
+source: src/parser.rs
+expression: "p_module(r\"\nmodule H () where\n\nh = H { tag, attr, children }\n\nh = HH\n        \")"
+---
+22 of 22
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    8..9
+  Decl::Def
+   Name
+    20..21
+   GuardedExpr::Unconditional
+    Expr::App
+     Expr::Constructor
+      QProperName
+       NULL
+       ProperName
+        24..25
+     Expr::Record
+      26..27
+       RecordLabelExpr::Pun
+        Name
+         28..31
+       RecordLabelExpr::Pun
+        Name
+         33..37
+       RecordLabelExpr::Pun
+        Name
+         39..47
+      51..52
+  Decl::Def
+   Name
+    51..52
+   GuardedExpr::Unconditional
+    Expr::Constructor
+     QProperName
+      NULL
+      ProperName
+       55..57
+===

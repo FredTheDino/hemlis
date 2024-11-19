@@ -2,20 +2,26 @@
 source: src/parser.rs
 expression: "p_import(\"import A (foo\\n , bar\\n , baz)\")"
 ---
-9 of 9
+15 of 15
 ===
-ImportDecl::Multiple
- QProperName
-  NULL
-  ProperName
-   7..8
-  Import::Value
-   Name
-    10..13
-  Import::Value
-   Name
-    17..20
-  Import::Value
-   Name
-    24..27
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..13
+   ImportDecl::Multiple
+    QProperName
+     NULL
+     ProperName
+      28..29
+     Import::Value
+      Name
+       31..34
+     Import::Value
+      Name
+       38..41
+     Import::Value
+      Name
+       45..48
 ===

@@ -1,0 +1,36 @@
+---
+source: src/parser.rs
+expression: "p_typ(\" ( a :: {} , a :: {}) \")"
+---
+19 of 19
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::Row
+    0..25
+     Row
+       (
+        Label
+         26..27
+        Typ::Record
+         31..35
+          Row
+           NULL
+       )
+       (
+        Label
+         36..37
+        Typ::Record
+         41..44
+          Row
+           NULL
+       )
+      NULL
+===

@@ -2,41 +2,50 @@
 source: src/parser.rs
 expression: "p_typ(\"Array $ Maybe $ Maybe $ Int\")"
 ---
-7 of 7
+15 of 15
 ===
-Typ::Op
- Typ::Op
-  Typ::Op
-   Typ::Constructor
-    QProperName
-     NULL
-     ProperName
-      0..5
-   QOp
-    NULL
-    Op
-     6..7
-   Typ::Constructor
-    QProperName
-     NULL
-     ProperName
-      8..13
-  QOp
-   NULL
-   Op
-    14..15
-  Typ::Constructor
-   QProperName
-    NULL
-    ProperName
-     16..21
- QOp
-  NULL
-  Op
-   22..23
- Typ::Constructor
+Module
+ Header
   QProperName
    NULL
    ProperName
-    24..27
+    7..10
+  Decl::Sig
+   Name
+    18..19
+   Typ::Op
+    Typ::Op
+     Typ::Op
+      Typ::Constructor
+       QProperName
+        NULL
+        ProperName
+         23..28
+      QOp
+       NULL
+       Op
+        29..30
+      Typ::Constructor
+       QProperName
+        NULL
+        ProperName
+         31..36
+     QOp
+      NULL
+      Op
+       37..38
+     Typ::Constructor
+      QProperName
+       NULL
+       ProperName
+        39..44
+    QOp
+     NULL
+     Op
+      45..46
+    Typ::Constructor
+     QProperName
+      NULL
+      ProperName
+       47..50
 ===
