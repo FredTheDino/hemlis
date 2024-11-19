@@ -26,6 +26,7 @@ t!(name, Lower, Name);
 t!(proper, Upper, ProperName);
 t!(qual, Qual, Qual);
 t!(number, Number, Number);
+t!(hex_int, HexInt, HexInt);
 t!(char, Char, Char);
 t!(op, Op, Op);
 t!(symbol, Symbol, Symbol);
@@ -87,7 +88,7 @@ kw!(kw_backslash, T::Slash);
 kw!(kw_module, T::Lower("module"));
 kw!(kw_where, T::Lower("where"));
 kw!(kw_class, T::Lower("class"));
-kw!(kw_as, T::As);
+kw!(kw_as, T::Lower("as"));
 kw!(kw_import, T::Lower("import"));
 kw!(kw_foreign, T::Foreign);
 kw!(kw_hiding, T::Lower("hiding"));
@@ -106,7 +107,7 @@ kw!(kw_true, T::Lower("true"));
 kw!(kw_false, T::Lower("false"));
 kw!(kw_forall, T::Lower("forall"));
 kw!(kw_let, T::Let);
-kw!(kw_in, T::In);
+kw!(kw_in, T::Lower("in"));
 kw!(kw_if, T::If);
 kw!(kw_then, T::Then);
 kw!(kw_else, T::Else);
@@ -429,7 +430,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
     kw_import(p)?;
     let name = qproper(p)?;
     Some(match p.peekt() {
-        Some(T::As) => {
+        Some(T::Lower("as")) => {
             kw_as(p)?;
             let as_name = qproper(p)?;
             ImportDecl::As(name, as_name)
@@ -916,6 +917,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
         (Some(T::Char(_)), _) => Some(Expr::Char(char(p)?)),
         (Some(T::String(_) | T::RawString(_)), _) => Some(Expr::Str(string(p)?)),
         (Some(T::Number(_)), _) => Some(Expr::Number(number(p)?)),
+        (Some(T::HexInt(_)), _) => Some(Expr::HexInt(hex_int(p)?)),
         (Some(T::LeftSquare), _) => {
             let start = p.span();
             kw_ls(p)?;
@@ -995,7 +997,7 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
     }
     alt!(p: Serror::Info("do_statement"),
         |p: &mut P<'t>| {
-            if next_is!(T::In)(p) {
+            if next_is!(T::Lower("in"))(p) {
                 Some(None)
             } else {
                 None
@@ -1431,13 +1433,13 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
             Some(match p.peekt() {
                 Some(T::Lower("type")) => {
                     kw_type(p)?;
-                    let x = typ(p)?;
+                    let x = typ_atom(p, Some("Expected a type"))?;
                     kw_as(p)?;
                     let o = op(p)?;
                     Decl::FixityTyp(f, i, x, o)
                 }
                 _ => {
-                    let x = expr(p)?;
+                    let x = expr_atom(p, Some("Expected an expression"))?;
                     kw_as(p)?;
                     let o = op(p)?;
                     Decl::Fixity(f, i, x, o)

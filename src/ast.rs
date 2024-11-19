@@ -215,6 +215,8 @@ pub struct Char<'t>(pub S<&'t str>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Number<'t>(pub S<&'t str>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct HexInt<'t>(pub S<&'t str>);
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Boolean<'t>(pub S<&'t str>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Label<'t>(pub S<&'t str>);
@@ -487,6 +489,7 @@ pub enum Expr<'t> {
     Char(Char<'t>),
     Str(Str<'t>),
     Number(Number<'t>),
+    HexInt(HexInt<'t>),
     Paren(Box<Expr<'t>>),
 }
 

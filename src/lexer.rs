@@ -183,14 +183,10 @@ pub enum Token<'t> {
     Of,
     #[token("let")]
     Let,
-    #[token("in")]
-    In,
     #[token("do")]
     Do,
     #[token("ado")]
     Ado,
-    #[token("as")]
-    As,
 
     // TODO: We need to parse this with a custom function, We can eat greadily if we tokenize
     // ourselves here.
@@ -561,7 +557,7 @@ fn process(c: &mut C<'_>) {
                 c.insertStart(LytWhere);
             }
         },
-        In => {
+        Lower("in") => {
             c.collapse(inP);
             match c.head2() {
                 (Some(LytLetStmt), Some(LytAdo)) => {
