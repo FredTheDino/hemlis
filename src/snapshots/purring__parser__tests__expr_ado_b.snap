@@ -10,6 +10,28 @@ Module
    NULL
    ProperName
     7..11
+  Decl::Def
+   Name
+    19..20
+   GuardedExpr::Unconditional
+    Expr::Ado
+     NULL
+      DoStmt::Stmt
+       Binder::Var
+        Name
+         48..49
+       Expr::App
+        Expr::Ident
+         QName
+          NULL
+          Name
+           53..54
+        Expr::Number
+         Number
+          55..56
+     Expr::Ident
+      QName
+       NULL
+       Name
+        80..81
 ===
-Unexpected(Known(77, 79, 0), Some(In), "T::LaySep")
-FailedToParseDecl(Known(0, 20, 0), 1, 4, 16)

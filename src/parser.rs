@@ -853,9 +853,8 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             };
             kw_ado(p)?;
             kw_begin(p)?;
-            let ds = sep(p, "ado-block", kw_sep, do_statement);
+            let ds = sep_until(p, "ado-block", kw_sep, do_statement, next_is!(T::LayEnd));
             kw_end(p)?;
-            kw_sep(p)?;
             kw_in(p)?;
             let e = expr(p)?;
             Some(Expr::Ado(q, ds, b!(e)))
@@ -868,7 +867,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
             };
             kw_do(p)?;
             kw_begin(p)?;
-            let ds = sep(p, "do-block", kw_sep, do_statement);
+            let ds = sep_until(p, "do-block", kw_sep, do_statement, next_is!(T::LayEnd));
             kw_end(p)?;
             Some(Expr::Do(q, ds))
         }
