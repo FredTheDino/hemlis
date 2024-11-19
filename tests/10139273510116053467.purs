@@ -15,12 +15,3 @@ a =
         )
         a
 
---+ expected stdout:
---+ B
---+ 38 of 38
---+ ===
---+ Unexpected(Known(0, 1, 0), Some(Lower("a")), "T::Lower(\"module\")")
---+ >>>>>
---+ a = let 
---+ <<<<<<
---+ ===
