@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\"\n        do\n            a <- f 2\n            b <- g a\n            fazz 1 2\n            let \n                a = 1\n            pure (b + a)\n        \")"
 ---
-38 of 38
+37 of 37
 ===
 Module
  Header

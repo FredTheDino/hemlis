@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ(\"()\")"
 ---
-10 of 10
+9 of 9
 ===
 Module
  Header
@@ -14,7 +14,7 @@ Module
    Name
     18..19
    Typ::Row
-    0..24
+    23..25
      Row
       NULL
 ===

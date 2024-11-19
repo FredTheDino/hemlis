@@ -2,5 +2,4 @@
 source: src/lexer.rs
 expression: "p(\"\")"
 ---
-Ok(LayEnd)
 Ok(LayTop)

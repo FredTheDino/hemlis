@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_module(r\"\nmodule AccessRight where\n\nf x =\n  let\n    a b =\n      case b of\n        ABC { a } -> 1\n        _ -> 1\n  in 1\n            \")"
 ---
-32 of 32
+31 of 31
 ===
 Module
  Header

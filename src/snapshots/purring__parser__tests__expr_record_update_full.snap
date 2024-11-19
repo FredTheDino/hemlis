@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(\"foo { a = 1, b = { c = 1 }, d = { e: 1 } }\")"
 ---
-30 of 30
+29 of 29
 ===
 Module
  Header

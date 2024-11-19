@@ -3,5 +3,4 @@ source: src/lexer.rs
 expression: "p(\"överförning\")"
 ---
 Ok(Lower("överförning"))
-Ok(LayEnd)
 Ok(LayTop)

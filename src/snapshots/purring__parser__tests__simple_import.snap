@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_import(\"import A as A\")"
 ---
-10 of 10
+9 of 9
 ===
 Module
  Header

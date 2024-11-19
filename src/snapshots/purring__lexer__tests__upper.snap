@@ -3,5 +3,4 @@ source: src/lexer.rs
 expression: "p(\"Unit\")"
 ---
 Ok(Upper("Unit"))
-Ok(LayEnd)
 Ok(LayTop)

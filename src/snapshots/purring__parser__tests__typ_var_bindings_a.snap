@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ(\"a\")"
 ---
-9 of 9
+8 of 8
 ===
 Module
  Header

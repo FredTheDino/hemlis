@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_module(r\"\nmodule G () where\n\ng :: G.G (G.G G G) -> G G G\ng g =\n  g\n    <#> G.g (\\k v -> G (G k) v)\n    # G.gfromFoldable\n        \")"
 ---
-45 of 45
+44 of 44
 ===
 Module
  Header

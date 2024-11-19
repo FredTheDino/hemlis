@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_module(r\"\nmodule A where\n\na :: Test\na =\n  b\n    let\n      b =\n        let\n          f :: forall e. S -> e -> _\n          f m e =\n            { a: M 1\n            , s: Left {}\n            }\n        in\n        do\n          m <- g\n          E.l M.i\n    in [ ]\n            \")"
 ---
-63 of 63
+62 of 62
 ===
 Module
  Header
@@ -118,5 +118,5 @@ Module
                 235..236
       Expr::Array
        244..245
-       0..0
+       247..260
 ===

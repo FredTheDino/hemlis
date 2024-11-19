@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ(\"Foo bar biz\")"
 ---
-11 of 11
+10 of 10
 ===
 Module
  Header

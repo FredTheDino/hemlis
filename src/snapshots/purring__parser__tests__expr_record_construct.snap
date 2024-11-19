@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(\"foo { a : 1 }\")"
 ---
-14 of 14
+13 of 13
 ===
 Module
  Header
@@ -28,5 +28,5 @@ Module
         Expr::Number
          Number
           33..34
-      0..0
+      35..36
 ===

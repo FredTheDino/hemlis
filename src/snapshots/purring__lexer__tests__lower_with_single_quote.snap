@@ -3,5 +3,4 @@ source: src/lexer.rs
 expression: "p(\"myFunction'\")"
 ---
 Ok(Lower("myFunction'"))
-Ok(LayEnd)
 Ok(LayTop)

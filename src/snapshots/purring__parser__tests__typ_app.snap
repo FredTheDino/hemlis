@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ(\"X.Z (A (B.C D)) E\")"
 ---
-19 of 19
+18 of 18
 ===
 Module
  Header

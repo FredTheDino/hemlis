@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ(\"forall a b . Foo a b => Bar a b => b -> b\")"
 ---
-23 of 23
+22 of 22
 ===
 Module
  Header

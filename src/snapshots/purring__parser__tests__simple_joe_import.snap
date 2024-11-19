@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_import(\"import Joe\")"
 ---
-8 of 8
+7 of 7
 ===
 Module
  Header

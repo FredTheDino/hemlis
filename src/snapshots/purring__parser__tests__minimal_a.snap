@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_module(r\"\nmodule A.C (a) where\n\nt :: T\nt =\n  T.d\n    [ T.d\n        let\n          q a b =\n            a\n              { a: _.o\n              , b: _.id\n              , c\n              , d: 1\n              , e\n              }\n\n          q a b c =\n            A\n              { a:\n                  case b of\n                    true -> Nothing\n                    false -> Just (page + 1)\n              , b: b # c\n              }\n\n          q = a b []\n        in \\_ -> 123\n    ]\n            \")"
 ---
-97 of 97
+96 of 96
 ===
 Module
  Header
@@ -214,5 +214,5 @@ Module
           Expr::Number
            Number
             457..460
-      0..0
+      466..479
 ===

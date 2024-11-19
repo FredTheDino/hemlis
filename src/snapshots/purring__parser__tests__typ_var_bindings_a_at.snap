@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ_var_binding(\"@a\")"
 ---
-13 of 13
+12 of 12
 ===
 Module
  Header

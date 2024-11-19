@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\"let x = 1 in 2\")"
 ---
-16 of 16
+15 of 15
 ===
 Module
  Header

@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_module(r#\"\nmodule A.B.C (a, class B, C, D(..), E(F, G), \n (+), type (+), module H) where\n\nimport A\nimport A as A\nimport A.B.C as A.C\nimport A.B.C (a, class B, \n C, D(..), E(F, G), (+), type (+))\nimport A.B.C hiding (foo)\n        \"#)"
 ---
-82 of 82
+81 of 81
 ===
 Module
  Header

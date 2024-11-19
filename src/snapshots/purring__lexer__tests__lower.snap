@@ -3,5 +3,4 @@ source: src/lexer.rs
 expression: "p(\"variable\")"
 ---
 Ok(Lower("variable"))
-Ok(LayEnd)
 Ok(LayTop)

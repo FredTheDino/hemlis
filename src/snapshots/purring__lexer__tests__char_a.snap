@@ -3,5 +3,4 @@ source: src/lexer.rs
 expression: "p(\"'A'\")"
 ---
 Ok(Char("'A'"))
-Ok(LayEnd)
 Ok(LayTop)

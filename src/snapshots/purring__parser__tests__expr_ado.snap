@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\"\n        ado\n            a <- f 2\n            b <- g a\n            fazz 1 2\n            in b + a\n        \")"
 ---
-28 of 28
+27 of 27
 ===
 Module
  Header

@@ -1,8 +1,8 @@
 ---
 source: src/parser.rs
-expression: "p_module(r\"\nmodule H () where\n\nh = H { tag, attr, children }\n\nh = HH\n        \")"
+expression: "p_module(r\"\nmodule H () where\n\nh = H { tag, attr, children }\n\nh  =HH\n        \")"
 ---
-22 of 22
+21 of 21
 ===
 Module
  Header

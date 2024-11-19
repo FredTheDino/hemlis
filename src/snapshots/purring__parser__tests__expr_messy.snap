@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(\"(1 + 1) * 2 + foo @A `a + b` A.B.C.d A.B.+ q :: Int\")"
 ---
-31 of 31
+30 of 30
 ===
 Module
  Header

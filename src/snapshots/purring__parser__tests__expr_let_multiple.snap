@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\"\n            let\n                x = 1\n                x = 1\n                x = 1\n            in 2\n    \")"
 ---
-24 of 24
+23 of 23
 ===
 Module
  Header

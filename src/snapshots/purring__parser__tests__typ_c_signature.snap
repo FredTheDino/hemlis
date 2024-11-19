@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_typ(\"\n     forall out pkA pkB propsB rowB propsA rowA select\n   . GetPk (C pkA N) propsA\n  => ReflectArray pkA\n  => HasMagicMapping rowA rowA\n  => AllColumns rowA select\n  => HasMagicSelect propsA rowA select select out\n  => GetPk (C pkB N) propsB\n  => ReflectArray pkB\n  => HasMagicMapping rowB rowB\n  => Table propsA rowA\n  -> Table propsB rowB\n  -> (Record out -> Record rowB)\n  -> Sql Unit\")"
 ---
-77 of 77
+76 of 76
 ===
 Module
  Header

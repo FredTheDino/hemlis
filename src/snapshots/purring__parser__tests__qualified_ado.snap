@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\" A.B.ado\n                    a <- f 2\n                    in a\n            \")"
 ---
-18 of 18
+17 of 17
 ===
 Module
  Header

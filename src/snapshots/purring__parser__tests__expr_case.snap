@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: "p_expr(r\"\n        case 1 + 1 of\n            2 -> foo\n            3 | Just _ <- foo bar -> baz\n                    where\n                        baz = 3\n        \")"
 ---
-34 of 34
+33 of 33
 ===
 Module
  Header
