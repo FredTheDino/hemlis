@@ -1,10 +1,10 @@
+workspace = { members = ["lsp"] }
 [package]
 name = "purring"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-lalrpop-util = "0.22.0"
 logos = { version = "0.14.2", features = [] }
 rayon = "1.10.0"
 purring_macros = { path = "purring_macros/" }
@@ -13,5 +13,11 @@ purring_macros = { path = "purring_macros/" }
 insta = "1.40.0"
 goldentests = "1.1"
 
-[build-dependencies]
-lalrpop = "0.22.0"
+[[bin]]
+name = "purring"
+path = "src/main.rs"
+
+[lib]
+name = "purring_lib"
+path = "src/main.rs"
+

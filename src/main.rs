@@ -6,9 +6,9 @@ use std::{
 use ast::Ast;
 use rayon::prelude::*;
 
-mod ast;
-mod lexer;
-mod parser;
+pub mod ast;
+pub mod lexer;
+pub mod parser;
 
 fn main() {
     if env::var("PURRING_GEN").is_ok() {
@@ -31,7 +31,7 @@ fn linear_parse_generate_test() {
             }
             Ok(src) => {
                 let l = lexer::lex(&src, i);
-                let mut p = parser::P::new(0, &l);
+                let mut p = parser::P::new(&l);
                 parser::module(&mut p);
                 if p.i < p.tokens.len() {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
@@ -59,7 +59,7 @@ fn parse_modules() {
                 use std::io::BufWriter;
 
                 let l = lexer::lex(&src, i);
-                let mut p = parser::P::new(0, &l);
+                let mut p = parser::P::new(&l);
 
                 let out = parser::module(&mut p);
                 if p.i < p.tokens.len() {

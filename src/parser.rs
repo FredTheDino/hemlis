@@ -363,7 +363,7 @@ fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
 
 fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
     alt!(
-        p: Serror::Info("export"),
+        p: Serror::Info(p.span(), "export"),
         |p: &mut _| {
             kw_type(p)?;
             Some(Export::TypSymbol(symbol(p)?))
@@ -460,7 +460,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
 
 fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
     alt!(
-        p: Serror::Info("import"),
+        p: Serror::Info(p.span(), "import"),
         |p: &mut _| {
             kw_type(p)?;
             Some(Import::TypSymbol(symbol(p)?))
@@ -510,7 +510,7 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ<'t>> {
             let start = p.span();
             kw_lp(p)?;
             alt!(
-                p: Serror::Info("row or paren"),
+                p: Serror::Info(p.span(), "row or paren"),
                 |p: &mut P<'t>| {
                     let r = row(p)?;
                     kw_rp(p)?;
@@ -995,7 +995,7 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
     while next_is!(T::LaySep)(p) {
         kw_sep(p)?;
     }
-    alt!(p: Serror::Info("do_statement"),
+    alt!(p: Serror::Info(p.span(), "do_statement"),
         |p: &mut P<'t>| {
             if next_is!(T::Lower("in"))(p) {
                 Some(None)
@@ -1023,7 +1023,7 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
 }
 
 fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
-    alt!(p: Serror::Info("let_binding"),
+    alt!(p: Serror::Info(p.span(), "let_binding"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
             kw_eq(p)?;
@@ -1192,7 +1192,7 @@ fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
 }
 
 fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
-    alt!(p: Serror::Info("guard statements"),
+    alt!(p: Serror::Info(p.span(), "guard statements"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
             kw_left_arrow(p)?;
@@ -1238,7 +1238,7 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
     p.next();
     kw_eq(p)?;
 
-    alt!(p: Serror::Info("record_label"),
+    alt!(p: Serror::Info(p.span(), "record_label"),
         |p: &mut P<'t>| {
             Some(RecordUpdate::Leaf(f.clone(), expr(p)?))
         },
@@ -1465,7 +1465,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
 
 fn role(p: &mut P<'_>) -> Option<S<Role>> {
     let start = p.span();
-    let d = alt!(p: Serror::Info("role"),
+    let d = alt!(p: Serror::Info(start, "role"),
             |p: &mut P<'_>| {
                 kw_nominal(p)?;
                 Some(Role::Nominal)
@@ -1491,7 +1491,7 @@ fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead<'t>> {
 }
 
 fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding<'t>> {
-    alt!(p: Serror::Info("inst_binding"),
+    alt!(p: Serror::Info(p.span(), "inst_binding"),
         |p: &mut P<'t>| {
             let n = name(p)?;
             kw_coloncolon(p)?;
@@ -1514,7 +1514,7 @@ fn data_cnstr<'t>(p: &mut P<'t>) -> Option<(ProperName<'t>, Vec<Typ<'t>>)> {
 }
 
 fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
-    alt!(p: Serror::Info("constraints"),
+    alt!(p: Serror::Info(p.span(), "constraints"),
         |p: &mut P<'t>| {
             kw_lp(p)?;
             let cs = sep_until(p, "constraints-sep", kw_comma, typ, next_is!(T::RightParen))
@@ -1537,7 +1537,7 @@ fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
 }
 
 fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep<'t>>> {
-    alt!(p: Serror::Info("fundeps"),
+    alt!(p: Serror::Info(p.span(), "fundeps"),
         |p: &mut P<'t>| {
             kw_pipe(p)?;
             Some(Some(sep(p, "fundeps", kw_comma, fundep)))
@@ -1549,7 +1549,7 @@ fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep<'t>>> {
 }
 
 fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
-    alt!(p: Serror::Info("fundep"),
+    alt!(p: Serror::Info(p.span(), "fundep"),
         |p: &mut P<'t>| {
             kw_right_arrow(p)?;
             Some(FunDep(Vec::new(), many(p, "fundep A", name)))
@@ -1582,7 +1582,7 @@ fn member<'t>(p: &mut P<'t>) -> Option<ClassMember<'t>> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Serror<'s> {
-    Info(&'static str),
+    Info(Span, &'static str),
     Unexpected(Span, Option<Token<'s>>, &'static str),
     NotSimpleTypeVarBinding(Span),
     NotAConstraint(Span),
@@ -1593,7 +1593,7 @@ pub enum Serror<'s> {
 impl<'s> Serror<'s> {
     pub fn same_kind_of_error(&self, other: &Self) -> bool {
         match (self, other) {
-            (Serror::Info(a), Serror::Info(b)) => a == b,
+            (Serror::Info(_, a), Serror::Info(_, b)) => a == b,
             (Serror::Unexpected(_, _, a), Serror::Unexpected(_, _, b)) => a == b,
             (Serror::NotSimpleTypeVarBinding(_), Serror::NotSimpleTypeVarBinding(_)) => true,
             (Serror::NotAConstraint(_), Serror::NotAConstraint(_)) => true,
@@ -1605,19 +1605,18 @@ impl<'s> Serror<'s> {
 
     pub fn span(&self) -> Span {
         match self {
-            Serror::Info(_) => Span::Zero,
-            Serror::Unexpected(a, _, _) => *a,
-            Serror::NotSimpleTypeVarBinding(a) => *a,
-            Serror::NotAConstraint(a) => *a,
-            Serror::NotAtEOF(a, _) => *a,
-            Serror::FailedToParseDecl(a, _, _, _) => *a,
+            Serror::Info(a, _)
+            | Serror::Unexpected(a, _, _)
+            | Serror::NotSimpleTypeVarBinding(a)
+            | Serror::NotAConstraint(a)
+            | Serror::NotAtEOF(a, _)
+            | Serror::FailedToParseDecl(a, _, _, _) => *a,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct P<'s> {
-    pub fi: usize,
     pub i: usize,
     pub tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>,
     pub errors: Vec<Serror<'s>>,
@@ -1626,12 +1625,8 @@ pub struct P<'s> {
 }
 
 impl<'s> P<'s> {
-    pub fn new(
-        fi: usize,
-        tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>,
-    ) -> Self {
+    pub fn new(tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>) -> Self {
         Self {
-            fi,
             i: 0,
             steps: 0.into(),
             panic: false,
@@ -1717,7 +1712,6 @@ impl<'s> P<'s> {
     fn fork(&mut self) -> Self {
         self.check_loop();
         Self {
-            fi: self.fi,
             i: self.i,
             tokens: self.tokens,
             errors: Vec::new(),
@@ -1830,7 +1824,7 @@ mod tests {
                 use std::io::BufWriter;
 
                 let l = lexer::lex(&src, 0);
-                let mut p = P::new(0, &l);
+                let mut p = P::new(&l);
 
                 let mut buf = BufWriter::new(Vec::new());
                 $p(&mut p).show(0, &mut buf).unwrap();
