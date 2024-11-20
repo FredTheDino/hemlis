@@ -1,0 +1,22 @@
+---
+source: src/parser.rs
+expression: "p_import(\"import A as A\")"
+---
+9 of 9
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    (0, 7)->(0, 13)
+   ImportDecl::As
+    QProperName
+     NULL
+     ProperName
+      (2, 7)->(2, 8)
+    QProperName
+     NULL
+     ProperName
+      (2, 12)->(2, 13)
+===

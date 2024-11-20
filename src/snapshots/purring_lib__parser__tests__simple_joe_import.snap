@@ -1,0 +1,18 @@
+---
+source: src/parser.rs
+expression: "p_import(\"import Joe\")"
+---
+7 of 7
+===
+Module
+ Header
+  QProperName
+   NULL
+   ProperName
+    (0, 7)->(0, 13)
+   ImportDecl::Bulk
+    QProperName
+     NULL
+     ProperName
+      (2, 7)->(2, 10)
+===

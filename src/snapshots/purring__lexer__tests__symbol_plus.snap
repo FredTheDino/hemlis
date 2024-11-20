@@ -1,7 +1,0 @@
----
-source: src/lexer.rs
-expression: "p(\"(+)\")"
----
-Ok(LeftParen)
-Ok(Symbol("+"))
-Ok(RightParen)

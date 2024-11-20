@@ -1,0 +1,10 @@
+---
+source: src/parser.rs
+expression: "p_module(\"\")"
+---
+2 of 1
+===
+Module
+ NULL
+===
+Unexpected(Known { line: (0, 0), col: (0, 0), fi: 0 }, None, "T::Lower(\"module\")")
