@@ -1677,14 +1677,10 @@ impl<'s> P<'s> {
         let mut hasher = DefaultHasher::new();
         s.hash(&mut hasher);
         let ud = Ud(hasher.finish() as usize);
-        // NOTE: Not sure if this is faster than just an insert, but insert seems to be
-        // implemented with this.
-        match self.names.try_entry(ud) {
-            Some(dashmap::Entry::Vacant(e)) => {
-                e.insert(s.into());
-            }
-            // Someone else is inserting or has inserted
-            _ => (),
+        // NOTE: This is faster than a normal insert and avoids all possibilities of deadlocks
+        // while maintaining data-correctness.
+        if let Some(dashmap::Entry::Vacant(e)) = self.names.try_entry(ud) {
+            e.insert(s.into());
         }
         ud
     }
