@@ -838,6 +838,7 @@ dependencies = [
 name = "purring"
 version = "0.1.0"
 dependencies = [
+ "dashmap 6.1.0",
  "goldentests",
  "insta",
  "logos",

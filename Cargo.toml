@@ -7,6 +7,7 @@ edition = "2021"
 [dependencies]
 logos = { version = "0.14.2", features = [] }
 rayon = "1.10.0"
+dashmap = "6.1.0"
 purring_macros = { path = "purring_macros/" }
 
 [dev-dependencies]

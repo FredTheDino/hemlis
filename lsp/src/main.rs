@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use dashmap::DashMap;
 use log::debug;
 use ropey::Rope;
@@ -14,7 +12,7 @@ use purring_lib::*;
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    document_map: DashMap<String, Rope>,
+    names: DashMap<ast::Ud, String>,
 }
 
 #[tower_lsp::async_trait]
@@ -277,15 +275,15 @@ struct TextDocumentItem<'a> {
 
 impl Backend {
     async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
-        let rope = ropey::Rope::from_str(params.text);
-        self.document_map
-            .insert(params.uri.to_string(), rope.clone());
+        let l = lexer::lex(params.text, 0);
+        let mut p = parser::P::new(&l, &self.names);
+        let _out = parser::module(&mut p);
+
+        // let rope = ropey::Rope::from_str(params.text);
+        // self.document_map
+        //     .insert(params.uri.to_string(), rope.clone());
         
 
-        let src = rope.to_string();
-        let l = lexer::lex(&src, 0);
-        let mut p = parser::P::new(&l);
-        let _out = parser::module(&mut p);
 
         let diagnostics = p.errors
             .into_iter()
@@ -333,7 +331,7 @@ async fn main() {
 
     let (service, socket) = LspService::build(|client| Backend {
         client,
-        document_map: DashMap::new(),
+        names: DashMap::new(),
     })
     .finish();
 

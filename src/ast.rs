@@ -12,6 +12,9 @@ pub enum Span {
     Zero,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct Ud(pub usize);
+
 impl Span {
     pub fn zero() -> Self {
         Span::Zero
@@ -102,6 +105,16 @@ impl Ast for Span {
 
     fn span(&self) -> Span {
         *self
+    }
+}
+
+impl Ast for Ud {
+    fn show(&self, _indent: usize, _w: &mut impl Write) -> ::std::io::Result<()> {
+        Ok(())
+    }
+
+    fn span(&self) -> Span {
+        Span::Zero
     }
 }
 
@@ -208,130 +221,132 @@ where
 pub struct S<T>(pub T, pub Span);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QProperName<'t>(pub Option<Qual<'t>>, pub ProperName<'t>);
+pub struct QProperName(pub Option<Qual>, pub ProperName);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QName<'t>(pub Option<Qual<'t>>, pub Name<'t>);
+pub struct QName(pub Option<Qual>, pub Name);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QSymbol<'t>(pub Option<Qual<'t>>, pub Symbol<'t>);
+pub struct QSymbol(pub Option<Qual>, pub Symbol);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct QOp<'t>(pub Option<Qual<'t>>, pub Op<'t>);
+pub struct QOp(pub Option<Qual>, pub Op);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Qual<'t>(pub S<&'t str>);
+pub struct Qual(pub S<Ud>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ProperName<'t>(pub S<&'t str>);
+pub struct ProperName(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Name<'t>(pub S<&'t str>);
+pub struct Name(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Hole<'t>(pub S<&'t str>);
+pub struct Hole(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Symbol<'t>(pub S<&'t str>);
+pub struct Symbol(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Op<'t>(pub S<&'t str>);
+pub struct Op(pub S<Ud>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Str<'t>(pub S<&'t str>);
+pub struct Str(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Int<'t>(pub S<&'t str>);
+pub struct Int(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Char<'t>(pub S<&'t str>);
+pub struct Char(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Number<'t>(pub S<&'t str>);
+pub struct Number(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct HexInt<'t>(pub S<&'t str>);
+pub struct HexInt(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Boolean<'t>(pub S<&'t str>);
+pub struct Boolean(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Label<'t>(pub S<&'t str>);
+pub struct Label(pub S<Ud>);
+#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MName(pub S<Ud>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Header<'t>(
-    pub QProperName<'t>,
-    pub Vec<Export<'t>>,
-    pub Vec<ImportDecl<'t>>,
+pub struct Header(
+    pub MName,
+    pub Vec<Export>,
+    pub Vec<ImportDecl>,
 );
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Module<'t>(pub Option<Header<'t>>, pub Vec<Decl<'t>>);
+pub struct Module(pub Option<Header>, pub Vec<Decl>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum DataMember<'t> {
+pub enum DataMember {
     All,
-    Some(Vec<ProperName<'t>>),
+    Some(Vec<ProperName>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Export<'t> {
-    Value(Name<'t>),
-    Symbol(Symbol<'t>),
-    Typ(ProperName<'t>),
-    TypSymbol(Symbol<'t>),
-    TypDat(ProperName<'t>, DataMember<'t>),
-    Class(ProperName<'t>),
-    Module(QProperName<'t>),
+pub enum Export {
+    Value(Name),
+    Symbol(Symbol),
+    Typ(ProperName),
+    TypSymbol(Symbol),
+    TypDat(ProperName, DataMember),
+    Class(ProperName),
+    Module(MName),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Import<'t> {
-    Value(Name<'t>),
-    Symbol(Symbol<'t>),
-    Typ(ProperName<'t>),
-    TypDat(ProperName<'t>, DataMember<'t>),
-    TypSymbol(Symbol<'t>),
-    Class(ProperName<'t>),
+pub enum Import {
+    Value(Name),
+    Symbol(Symbol),
+    Typ(ProperName),
+    TypDat(ProperName, DataMember),
+    TypSymbol(Symbol),
+    Class(ProperName),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ImportDecl<'t> {
-    As(QProperName<'t>, QProperName<'t>),
-    Multiple(QProperName<'t>, Vec<Import<'t>>),
-    Hiding(QProperName<'t>, Vec<Import<'t>>),
-    Bulk(QProperName<'t>),
+pub enum ImportDecl {
+    As(MName, MName),
+    Multiple(MName, Vec<Import>),
+    Hiding(MName, Vec<Import>),
+    Bulk(MName),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Decl<'t> {
-    DataKind(ProperName<'t>, Typ<'t>),
+pub enum Decl {
+    DataKind(ProperName, Typ),
     Data(
-        ProperName<'t>,
-        Vec<TypVarBinding<'t>>,
-        Vec<(ProperName<'t>, Vec<Typ<'t>>)>,
+        ProperName,
+        Vec<TypVarBinding>,
+        Vec<(ProperName, Vec<Typ>)>,
     ),
 
-    TypeKind(ProperName<'t>, Typ<'t>),
-    Type(ProperName<'t>, Vec<TypVarBinding<'t>>, Typ<'t>),
+    TypeKind(ProperName, Typ),
+    Type(ProperName, Vec<TypVarBinding>, Typ),
 
-    NewTypeKind(ProperName<'t>, Typ<'t>),
+    NewTypeKind(ProperName, Typ),
     NewType(
-        ProperName<'t>,
-        Vec<TypVarBinding<'t>>,
-        ProperName<'t>,
-        Typ<'t>,
+        ProperName,
+        Vec<TypVarBinding>,
+        ProperName,
+        Typ,
     ),
 
-    ClassKind(ProperName<'t>, Typ<'t>),
+    ClassKind(ProperName, Typ),
     Class(
-        Vec<Constraint<'t>>,
-        ProperName<'t>,
-        Vec<TypVarBinding<'t>>,
-        Vec<FunDep<'t>>,
-        Vec<ClassMember<'t>>,
+        Vec<Constraint>,
+        ProperName,
+        Vec<TypVarBinding>,
+        Vec<FunDep>,
+        Vec<ClassMember>,
     ),
 
-    Instance(bool, InstHead<'t>, Vec<InstBinding<'t>>),
-    Derive(bool, InstHead<'t>),
+    Instance(bool, InstHead, Vec<InstBinding>),
+    Derive(bool, InstHead),
 
-    Foreign(Name<'t>, Typ<'t>),
-    ForeignData(ProperName<'t>, Typ<'t>),
+    Foreign(Name, Typ),
+    ForeignData(ProperName, Typ),
 
-    Role(ProperName<'t>, Vec<S<Role>>),
+    Role(ProperName, Vec<S<Role>>),
 
-    Fixity(S<FixitySide>, Number<'t>, Expr<'t>, Op<'t>),
-    FixityTyp(S<FixitySide>, Number<'t>, Typ<'t>, Op<'t>),
+    Fixity(S<FixitySide>, Number, Expr, Op),
+    FixityTyp(S<FixitySide>, Number, Typ, Op),
 
-    Sig(Name<'t>, Typ<'t>),
-    Def(Name<'t>, Vec<Binder<'t>>, GuardedExpr<'t>),
+    Sig(Name, Typ),
+    Def(Name, Vec<Binder>, GuardedExpr),
 }
 
 #[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -349,50 +364,50 @@ pub enum Role {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum InstBinding<'t> {
-    Sig(Name<'t>, Typ<'t>),
-    Def(Name<'t>, Vec<Binder<'t>>, GuardedExpr<'t>),
+pub enum InstBinding {
+    Sig(Name, Typ),
+    Def(Name, Vec<Binder>, GuardedExpr),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct InstHead<'t>(
-    pub Vec<Constraint<'t>>,
-    pub QProperName<'t>,
-    pub Vec<Typ<'t>>,
+pub struct InstHead(
+    pub Vec<Constraint>,
+    pub QProperName,
+    pub Vec<Typ>,
 );
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ClassMember<'t>(pub Name<'t>, pub Typ<'t>);
+pub struct ClassMember(pub Name, pub Typ);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Constraint<'t>(pub QProperName<'t>, pub Vec<Typ<'t>>);
+pub struct Constraint(pub QProperName, pub Vec<Typ>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FunDep<'t>(pub Vec<Name<'t>>, pub Vec<Name<'t>>);
+pub struct FunDep(pub Vec<Name>, pub Vec<Name>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Typ<'t> {
+pub enum Typ {
     Wildcard(Span),
-    Var(Name<'t>),
-    Constructor(QProperName<'t>),
-    Symbol(QSymbol<'t>),
-    Str(Str<'t>),
-    Int(Int<'t>),
-    Hole(Hole<'t>),
-    Record(S<Row<'t>>),
-    Row(S<Row<'t>>),
+    Var(Name),
+    Constructor(QProperName),
+    Symbol(QSymbol),
+    Str(Str),
+    Int(Int),
+    Hole(Hole),
+    Record(S<Row>),
+    Row(S<Row>),
 
-    Forall(Vec<TypVarBinding<'t>>, Box<Typ<'t>>),
-    Kinded(Box<Typ<'t>>, Box<Typ<'t>>),
-    Arr(Box<Typ<'t>>, Box<Typ<'t>>),
-    Op(Box<Typ<'t>>, QOp<'t>, Box<Typ<'t>>),
-    Constrained(Constraint<'t>, Box<Typ<'t>>),
-    App(Box<Typ<'t>>, Box<Typ<'t>>),
+    Forall(Vec<TypVarBinding>, Box<Typ>),
+    Kinded(Box<Typ>, Box<Typ>),
+    Arr(Box<Typ>, Box<Typ>),
+    Op(Box<Typ>, QOp, Box<Typ>),
+    Constrained(Constraint, Box<Typ>),
+    App(Box<Typ>, Box<Typ>),
 }
 
-impl<'t> Typ<'t> {
-    pub fn cast_to_constraint(self) -> Option<Constraint<'t>> {
-        fn inner<'t>(a: Typ<'t>, mut args: Vec<Typ<'t>>) -> Option<Constraint<'t>> {
+impl Typ {
+    pub fn cast_to_constraint(self) -> Option<Constraint> {
+        fn inner(a: Typ, mut args: Vec<Typ>) -> Option<Constraint> {
             match a {
                 Typ::Symbol(_)
                 | Typ::Str(_)
@@ -420,34 +435,34 @@ impl<'t> Typ<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TypVarBinding<'t>(pub Name<'t>, pub Option<Typ<'t>>, pub bool);
+pub struct TypVarBinding(pub Name, pub Option<Typ>, pub bool);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Row<'t>(pub Vec<(Label<'t>, Typ<'t>)>, pub Option<Box<Typ<'t>>>);
+pub struct Row(pub Vec<(Label, Typ)>, pub Option<Box<Typ>>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Binder<'t> {
-    Typed(Box<Binder<'t>>, Typ<'t>),
+pub enum Binder {
+    Typed(Box<Binder>, Typ),
 
-    App(Box<Binder<'t>>, Box<Binder<'t>>),
+    App(Box<Binder>, Box<Binder>),
     // TODO
-    Op(Box<Binder<'t>>, QOp<'t>, Box<Binder<'t>>),
+    Op(Box<Binder>, QOp, Box<Binder>),
 
     Wildcard(Span),
-    Var(Name<'t>),
-    Named(Name<'t>, Box<Binder<'t>>),
-    Constructor(QProperName<'t>),
-    Boolean(Boolean<'t>),
-    Char(Char<'t>),
-    Str(Str<'t>),
-    Number(bool, Number<'t>),
-    Array(Vec<Binder<'t>>),
-    Record(Vec<RecordLabelBinder<'t>>),
-    Paren(Box<Binder<'t>>),
+    Var(Name),
+    Named(Name, Box<Binder>),
+    Constructor(QProperName),
+    Boolean(Boolean),
+    Char(Char),
+    Str(Str),
+    Number(bool, Number),
+    Array(Vec<Binder>),
+    Record(Vec<RecordLabelBinder>),
+    Paren(Box<Binder>),
 }
 
-impl<'t> Binder<'t> {
-    pub fn to_constructor(bs: Vec<Binder<'t>>) -> Result<Binder<'t>, &'static str> {
+impl Binder {
+    pub fn to_constructor(bs: Vec<Binder>) -> Result<Binder, &'static str> {
         Ok(match (bs.first().cloned(), bs.len()) {
             (None, 0) => return Err("Empty binder is not allowed"),
             (Some(a), 1) => a,
@@ -464,82 +479,82 @@ impl<'t> Binder<'t> {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum GuardedExpr<'t> {
-    Unconditional(Expr<'t>),
-    Guarded(Vec<(Vec<Guard<'t>>, Expr<'t>)>),
+pub enum GuardedExpr {
+    Unconditional(Expr),
+    Guarded(Vec<(Vec<Guard>, Expr)>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Guard<'t> {
-    Expr(Expr<'t>),
-    Binder(Binder<'t>, Expr<'t>),
+pub enum Guard {
+    Expr(Expr),
+    Binder(Binder, Expr),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum LetBinding<'t> {
-    Sig(Name<'t>, Typ<'t>),
-    Name(Name<'t>, Vec<Binder<'t>>, GuardedExpr<'t>),
-    Pattern(Binder<'t>, Expr<'t>),
+pub enum LetBinding {
+    Sig(Name, Typ),
+    Name(Name, Vec<Binder>, GuardedExpr),
+    Pattern(Binder, Expr),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Expr<'t> {
-    Typed(Box<Expr<'t>>, Typ<'t>),
-    Op(Box<Expr<'t>>, QOp<'t>, Box<Expr<'t>>),
-    Infix(Box<Expr<'t>>, Box<Expr<'t>>, Box<Expr<'t>>),
-    Negate(Box<Expr<'t>>),
-    App(Box<Expr<'t>>, Box<Expr<'t>>),
-    Vta(Box<Expr<'t>>, Typ<'t>),
-    IfThenElse(Span, Box<Expr<'t>>, Box<Expr<'t>>, Box<Expr<'t>>),
-    Do(Option<Qual<'t>>, Vec<DoStmt<'t>>),
-    Ado(Option<Qual<'t>>, Vec<DoStmt<'t>>, Box<Expr<'t>>),
-    Lambda(Span, Vec<Binder<'t>>, Box<Expr<'t>>),
-    Let(Span, Vec<LetBinding<'t>>, Box<Expr<'t>>),
-    Where(Span, Box<Expr<'t>>, Vec<LetBinding<'t>>),
+pub enum Expr {
+    Typed(Box<Expr>, Typ),
+    Op(Box<Expr>, QOp, Box<Expr>),
+    Infix(Box<Expr>, Box<Expr>, Box<Expr>),
+    Negate(Box<Expr>),
+    App(Box<Expr>, Box<Expr>),
+    Vta(Box<Expr>, Typ),
+    IfThenElse(Span, Box<Expr>, Box<Expr>, Box<Expr>),
+    Do(Option<Qual>, Vec<DoStmt>),
+    Ado(Option<Qual>, Vec<DoStmt>, Box<Expr>),
+    Lambda(Span, Vec<Binder>, Box<Expr>),
+    Let(Span, Vec<LetBinding>, Box<Expr>),
+    Where(Span, Box<Expr>, Vec<LetBinding>),
 
-    Case(Span, Vec<Expr<'t>>, Vec<CaseBranch<'t>>),
+    Case(Span, Vec<Expr>, Vec<CaseBranch>),
 
-    Array(Span, Vec<Expr<'t>>, Span),
-    Record(Span, Vec<RecordLabelExpr<'t>>, Span),
-    Update(Box<Expr<'t>>, Vec<RecordUpdate<'t>>),
-    Access(Box<Expr<'t>>, Vec<Label<'t>>),
+    Array(Span, Vec<Expr>, Span),
+    Record(Span, Vec<RecordLabelExpr>, Span),
+    Update(Box<Expr>, Vec<RecordUpdate>),
+    Access(Box<Expr>, Vec<Label>),
 
     Section(Span),
-    Hole(Hole<'t>),
-    Ident(QName<'t>),
-    Constructor(QProperName<'t>),
-    Symbol(QSymbol<'t>),
-    Boolean(Boolean<'t>),
-    Char(Char<'t>),
-    Str(Str<'t>),
-    Number(Number<'t>),
-    HexInt(HexInt<'t>),
-    Paren(Box<Expr<'t>>),
+    Hole(Hole),
+    Ident(QName),
+    Constructor(QProperName),
+    Symbol(QSymbol),
+    Boolean(Boolean),
+    Char(Char),
+    Str(Str),
+    Number(Number),
+    HexInt(HexInt),
+    Paren(Box<Expr>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum RecordLabelExpr<'t> {
-    Pun(Name<'t>),
-    Field(Label<'t>, Expr<'t>),
+pub enum RecordLabelExpr {
+    Pun(Name),
+    Field(Label, Expr),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum RecordLabelBinder<'t> {
-    Pun(Name<'t>),
-    Field(Label<'t>, Binder<'t>),
+pub enum RecordLabelBinder {
+    Pun(Name),
+    Field(Label, Binder),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum RecordUpdate<'t> {
-    Leaf(Label<'t>, Expr<'t>),
-    Branch(Label<'t>, Vec<RecordUpdate<'t>>),
+pub enum RecordUpdate {
+    Leaf(Label, Expr),
+    Branch(Label, Vec<RecordUpdate>),
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CaseBranch<'t>(pub Vec<Binder<'t>>, pub GuardedExpr<'t>);
+pub struct CaseBranch(pub Vec<Binder>, pub GuardedExpr);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum DoStmt<'t> {
-    Stmt(Option<Binder<'t>>, Expr<'t>),
-    Let(Vec<LetBinding<'t>>),
+pub enum DoStmt {
+    Stmt(Option<Binder>, Expr),
+    Let(Vec<LetBinding>),
 }

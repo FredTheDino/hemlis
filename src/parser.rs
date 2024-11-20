@@ -1,5 +1,11 @@
 #![allow(unused)]
 
+use std::hash::DefaultHasher;
+use std::hash::Hash as _;
+use std::hash::Hasher as _;
+
+use dashmap::DashMap;
+
 use crate::ast::*;
 use crate::lexer;
 use crate::lexer::Token as T;
@@ -13,9 +19,9 @@ macro_rules! b {
 
 macro_rules! t {
     ($name:ident, $token:ident, $thing:ident) => {
-        fn $name<'t>(p: &mut P<'t>) -> Option<$thing<'t>> {
+        fn $name(p: &mut P<'_>) -> Option<$thing> {
             match p.next() {
-                (Some(T::$token(x)), s) => Some($thing(S(x, s))),
+                (Some(T::$token(x)), s) => Some($thing(S(p.intern(x), s))),
                 _ => p.raise_(stringify!($thing)),
             }
         }
@@ -24,7 +30,6 @@ macro_rules! t {
 
 t!(name, Lower, Name);
 t!(proper, Upper, ProperName);
-t!(qual, Qual, Qual);
 t!(number, Number, Number);
 t!(hex_int, HexInt, HexInt);
 t!(char, Char, Char);
@@ -32,23 +37,51 @@ t!(op, Op, Op);
 t!(symbol, Symbol, Symbol);
 t!(hole, Hole, Hole);
 
-fn boolean<'t>(p: &mut P<'t>) -> Option<Boolean<'t>> {
+fn mname(p: &mut P<'_>) -> Option<MName> {
+    match p.peek2t() {
+        (Some(T::Qual(q)), Some(T::Upper(u))) => {
+            let ud = p.intern(&format!("{}{}", q, u));
+            let a = p.span();
+            p.skip();
+            let b = p.span();
+            p.skip();
+            let s = a.merge(b);
+            Some(MName(S(ud, s)))
+        }
+        (Some(T::Upper(u)), _) => {
+            let ud = p.intern(u);
+            let s = p.span();
+            p.skip();
+            Some(MName(S(ud, s)))
+        }
+        _ => None,
+    }
+}
+
+fn qual(p: &mut P<'_>) -> Option<Qual> {
     match p.next() {
-        (Some(T::Lower(x @ ("true" | "false"))), s) => Some(Boolean(S(x, s))),
+        (Some(T::Qual(x)), s) => Some(Qual(S(p.intern(&x[0..(x.len() - 1)]), s))),
+        _ => p.raise_(stringify!($thing)),
+    }
+}
+
+fn boolean<'t>(p: &mut P<'t>) -> Option<Boolean> {
+    match p.next() {
+        (Some(T::Lower(x @ ("true" | "false"))), s) => Some(Boolean(S(p.intern(x), s))),
         _ => p.raise_("Boolean"),
     }
 }
 
-fn string<'t>(p: &mut P<'t>) -> Option<Str<'t>> {
+fn string<'t>(p: &mut P<'t>) -> Option<Str> {
     match p.next() {
-        (Some(T::String(x) | T::RawString(x)), s) => Some(Str(S(x, s))),
+        (Some(T::String(x) | T::RawString(x)), s) => Some(Str(S(p.intern(x), s))),
         _ => p.raise_("String | RawString"),
     }
 }
 
-fn label<'t>(p: &mut P<'t>) -> Option<Label<'t>> {
+fn label<'t>(p: &mut P<'t>) -> Option<Label> {
     Some(match p.peek() {
-        (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(n, s)),
+        (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(p.intern(n), s)),
         _ => return None,
     })
 }
@@ -124,7 +157,7 @@ kw!(kw_top, T::LayTop);
 
 macro_rules! q {
     ($name:ident, $inner:expr, $token:expr, $thing:ident) => {
-        fn $name<'t>(p: &mut P<'t>) -> Option<$thing<'t>> {
+        fn $name(p: &mut P<'_>) -> Option<$thing> {
             let q = if matches!(p.peekt(), Some(T::Qual(_))) {
                 Some(qual(p)?)
             } else {
@@ -141,7 +174,7 @@ q!(qproper, proper, QProperName, QProperName);
 q!(qsymbol, symbol, QSymbol, QSymbol);
 q!(qop, op, QOp, QOp);
 
-pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
+pub fn module<'t>(p: &mut P<'t>) -> Option<Module> {
     let h = header(p);
     let mut ds = Vec::new();
     loop {
@@ -184,12 +217,12 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module<'t>> {
     Some(Module(h, ds))
 }
 
-fn header<'t>(p: &mut P<'t>) -> Option<Header<'t>> {
+fn header<'t>(p: &mut P<'t>) -> Option<Header> {
     while matches!(p.peek().0, Some(T::LayTop)) {
         kw_top(p)?;
     }
     kw_module(p)?;
-    let name = qproper(p)?;
+    let name = mname(p)?;
     let exports = exports(p);
     p.recover();
     kw_where(p)?;
@@ -350,7 +383,7 @@ where
     Some(out)
 }
 
-fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
+fn exports<'t>(p: &mut P<'t>) -> Vec<Export> {
     if matches!(p.peekt(), Some(T::LeftParen)) {
         kw_lp(p);
         let exports = sep_until(p, "export", kw_comma, export, next_is!(T::RightParen));
@@ -361,7 +394,7 @@ fn exports<'t>(p: &mut P<'t>) -> Vec<Export<'t>> {
     }
 }
 
-fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
+fn export<'t>(p: &mut P<'t>) -> Option<Export> {
     alt!(
         p: Serror::Info(p.span(), "export"),
         |p: &mut _| {
@@ -374,7 +407,7 @@ fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
         },
         |p: &mut _| {
             kw_module(p)?;
-            Some(Export::Module(qproper(p)?))
+            Some(Export::Module(mname(p)?))
         },
         |p: &mut _| { Some(Export::Value(name(p)?)) },
         |p: &mut _| { Some(Export::Symbol(symbol(p)?)) },
@@ -387,7 +420,7 @@ fn export<'t>(p: &mut P<'t>) -> Option<Export<'t>> {
     )
 }
 
-fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
+fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember> {
     if next_is!(T::Symbol("(..)"))(p) {
         p.skip();
         return Some(DataMember::All);
@@ -413,7 +446,7 @@ fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember<'t>> {
     Some(out)
 }
 
-fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl<'t>> {
+fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl> {
     let mut out = Vec::new();
     while matches!(p.peek2t(), (Some(T::LayTop), Some(T::Lower("import")))) {
         p.skip();
@@ -426,13 +459,13 @@ fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl<'t>> {
     out
 }
 
-fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
+fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
     kw_import(p)?;
-    let name = qproper(p)?;
+    let name = mname(p)?;
     Some(match p.peekt() {
         Some(T::Lower("as")) => {
             kw_as(p)?;
-            let as_name = qproper(p)?;
+            let as_name = mname(p)?;
             ImportDecl::As(name, as_name)
         }
         Some(T::Lower("hiding")) => {
@@ -458,7 +491,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl<'t>> {
     })
 }
 
-fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
+fn import<'t>(p: &mut P<'t>) -> Option<Import> {
     alt!(
         p: Serror::Info(p.span(), "import"),
         |p: &mut _| {
@@ -480,7 +513,7 @@ fn import<'t>(p: &mut P<'t>) -> Option<Import<'t>> {
     )
 }
 
-fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ<'t>> {
+fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
     match p.peek2t() {
         (Some(T::Lower("_")), _) => {
             let span = p.span();
@@ -563,15 +596,15 @@ impl Prec {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-enum TypOp<'t> {
+enum TypOp {
     Kind,
     Arr,
     FatArr,
-    Op(QOp<'t>),
+    Op(QOp),
     App,
 }
 
-fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
+fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp> {
     match p.peek2t() {
         (Some(T::ColonColon), _) => {
             kw_coloncolon(p)?;
@@ -593,7 +626,7 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp<'t>> {
     }
 }
 
-fn typ_fop(t: &TypOp<'_>) -> Prec {
+fn typ_fop(t: &TypOp) -> Prec {
     use Prec::*;
     match t {
         TypOp::Kind => L(0),
@@ -605,7 +638,7 @@ fn typ_fop(t: &TypOp<'_>) -> Prec {
     }
 }
 
-fn typ_mrg<'t>(p: &mut P<'t>, op: TypOp<'t>, lhs: Typ<'t>, rhs: Typ<'t>) -> Typ<'t> {
+fn typ_mrg(p: &mut P<'_>, op: TypOp, lhs: Typ, rhs: Typ) -> Typ {
     match op {
         TypOp::Kind => Typ::Kinded(b!(lhs), b!(rhs)),
         TypOp::Arr => Typ::Arr(b!(lhs), b!(rhs)),
@@ -622,7 +655,7 @@ fn typ_mrg<'t>(p: &mut P<'t>, op: TypOp<'t>, lhs: Typ<'t>, rhs: Typ<'t>) -> Typ<
     }
 }
 
-fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
+fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ> {
     if next_is!(T::Lower("forall"))(p) {
         kw_forall(p)?;
         let vars = typ_var_bindings(p);
@@ -634,12 +667,12 @@ fn top_typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
     }
 }
 
-fn typ<'t>(p: &mut P<'t>) -> Option<Typ<'t>> {
+fn typ<'t>(p: &mut P<'t>) -> Option<Typ> {
     let lhs = top_typ(p)?;
     pratt_typ(p, lhs, Prec::zero())
 }
 
-fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ<'t>, prec: usize) -> Option<Typ<'t>> {
+fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ, prec: usize) -> Option<Typ> {
     while let Some(outer_lookahead) = (|p: &mut P<'t>| {
         let op = typ_op(&mut p.fork())?;
         if typ_fop(&op).prec() >= prec {
@@ -668,7 +701,7 @@ fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ<'t>, prec: usize) -> Option<Typ<'t>
     Some(lhs)
 }
 
-fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding<'t>> {
+fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding> {
     let is_paren = matches!(p.peekt(), Some(T::LeftParen));
     if is_paren {
         kw_lp(p)?;
@@ -691,7 +724,7 @@ fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding<'t>> {
     Some(TypVarBinding(name, ty, is_at))
 }
 
-fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
+fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding> {
     many_until(
         p,
         "typ_var_bindings",
@@ -700,7 +733,7 @@ fn typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
     )
 }
 
-fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
+fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding> {
     let vars = typ_var_bindings(p);
     for v in vars.iter() {
         if v.2 {
@@ -710,7 +743,7 @@ fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding<'t>> {
     vars
 }
 
-fn row_label<'t>(p: &mut P<'t>) -> Option<(Label<'t>, Typ<'t>)> {
+fn row_label<'t>(p: &mut P<'t>) -> Option<(Label, Typ)> {
     let l = label(p)?;
     p.skip();
     kw_coloncolon(p)?;
@@ -718,7 +751,7 @@ fn row_label<'t>(p: &mut P<'t>) -> Option<(Label<'t>, Typ<'t>)> {
     Some((l, t))
 }
 
-fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
+fn row<'t>(p: &mut P<'t>) -> Option<Row> {
     let c = sep_until(
         p,
         "row",
@@ -738,13 +771,13 @@ fn row<'t>(p: &mut P<'t>) -> Option<Row<'t>> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-enum ExprOp<'t> {
-    Op(QOp<'t>),
-    Infix(Expr<'t>),
+enum ExprOp {
+    Op(QOp),
+    Infix(Expr),
     App,
 }
 
-fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
+fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp> {
     match p.peek2t() {
         (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(ExprOp::Op(qop(p)?)),
         (Some(T::Tick), _) => {
@@ -760,7 +793,7 @@ fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp<'t>> {
     }
 }
 
-fn expr_fop(t: &ExprOp<'_>) -> Prec {
+fn expr_fop(t: &ExprOp) -> Prec {
     use Prec::*;
     match t {
         // NOTE[et]: With more information we can get the correct precedences
@@ -770,7 +803,7 @@ fn expr_fop(t: &ExprOp<'_>) -> Prec {
     }
 }
 
-fn expr_mrg<'t>(p: &mut P<'t>, op: ExprOp<'t>, lhs: Expr<'t>, rhs: Expr<'t>) -> Expr<'t> {
+fn expr_mrg(p: &mut P<'_>, op: ExprOp, lhs: Expr, rhs: Expr) -> Expr {
     match op {
         ExprOp::Op(op) => Expr::Op(b!(lhs), op, b!(rhs)),
         ExprOp::Infix(op) => Expr::Infix(b!(lhs), b!(op), b!(rhs)),
@@ -778,7 +811,7 @@ fn expr_mrg<'t>(p: &mut P<'t>, op: ExprOp<'t>, lhs: Expr<'t>, rhs: Expr<'t>) -> 
     }
 }
 
-fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
+fn expr<'t>(p: &mut P<'t>) -> Option<Expr> {
     let lhs = expr_atom(p, Some("Expected an expression"))?;
     let e = pratt_expr(p, lhs, Prec::zero())?;
     Some(if matches!(p.peekt(), Some(T::ColonColon)) {
@@ -790,7 +823,7 @@ fn expr<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     })
 }
 
-fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
+fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr> {
     let e = expr(p)?;
     if matches!(p.peekt(), Some(T::Lower("where"))) {
         let start = p.span();
@@ -802,7 +835,7 @@ fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr<'t>> {
     }
 }
 
-fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<'t>> {
+fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr, prec: usize) -> Option<Expr> {
     while let Some(outer_lookahead) = (|p: &mut P<'t>| {
         let op = expr_op(&mut p.fork())?;
         if expr_fop(&op).prec() >= prec {
@@ -831,7 +864,7 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr<'t>, prec: usize) -> Option<Expr<
     Some(lhs)
 }
 
-fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
+fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr> {
     let e = match p.peek2t() {
         (Some(T::Op("-")), _) => {
             kw_minus(p)?;
@@ -991,7 +1024,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr<'t>> {
     Some(e)
 }
 
-fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
+fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt> {
     while next_is!(T::LaySep)(p) {
         kw_sep(p)?;
     }
@@ -1022,7 +1055,7 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt<'t>> {
     )?
 }
 
-fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
+fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding> {
     alt!(p: Serror::Info(p.span(), "let_binding"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
@@ -1046,7 +1079,7 @@ fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding<'t>> {
     )
 }
 
-fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+fn binder<'t>(p: &mut P<'t>) -> Option<Binder> {
     let b = binder_no_type(p)?;
     if matches!(p.peekt(), Some(T::ColonColon)) {
         kw_coloncolon(p)?;
@@ -1057,7 +1090,7 @@ fn binder<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     }
 }
 
-fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder> {
     let mut lhs = binder_call(p)?;
     while matches!(
         p.peek2t(),
@@ -1070,7 +1103,7 @@ fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     Some(lhs)
 }
 
-fn binder_call<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
+fn binder_call<'t>(p: &mut P<'t>) -> Option<Binder> {
     let head = binder_atom(p, Some("Expected a binder"))?;
     if matches!(head, Binder::Constructor(_)) {
         let bs = many_until(
@@ -1089,7 +1122,7 @@ fn binder_call<'t>(p: &mut P<'t>) -> Option<Binder<'t>> {
     }
 }
 
-fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t>> {
+fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder> {
     match p.peek2t() {
         (Some(T::Lower("_")), _) => {
             let start = p.span();
@@ -1155,7 +1188,7 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder<'t
     }
 }
 
-fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
+fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder> {
     if matches!(p.peek2t(), (_, Some(T::Op(":")))) {
         let f = label(p)?;
         p.next();
@@ -1167,7 +1200,7 @@ fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder<'t>> {
     }
 }
 
-fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
+fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr> {
     if matches!(p.peekt(), Some(T::Equals)) {
         kw_eq(p)?;
         Some(GuardedExpr::Unconditional(expr_where(p)?))
@@ -1180,7 +1213,7 @@ fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr<'t>> {
     }
 }
 
-fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
+fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard>, Expr)> {
     if !matches!(p.peekt(), Some(T::Pipe)) {
         return None;
     }
@@ -1191,7 +1224,7 @@ fn guarded_decl_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
     Some((gs, e))
 }
 
-fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
+fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard> {
     alt!(p: Serror::Info(p.span(), "guard statements"),
         |p: &mut P<'t>| {
             let b = binder(p)?;
@@ -1205,7 +1238,7 @@ fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard<'t>> {
     )
 }
 
-fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr<'t>> {
+fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr> {
     if matches!(p.peek2t(), (_, Some(T::Op(":")))) {
         let f = label(p)?;
         p.next();
@@ -1217,7 +1250,7 @@ fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr<'t>> {
     }
 }
 
-fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate<'t>>> {
+fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate>> {
     kw_lb(p)?;
     let updates = sep_until(
         p,
@@ -1230,7 +1263,7 @@ fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate<'t>>> {
     Some(updates)
 }
 
-fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
+fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate> {
     let f = label(p)?;
     if !matches!(p.peek2t(), (Some(_), Some(T::Equals))) {
         return None;
@@ -1248,7 +1281,7 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate<'t>> {
     )
 }
 
-fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
+fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch> {
     let bs = sep(p, "case_branch", kw_comma, binder_no_type);
     let x = if matches!(p.peekt(), Some(T::RightArrow)) {
         kw_right_arrow(p)?;
@@ -1266,7 +1299,7 @@ fn case_branch<'t>(p: &mut P<'t>) -> Option<CaseBranch<'t>> {
     Some(CaseBranch(bs, x))
 }
 
-fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
+fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard>, Expr)> {
     let gs = sep_until(
         p,
         "guard",
@@ -1279,7 +1312,7 @@ fn guarded_case_expr<'t>(p: &mut P<'t>) -> Option<(Vec<Guard<'t>>, Expr<'t>)> {
     Some((gs, e))
 }
 
-pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl<'t>> {
+pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl> {
     match p.peek3t() {
         (Some(T::Lower("data")), _, Some(T::ColonColon)) => {
             kw_data(p)?;
@@ -1482,7 +1515,7 @@ fn role(p: &mut P<'_>) -> Option<S<Role>> {
     Some(S(d, start))
 }
 
-fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead<'t>> {
+fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead> {
     let cs = constraints(p)?;
     kw_left_imply(p)?;
     let n = qproper(p)?;
@@ -1490,7 +1523,7 @@ fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead<'t>> {
     Some(InstHead(cs, n, bs))
 }
 
-fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding<'t>> {
+fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding> {
     alt!(p: Serror::Info(p.span(), "inst_binding"),
         |p: &mut P<'t>| {
             let n = name(p)?;
@@ -1507,13 +1540,13 @@ fn inst_binding<'t>(p: &mut P<'t>) -> Option<InstBinding<'t>> {
     )
 }
 
-fn data_cnstr<'t>(p: &mut P<'t>) -> Option<(ProperName<'t>, Vec<Typ<'t>>)> {
+fn data_cnstr<'t>(p: &mut P<'t>) -> Option<(ProperName, Vec<Typ>)> {
     let n = proper(p)?;
     let ts = many_until(p, "data cnstr", typ, next_is!(T::Pipe | T::LayTop));
     Some((n, ts))
 }
 
-fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
+fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint>> {
     alt!(p: Serror::Info(p.span(), "constraints"),
         |p: &mut P<'t>| {
             kw_lp(p)?;
@@ -1531,24 +1564,24 @@ fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint<'t>>> {
             Some(Some(vec![t]))
         },
         |p: &mut P<'t>| {
-            Some(None::<Vec<Constraint<'t>>>)
+            Some(None::<Vec<Constraint>>)
         }
     )?
 }
 
-fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep<'t>>> {
+fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep>> {
     alt!(p: Serror::Info(p.span(), "fundeps"),
         |p: &mut P<'t>| {
             kw_pipe(p)?;
             Some(Some(sep(p, "fundeps", kw_comma, fundep)))
         },
         |_| {
-            Some(None::<Vec<FunDep<'t>>>)
+            Some(None::<Vec<FunDep>>)
         },
     )?
 }
 
-fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
+fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep> {
     alt!(p: Serror::Info(p.span(), "fundep"),
         |p: &mut P<'t>| {
             kw_right_arrow(p)?;
@@ -1563,7 +1596,7 @@ fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep<'t>> {
     )
 }
 
-fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember<'t>>> {
+fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember>> {
     if matches!(p.peekt(), Some(T::Lower("where"))) {
         kw_where(p)?;
         sep_until_(p, "members", member)
@@ -1573,7 +1606,7 @@ fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember<'t>>> {
     }
 }
 
-fn member<'t>(p: &mut P<'t>) -> Option<ClassMember<'t>> {
+fn member<'t>(p: &mut P<'t>) -> Option<ClassMember> {
     let n = name(p)?;
     kw_coloncolon(p)?;
     let t = typ(p)?;
@@ -1622,17 +1655,38 @@ pub struct P<'s> {
     pub errors: Vec<Serror<'s>>,
     pub panic: bool,
     pub steps: std::cell::RefCell<usize>,
+    pub names: &'s DashMap<Ud, String>,
 }
 
 impl<'s> P<'s> {
-    pub fn new(tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>) -> Self {
+    pub fn new(
+        tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>,
+        names: &'s DashMap<Ud, String>,
+    ) -> Self {
         Self {
             i: 0,
             steps: 0.into(),
             panic: false,
             errors: Vec::new(),
             tokens,
+            names,
         }
+    }
+
+    fn intern(&self, s: &'_ str) -> Ud {
+        let mut hasher = DefaultHasher::new();
+        s.hash(&mut hasher);
+        let ud = Ud(hasher.finish() as usize);
+        // NOTE: Not sure if this is faster than just an insert, but insert seems to be
+        // implemented with this.
+        match self.names.try_entry(ud) {
+            Some(dashmap::Entry::Vacant(e)) => {
+                e.insert(s.into());
+            }
+            // Someone else is inserting or has inserted
+            _ => (),
+        }
+        ud
     }
 
     fn check_loop(&self) {
@@ -1717,6 +1771,7 @@ impl<'s> P<'s> {
             errors: Vec::new(),
             panic: self.panic,
             steps: self.steps.clone(),
+            names: self.names,
         }
     }
 
@@ -1824,7 +1879,8 @@ mod tests {
                 use std::io::BufWriter;
 
                 let l = lexer::lex(&src, 0);
-                let mut p = P::new(&l);
+                let d = dashmap::DashMap::new();
+                let mut p = P::new(&l, &d);
 
                 let mut buf = BufWriter::new(Vec::new());
                 $p(&mut p).show(0, &mut buf).unwrap();
