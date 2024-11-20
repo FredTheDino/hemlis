@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
 
-use std::ops::Range;
-
 use logos::Logos;
+
+use crate::ast::Span;
 // NOTE: Might not support unicode?
 
 fn lex_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
@@ -84,38 +84,39 @@ fn lex_qual<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
 
 fn lex_symbol<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
     if let Some(at) = lex.remainder().find(")") {
-        if at != 0 && lex
-            .remainder()
-            .get(0..at)
-            .map(|x| {
-                x.chars().all(|x| {
-                    matches!(
-                        x,
-                        '!' | '#'
-                            | '$'
-                            | '%'
-                            | '&'
-                            | '*'
-                            | '+'
-                            | '.'
-                            | '-'
-                            | '\\'
-                            | '|'
-                            | '/'
-                            | '<'
-                            | '='
-                            | '>'
-                            | '?'
-                            | '@'
-                            | '^'
-                            | '~'
-                            | ':'
-                            | ';'
-                            | '¤'
-                    )
+        if at != 0
+            && lex
+                .remainder()
+                .get(0..at)
+                .map(|x| {
+                    x.chars().all(|x| {
+                        matches!(
+                            x,
+                            '!' | '#'
+                                | '$'
+                                | '%'
+                                | '&'
+                                | '*'
+                                | '+'
+                                | '.'
+                                | '-'
+                                | '\\'
+                                | '|'
+                                | '/'
+                                | '<'
+                                | '='
+                                | '>'
+                                | '?'
+                                | '@'
+                                | '^'
+                                | '~'
+                                | ':'
+                                | ';'
+                                | '¤'
+                        )
+                    })
                 })
-            })
-            .unwrap_or(false)
+                .unwrap_or(false)
         {
             lex.bump(at + 1);
         }
@@ -124,7 +125,7 @@ fn lex_symbol<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> &'t str {
 }
 
 #[derive(Logos, Debug, PartialEq, Eq, Clone, Copy)]
-#[logos(extras = (usize, Vec<usize>))]
+#[logos()]
 pub enum Token<'t> {
     #[regex("\\s+", logos::skip)]
     // Conflicts with symbol too-much
@@ -245,7 +246,7 @@ pub enum Token<'t> {
 
 #[allow(dead_code)]
 pub fn contains_lex_errors(content: &str) -> bool {
-    lex(content).into_iter().any(|x| x.0.is_err())
+    lex(content, 0).into_iter().any(|x| x.0.is_err())
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
@@ -286,9 +287,8 @@ impl Delim {
     }
 }
 
-pub fn lex(content: &str) -> Vec<SourceToken<'_>> {
+pub fn lex(content: &str, fi: usize) -> Vec<SourceToken<'_>> {
     let mut indent = 0;
-    let mut line = 0;
     let mut state = vec![((0, 0), Delim::LytRoot), ((0, 0), Delim::LytWhere)];
     let mut out = Vec::new();
     let toks = Token::lexer(content)
@@ -317,54 +317,73 @@ pub fn lex(content: &str) -> Vec<SourceToken<'_>> {
             )
         })
         .collect::<Vec<_>>();
+
+    let mut scanned_to = 0;
+    let mut line = 0;
     for (i, (t, s)) in toks.iter().enumerate() {
+        let line_after = line + content[scanned_to..s.end].matches('\n').count();
+        scanned_to = s.end;
+
+        let span = Span::Known {
+            line: (line, line_after),
+            col: (s.start - indent, s.end - indent),
+            fi,
+        };
+
         match t {
             Ok(Token::Indent(at)) => {
                 // We need to know the indentation of every token - even if there are tokens before it.
                 indent = s.end.saturating_sub(*at);
-                line += 1;
             }
             Ok(tt) => {
                 let next = match toks.get(i + 1) {
                     Some((Ok(Token::Indent(at)), _)) => (*at, line + 1),
+                    // This is a crude approximation - but it's good enough for the Layout
+                    // algorithm
                     _ => (s.end - indent, line),
                 };
+
                 // println!("{:?} {:?}", tt, state);
                 let mut c = C {
                     t: *tt,
                     at: (s.start - indent, line),
                     next,
-                    s: s.clone(),
+                    s: span,
                     state,
                     out: Vec::new(),
                 };
                 process(&mut c);
                 state = c.state;
                 for t in c.out {
-                    out.push(t.clone());
+                    out.push(t);
                 }
             }
             Err(_) => {
-                out.push((*t, s.clone()));
+                out.push((*t, span));
             }
         }
+        line = line_after;
     }
-    let last_span = toks.last().map(|(_, x)| x.clone()).unwrap_or(0..0);
+    let last_span = Span::Known {
+        line: (line, line),
+        col: (0, 0),
+        fi,
+    };
     for (s, d) in state.iter() {
         if d.is_indented() && *s != (0, 0) {
-            out.push((Ok(Token::LayEnd), last_span.clone()));
+            out.push((Ok(Token::LayEnd), last_span));
         }
     }
-    out.push((Ok(Token::LayTop), last_span.clone()));
+    out.push((Ok(Token::LayTop), last_span));
     out
 }
 
-pub type SourceToken<'t> = (Result<Token<'t>, ()>, Range<usize>);
+pub type SourceToken<'t> = (Result<Token<'t>, ()>, Span);
 
 #[derive(Clone)]
 struct C<'t> {
     t: Token<'t>,
-    s: Range<usize>,
+    s: Span,
     at: (usize, usize),
     next: (usize, usize),
     state: Vec<((usize, usize), Delim)>,
@@ -380,7 +399,7 @@ impl<'t> C<'t> {
     }
 
     fn src(&self) -> SourceToken<'t> {
-        (Ok(self.t), self.s.clone())
+        (Ok(self.t), self.s)
     }
 
     fn pushStack(&mut self, t: (usize, usize), d: Delim) {
@@ -411,7 +430,7 @@ impl<'t> C<'t> {
         self.app(s);
     }
 
-    fn app_(&mut self, t: Token<'t>, s: Range<usize>) {
+    fn app_(&mut self, t: Token<'t>, s: Span) {
         self.app((Ok(t), s))
     }
 
@@ -446,7 +465,7 @@ impl<'t> C<'t> {
                 break;
             }
             if b.is_indented() {
-                self.app_(Token::LayEnd, self.s.clone());
+                self.app_(Token::LayEnd, self.s);
             }
             self.popStack();
         }
@@ -457,13 +476,13 @@ impl<'t> C<'t> {
             Some((pos, _)) if self.next.0 <= pos.0 => (),
             _ => {
                 self.pushStack(self.next, d);
-                self.app_(Token::LayBegin, self.s.clone());
+                self.app_(Token::LayBegin, self.s);
             }
         }
     }
 
     fn insertEnd(&mut self) {
-        self.app_(Token::LayEnd, self.s.clone())
+        self.app_(Token::LayEnd, self.s)
     }
 
     fn insertSep(&mut self) {
@@ -473,7 +492,7 @@ impl<'t> C<'t> {
         match self.head() {
             (p, LytTopDeclHead | LytTopDecl) if sepP(p) => {
                 self.popStack();
-                self.app_(Token::LayTop, self.s.clone());
+                self.app_(Token::LayTop, self.s);
             }
             (p, lyt) if indentSepP(p, lyt) => {
                 self.app_(
@@ -482,7 +501,7 @@ impl<'t> C<'t> {
                     } else {
                         Token::LaySep
                     },
-                    self.s.clone(),
+                    self.s,
                 );
                 if lyt == LytOf {
                     self.pushStack(self.at, LytCaseBinders);
@@ -870,7 +889,7 @@ mod tests {
     use insta::assert_snapshot;
 
     fn p(s: &'static str) -> String {
-        lex(s)
+        lex(s, 0)
             .iter()
             .map(|x| format!("{:?}", x.0))
             .collect::<Vec<_>>()

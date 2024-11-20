@@ -4,7 +4,11 @@ use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Span {
-    Known(usize, usize, usize),
+    Known {
+        line: (usize, usize),
+        col: (usize, usize),
+        fi: usize,
+    },
     Zero,
 }
 
@@ -16,26 +20,46 @@ impl Span {
     pub fn merge(self, other: Self) -> Self {
         use Span::*;
         match (self, other) {
-            (Known(a_lo, a_hi, a_fi), Known(b_lo, b_hi, b_fi)) => {
+            (
+                Known {
+                    line: a_line,
+                    col: a_col,
+                    fi: a_fi,
+                },
+                Known {
+                    line: b_line,
+                    col: b_col,
+                    fi: b_fi,
+                },
+            ) => {
                 assert_eq!(a_fi, b_fi);
-                Known(a_lo.min(b_lo), a_hi.max(b_hi), a_fi)
+                let (lo, hi) = if (a_line.0, a_col.0) < (b_line.0, b_col.0) {
+                    ((a_line.0, a_col.0), (b_line.1, b_col.1))
+                } else {
+                    ((b_line.0, b_col.0), (a_line.1, a_col.1))
+                };
+                Known {
+                    line: (lo.0, hi.0),
+                    col: (lo.1, hi.1),
+                    fi: a_fi,
+                }
             }
-            (a @ Known(_, _, _), Zero) | (Zero, a @ Known(_, _, _)) => a,
+            (a @ Known { .. }, Zero) | (Zero, a @ Known { .. }) => a,
             _ => self,
         }
     }
 
-    pub fn lo(&self) -> usize {
+    pub fn lo(&self) -> (usize, usize) {
         match self {
-            Span::Known(l, _, _) => *l,
-            Span::Zero => 0,
+            Span::Known { line, col, .. } => (line.0, col.0),
+            Span::Zero => (0, 0),
         }
     }
 
-    pub fn hi(&self) -> usize {
+    pub fn hi(&self) -> (usize, usize) {
         match self {
-            Span::Known(_, h, _) => *h,
-            Span::Zero => 0,
+            Span::Known { line, col, .. } => (line.1, col.1),
+            Span::Zero => (0, 0),
         }
     }
 }
@@ -68,7 +92,7 @@ impl Ast for Span {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
         writeln!(
             w,
-            "{:indent$}{}..{}",
+            "{:indent$}{:?}->{:?}",
             "",
             self.lo(),
             self.hi(),

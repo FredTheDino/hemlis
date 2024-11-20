@@ -1619,7 +1619,7 @@ impl<'s> Serror<'s> {
 pub struct P<'s> {
     pub fi: usize,
     pub i: usize,
-    pub tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
+    pub tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>,
     pub errors: Vec<Serror<'s>>,
     pub panic: bool,
     pub steps: std::cell::RefCell<usize>,
@@ -1628,7 +1628,7 @@ pub struct P<'s> {
 impl<'s> P<'s> {
     pub fn new(
         fi: usize,
-        tokens: &'s Vec<(Result<Token<'s>, ()>, std::ops::Range<usize>)>,
+        tokens: &'s Vec<(Result<Token<'s>, ()>, Span)>,
     ) -> Self {
         Self {
             fi,
@@ -1707,12 +1707,11 @@ impl<'s> P<'s> {
     }
 
     pub fn span(&self) -> Span {
-        let s = self.tokens.get(self.i).or_else(|| self.tokens.last());
-        Span::Known(
-            s.map(|x| x.1.start).unwrap_or(0),
-            s.map(|x| x.1.end).unwrap_or(0),
-            self.fi,
-        )
+        self.tokens
+            .get(self.i)
+            .or_else(|| self.tokens.last())
+            .map(|x| x.1)
+            .unwrap_or(Span::Zero)
     }
 
     fn fork(&mut self) -> Self {
@@ -1830,7 +1829,7 @@ mod tests {
                 use crate::lexer;
                 use std::io::BufWriter;
 
-                let l = lexer::lex(&src);
+                let l = lexer::lex(&src, 0);
                 let mut p = P::new(0, &l);
 
                 let mut buf = BufWriter::new(Vec::new());

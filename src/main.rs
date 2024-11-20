@@ -3,7 +3,7 @@ use std::{
     fs::{self},
 };
 
-use ast::{Ast, Span};
+use ast::Ast;
 use rayon::prelude::*;
 
 mod ast;
@@ -24,12 +24,13 @@ fn linear_parse_generate_test() {
         .skip(1)
         .collect::<Vec<_>>();
     args.into_iter()
-        .for_each(|arg| match fs::read_to_string(arg.clone()) {
+        .enumerate()
+        .for_each(|(i, arg)| match fs::read_to_string(arg.clone()) {
             Err(e) => {
                 panic!("ERR: {} {:?}", arg, e);
             }
             Ok(src) => {
-                let l = lexer::lex(&src);
+                let l = lexer::lex(&src, i);
                 let mut p = parser::P::new(0, &l);
                 parser::module(&mut p);
                 if p.i < p.tokens.len() {
@@ -49,14 +50,15 @@ fn parse_modules() {
         .skip(1)
         .collect::<Vec<_>>();
     args.par_iter()
-        .for_each(|arg| match fs::read_to_string(arg.clone()) {
+        .enumerate()
+        .for_each(|(i, arg)| match fs::read_to_string(arg.clone()) {
             Err(e) => {
                 panic!("ERR: {} {:?}", arg, e);
             }
             Ok(src) => {
                 use std::io::BufWriter;
 
-                let l = lexer::lex(&src);
+                let l = lexer::lex(&src, i);
                 let mut p = parser::P::new(0, &l);
 
                 let out = parser::module(&mut p);
@@ -78,19 +80,7 @@ fn parse_modules() {
                         p.tokens.len(),
                         p.errors
                             .iter()
-                            .map(|x| {
-                                let xx = match x.span() {
-                                    Span::Known(lo, hi, _) => {
-                                        assert!(lo <= hi);
-                                        let lo = src[..lo].rfind("\n").unwrap_or(lo);
-                                        let hi = src[hi..].find("\n").map(|x| x + hi).unwrap_or(hi);
-                                        assert!(lo < hi);
-                                        &src[lo..hi]
-                                    }
-                                    Span::Zero => "-- NO SOURCE",
-                                };
-                                format!("{:?}\n>>>>>\n{}\n<<<<<<", x, xx)
-                            })
+                            .map(|x| { format!("{:?}\n", x) })
                             .collect::<Vec<_>>()
                             .join("\n"),
                         if env::var("PURRING_TOKENS").is_ok() {
