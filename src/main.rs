@@ -32,7 +32,7 @@ fn linear_parse_generate_test() {
                 panic!("ERR: {} {:?}", arg, e);
             }
             Ok(src) => {
-                let l = lexer::lex(&src, i);
+                let l = lexer::lex(&src, ast::Fi(i));
                 let n = DashMap::new();
                 let mut p = parser::P::new(&l, &n);
                 parser::module(&mut p);
@@ -61,7 +61,7 @@ fn parse_modules() {
             Ok(src) => {
                 use std::io::BufWriter;
 
-                let l = lexer::lex(&src, i);
+                let l = lexer::lex(&src, ast::Fi(i));
                 let n = DashMap::new();
                 let mut p = parser::P::new(&l, &n);
 

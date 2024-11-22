@@ -860,6 +860,7 @@ dependencies = [
  "rust-lapper",
  "serde",
  "serde_json",
+ "sungod",
  "tokio",
  "tower-lsp",
 ]
@@ -1082,7 +1083,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1090,6 +1091,12 @@ name = "str_indices"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d08889ec5408683408db66ad89e0e1f93dff55c73a4ccc71c427d5b277ee47e6"
+
+[[package]]
+name = "sungod"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b351cad1154eca506fab7bc868ffa732e641171a53d6e75aeaae0a042269c6f4"
 
 [[package]]
 name = "syn"

@@ -2,7 +2,7 @@
 
 use logos::Logos;
 
-use crate::ast::Span;
+use crate::ast::{Fi, Span};
 // NOTE: Might not support unicode?
 
 fn lex_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
@@ -244,11 +244,6 @@ pub enum Token<'t> {
     LayTop,
 }
 
-#[allow(dead_code)]
-pub fn contains_lex_errors(content: &str) -> bool {
-    lex(content, 0).into_iter().any(|x| x.0.is_err())
-}
-
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 #[allow(clippy::enum_variant_names)]
 enum Delim {
@@ -287,7 +282,7 @@ impl Delim {
     }
 }
 
-pub fn lex(content: &str, fi: usize) -> Vec<SourceToken<'_>> {
+pub fn lex(content: &str, fi: Fi) -> Vec<SourceToken<'_>> {
     let mut indent = 0;
     let mut state = vec![((0, 0), Delim::LytRoot), ((0, 0), Delim::LytWhere)];
     let mut out = Vec::new();
@@ -889,7 +884,7 @@ mod tests {
     use insta::assert_snapshot;
 
     fn p(s: &'static str) -> String {
-        lex(s, 0)
+        lex(s, Fi(0))
             .iter()
             .map(|x| format!("{:?}", x.0))
             .collect::<Vec<_>>()

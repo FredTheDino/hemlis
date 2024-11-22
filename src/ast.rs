@@ -3,21 +3,32 @@
 use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct Fi(pub usize);
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Span {
     Known {
         line: (usize, usize),
         col: (usize, usize),
-        fi: usize,
+        fi: Fi,
     },
     Zero,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct Ud(pub usize);
 
 impl Span {
     pub fn zero() -> Self {
         Span::Zero
+    }
+
+    pub fn contains(self, (l, c): (usize, usize)) -> bool {
+        self.contains_(l, c)
+    }
+
+    pub fn contains_(self, l: usize, c: usize) -> bool {
+        self.lo() <= (l, c) && (l, c) < self.hi()
     }
 
     pub fn merge(self, other: Self) -> Self {

@@ -1874,7 +1874,7 @@ mod tests {
                 use crate::lexer;
                 use std::io::BufWriter;
 
-                let l = lexer::lex(&src, 0);
+                let l = lexer::lex(&src, Fi(0));
                 let d = dashmap::DashMap::new();
                 let mut p = P::new(&l, &d);
 

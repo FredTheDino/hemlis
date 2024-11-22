@@ -1,6 +1,5 @@
 use dashmap::DashMap;
-use log::debug;
-use ropey::Rope;
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
@@ -13,6 +12,8 @@ use purring_lib::*;
 struct Backend {
     client: Client,
     names: DashMap<ast::Ud, String>,
+    url_to_fi: DashMap<String, ast::Fi>,
+    modules: DashMap<ast::Fi, ast::Module>,
 }
 
 #[tower_lsp::async_trait]
@@ -33,7 +34,10 @@ impl LanguageServer for Backend {
                     },
                 )),
                 completion_provider: None,
-                execute_command_provider: None,
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec!["dummy.do_something".to_string()],
+                    work_done_progress_options: Default::default(),
+                }),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
@@ -42,7 +46,6 @@ impl LanguageServer for Backend {
                     file_operations: None,
                 }),
                 semantic_tokens_provider: None,
-                // definition: Some(GotoCapability::default()),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
@@ -84,45 +87,33 @@ impl LanguageServer for Backend {
         debug!("file closed!");
     }
 
-    /*
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
+        error!("GOTODEF");
         let definition = || -> Option<GotoDefinitionResponse> {
-            //let uri = params.text_document_position_params.text_document.uri;
-            //let semantic = self.semantic_map.get(uri.as_str())?;
-            //let rope = self.document_map.get(uri.as_str())?;
-            //let position = params.text_document_position_params.position;
-            //let offset = position_to_offset(position, &rope)?;
+            let fd = *self.url_to_fi.get(&params.text_document_position_params.text_document.uri.to_string())?;
+            // NOTE: might have an off-by-one
+            let pos = params.text_document_position_params.position;
+            let pos = (pos.line as usize, pos.character as usize);
+            // let m = self.modules.get(&fd)?;
+            None
 
-            //let interval = semantic.ident_range.find(offset, offset + 1).next()?;
-            //let interval_val = interval.val;
-            //let range = match interval_val {
-            //    IdentType::Binding(symbol_id) => {
-            //        let span = &semantic.table.symbol_id_to_span[symbol_id];
-            //        Some(span.clone())
-            //    }
-            //    IdentType::Reference(reference_id) => {
-            //        let reference = semantic.table.reference_id_to_reference.get(reference_id)?;
-            //        let symbol_id = reference.symbol_id?;
-            //        let symbol_range = semantic.table.symbol_id_to_span.get(symbol_id)?;
-            //        Some(symbol_range.clone())
-            //    }
-            //};
+            // let spot = goto_def::search(&m, pos);
+            // error!("Searching for: {:?}, got: {:?}", pos, spot);
+            // match spot{
+            //     goto_def::Definition::Local(s) =>
+            //             Some(GotoDefinitionResponse::Scalar(Location { 
+            //                     uri: params.text_document_position_params.text_document.uri,
+            //                     range: Range { start: pos_from_tup(s.lo()), end: pos_from_tup(s.hi()) },
 
-            //range.and_then(|range| {
-            //    let start_position = offset_to_position(range.start, &rope)?;
-            //    let end_position = offset_to_position(range.end, &rope)?;
-            //    Some(GotoDefinitionResponse::Scalar(Location::new(
-            //        uri,
-            //        Range::new(start_position, end_position),
-            //    )))
-            //})
+            //             })),
+            //     _ => None
+            // }
         }();
         Ok(definition)
     }
-    */
 
     /*
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
@@ -256,6 +247,180 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 }
+
+
+pub type Pos = (usize, usize);
+
+pub type Name = (ast::Ud, ast::Ud, usize);
+
+mod name_resolution {
+    use std::collections::{BTreeMap, BTreeSet};
+    use super::*;
+
+    use purring_lib::{ast, lexer, parser};
+
+    #[derive(Debug)]
+    pub enum NRerrors {
+        Unknown(ast::Span),
+        Multiple(Vec<(ast::Ud, ast::Span)>, ast::Span),
+    }
+
+    #[derive(Debug)]
+    pub struct N<'s> {
+            me: ast::Ud,
+            known: &'s BTreeMap<Name, BTreeSet<Pos>>, 
+            exports: &'s mut Vec<Name>,
+
+            errors: &'s mut Vec<NRerrors>,
+
+            resolved: &'s mut BTreeMap<Pos, Name>,
+            module_imports: &'s mut BTreeMap<ast::Ud, Vec<(ast::Ud, ast::Span)>>,
+            imports: &'s mut BTreeMap<ast::Ud, Name>,
+
+            globals: &'s mut BTreeMap<Name, Pos>,
+            locals: &'s mut Vec<(ast::Ud, Name)>,
+
+            Are types and terms in different namespaces? I'm pretty sure they are... 
+    }
+
+    impl<'s> N<'s> {
+        fn def_global(&mut self, s: &ast::S<ast::Ud>) {
+            let name = (self.me, s.0, 0);
+            self.globals.insert(name, s.1.lo());
+            self.resolved.insert(s.1.lo(), name);
+        }
+
+        fn def_global_(&mut self, s: &ast::S<ast::Ud>) {
+            let name = (self.me, s.0, 0);
+            self.globals.insert(name, s.1.lo());
+            self.resolved.insert(s.1.lo(), name);
+        }
+
+        fn def_local(&mut self, s: &ast::S<ast::Ud>) {
+            let name = (self.me, s.0, s.1.lo().0);
+            self.locals.push((s.0, name));
+            self.resolved.insert(s.1.lo(), name);
+        }
+
+        fn def_import(&self, a: ast::Ud, x: ast::S<ast::Ud>) {
+        }
+
+        fn resolve(&mut self, m: ast::Ud, n: ast::Ud, s: ast::Span) {
+            let mut matches = Vec::new();
+            for mm in self.module_imports.get(&m).iter().map(|x|x.iter()).flatten() {
+                if let Some(name) = self.resolve_inner(mm.0, n) {
+                    self.resolved.insert(s.lo(), name);
+                    matches.push(*mm);
+                }
+            }
+            match matches.len() {
+                0 => self.errors.push(NRerrors::Unknown(s)),
+                1 => (),
+                _ => self.errors.push(NRerrors::Multiple(matches, s)),
+            }
+        }
+
+        // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
+        fn resolve_(&mut self, n: ast::S<ast::Ud>) {
+            self.resolve(self.me, n.0, n.1)
+        }
+
+        fn resolve_inner(&self, m: ast::Ud, n: ast::Ud) -> Option<Name> {
+            if m == self.me {
+                if let Some((_, name)) = self.locals.iter().rfind(|(u, _)| *u == n) {
+                    return Some(*name);
+                }
+            }
+
+            if self.globals.get(&(m, n, 0)).is_some() {
+                return Some((m, n, 0));
+            }
+
+            if m == self.me {
+                if let Some(name) = self.imports.get(&n) {
+                    return Some(*name);
+                }
+            }
+
+            None
+        }
+
+    }
+
+    // Build a map of all source positions that have a name connected with them. We can then use
+    // that mapping to update the global mapping. 
+    pub fn resolve(m: &ast::Module, n: &mut N<'_>) -> Option<ast::Ud>{
+        if let Some(h) = m.0.as_ref() {
+            let name = mname(&h.0, n);
+            for i in h.2.iter() {
+                import(i, n);
+            }
+            for d in m.1.iter() {
+                decl(d, n);
+            }
+
+            let exports = h.1;
+
+            Some(h.0.0.0)
+        } else {
+            None
+        }
+    }
+
+    fn import(i: &ast::ImportDecl, n: &mut N)  {
+        match i {
+            ast::ImportDecl::As(a, b) => {
+                match n.module_imports.entry(a.0.0) {
+                    std::collections::btree_map::Entry::Vacant(v) => { v.insert(vec![(b.0.0, b.0.1)]); },
+                    std::collections::btree_map::Entry::Occupied(v) => { v.get_mut().push(((b.0.0, b.0.1))); },
+                }
+            },
+            ast::ImportDecl::Multiple(a, imports) => {
+                for i in imports {
+                    match i {
+                        ast::Import::Value(x) => {
+                            n.def_import(a.0.0, x.0)
+                        },
+                        ast::Import::Symbol(x) => {
+                            n.def_import(a.0.0, x.0)
+                        }
+                        ast::Import::Typ(x) => {
+                            n.def_import(a.0.0, x.0)
+                        }
+                        ast::Import::TypDat(x, _) => {
+                            // TODO: The data-members
+                            n.def_import(a.0.0, x.0)
+                        }
+                        ast::Import::TypSymbol(x) => {
+                            n.def_import(a.0.0, x.0)
+                        }
+                        ast::Import::Class(x) => {
+                            n.def_import(a.0.0, x.0)
+                        }
+                    }
+                }
+                a.0.0
+            },
+            ast::ImportDecl::Hiding(_, _) => todo!(),
+            ast::ImportDecl::Bulk(_) => todo!(),
+        }
+    }
+
+    fn mname(h: &ast::MName, n: &mut N<'_>) -> ast::Ud {
+        n.def(h.0);
+        h.0.0
+    }
+
+    fn header(m: &ast::Header, n: &mut N<'_>) {
+        todo!()
+    }
+
+    fn decl(d: &ast::Decl, n: &mut N<'_>) {
+        todo!()
+    }
+
+}
+ 
 #[derive(Debug, Deserialize, Serialize)]
 struct InlayHintParams {
     path: String,
@@ -275,15 +440,20 @@ struct TextDocumentItem<'a> {
 
 impl Backend {
     async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
-        let l = lexer::lex(params.text, 0);
+        let fi = match self.url_to_fi.entry(params.uri.to_string()) {
+            dashmap::Entry::Occupied(v) => *v.get(),
+            dashmap::Entry::Vacant(v) => {
+                let fi = ast::Fi(sungod::Ra::ggen::<usize>());
+                v.insert(fi);
+                fi
+            }
+        };
+        let l = lexer::lex(params.text, ast::Fi(0));
         let mut p = parser::P::new(&l, &self.names);
-        let _out = parser::module(&mut p);
-
-        // let rope = ropey::Rope::from_str(params.text);
-        // self.document_map
-        //     .insert(params.uri.to_string(), rope.clone());
-        
-
+        if let Some(m) = parser::module(&mut p) {
+            self.modules
+                .insert(fi, m);
+        };
 
         let diagnostics = p.errors
             .into_iter()
@@ -332,6 +502,8 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
         names: DashMap::new(),
+        url_to_fi: DashMap::new(),
+        modules: DashMap::new(),
     })
     .finish();
 
