@@ -323,7 +323,7 @@ mod name_resolution {
 
             imports: BTreeMap<(Scope, ast::Ud), Name>,
 
-            pub globals: BTreeMap<Name, Pos>,
+            pub defines: BTreeMap<Name, Pos>,
             locals: Vec<(Scope, ast::Ud, Name)>,
     }
 
@@ -339,7 +339,7 @@ mod name_resolution {
                 resolved: BTreeMap::new(),
                 module_imports: BTreeMap::new(), 
                 imports: BTreeMap::new(),
-                globals: BTreeMap::new(),
+                defines: BTreeMap::new(),
                 locals: Vec::new(),
             }
         }
@@ -354,7 +354,7 @@ mod name_resolution {
 
         fn def_global(&mut self, scope: Scope, s: ast::S<ast::Ud>) {
             let name = Name(scope, self.me, s.0, (0, 0));
-            self.globals.entry(name).or_insert(s.1.lo());
+            self.defines.entry(name).or_insert(s.1.lo());
 
             self.resolved.insert(s.1.lo(), name);
             self.resolved.insert(s.1.hi(), name);
@@ -368,14 +368,14 @@ mod name_resolution {
             self.resolved.insert(s.1.lo(), name);
             self.resolved.insert(s.1.hi(), name);
 
-            self.globals.entry(name).or_insert(s.1.lo());
+            self.defines.entry(name).or_insert(s.1.lo());
             self.usages.entry(name).or_insert(BTreeSet::new()).insert(s.1);
         }
 
         fn def_import(&mut self, scope: Scope, m: ast::Ud, s: ast::S<ast::Ud>) {
             let name = Name(scope, m, s.0, s.1.lo());
 
-            self.globals.entry(name).or_insert(s.1.lo());
+            self.defines.entry(name).or_insert(s.1.lo());
 
             self.resolved.insert(s.1.lo(), name);
             self.resolved.insert(s.1.hi(), name);
@@ -430,7 +430,7 @@ mod name_resolution {
                 }
             }
 
-            if self.globals.get(&Name(ss, m, n, (0, 0))).is_some() {
+            if self.defines.get(&Name(ss, m, n, (0, 0))).is_some() {
                 return Some(Name(ss, m, n, (0, 0)));
             }
 
@@ -724,9 +724,7 @@ impl Backend {
             self.modules.insert(me, m);
             self.resolved.insert(me, n.resolved);
             self.usages.insert(me, n.usages);
-            for (name, pos) in n.globals.iter() {
-                // TODO: Split on module so it can be wiped quickly
-                error!("define: {:?}: {:?}", name, pos);
+            for (name, pos) in n.defines.iter() {
                 self.defines.insert(*name, *pos);
             }
         };
