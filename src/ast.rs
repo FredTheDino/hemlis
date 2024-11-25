@@ -2,10 +2,10 @@
 
 use std::io::Write;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct Fi(pub usize);
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum Span {
     Known {
         line: (usize, usize),
@@ -15,6 +15,12 @@ pub enum Span {
     Zero,
 }
 
+// NOTE: I've assumed we don't have hash-collisions - given that a hit has a ~2^64 chance of
+// happening - I judge we're more likely to be hindered by the limit on 2^32 lines in a
+// document before we start to see collisions.
+// Since most of the strings are small - we are close to optimal if it is cryptographically
+// strong and follows the `Avalance Effect`.
+// https://www.geeksforgeeks.org/avalanche-effect-in-cryptography/
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct Ud(pub usize);
 
@@ -60,6 +66,13 @@ impl Span {
             }
             (a @ Known { .. }, Zero) | (Zero, a @ Known { .. }) => a,
             _ => self,
+        }
+    }
+
+    pub fn fi(&self) -> Option<Fi> {
+        match self {
+            Span::Known { fi, .. } => Some(*fi),
+            Span::Zero => None
         }
     }
 
@@ -228,47 +241,47 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct S<T>(pub T, pub Span);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QProperName(pub Option<Qual>, pub ProperName);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QName(pub Option<Qual>, pub Name);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QSymbol(pub Option<Qual>, pub Symbol);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QOp(pub Option<Qual>, pub Op);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Qual(pub S<Ud>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ProperName(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Name(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Hole(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Symbol(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Op(pub S<Ud>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Str(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Int(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Char(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Number(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HexInt(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Boolean(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Label(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MName(pub S<Ud>);
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
