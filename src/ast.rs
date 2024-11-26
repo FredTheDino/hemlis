@@ -7,11 +7,7 @@ pub struct Fi(pub usize);
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum Span {
-    Known {
-        line: (usize, usize),
-        col: (usize, usize),
-        fi: Fi,
-    },
+    Known(Fi, (usize, usize), (usize, usize)),
     Zero,
 }
 
@@ -41,51 +37,36 @@ impl Span {
         use Span::*;
         match (self, other) {
             (
-                Known {
-                    line: a_line,
-                    col: a_col,
-                    fi: a_fi,
-                },
-                Known {
-                    line: b_line,
-                    col: b_col,
-                    fi: b_fi,
-                },
+                Known(a_fi, a_lo, a_hi),
+                Known(b_fi, b_lo, b_hi),
             ) => {
                 assert_eq!(a_fi, b_fi);
-                let (lo, hi) = if (a_line.0, a_col.0) < (b_line.0, b_col.0) {
-                    ((a_line.0, a_col.0), (b_line.1, b_col.1))
-                } else {
-                    ((b_line.0, b_col.0), (a_line.1, a_col.1))
-                };
-                Known {
-                    line: (lo.0, hi.0),
-                    col: (lo.1, hi.1),
-                    fi: a_fi,
-                }
+                let lo = a_lo.min(b_lo);
+                let hi = a_hi.min(b_hi);
+                Known(a_fi, lo, hi)
             }
-            (a @ Known { .. }, Zero) | (Zero, a @ Known { .. }) => a,
+            (a @ Known(..), Zero) | (Zero, a @ Known( .. )) => a,
             _ => self,
         }
     }
 
     pub fn fi(&self) -> Option<Fi> {
         match self {
-            Span::Known { fi, .. } => Some(*fi),
+            Span::Known(fi, ..) => Some(*fi),
             Span::Zero => None
         }
     }
 
     pub fn lo(&self) -> (usize, usize) {
         match self {
-            Span::Known { line, col, .. } => (line.0, col.0),
+            Span::Known(_, lo, _) => *lo,
             Span::Zero => (0, 0),
         }
     }
 
     pub fn hi(&self) -> (usize, usize) {
         match self {
-            Span::Known { line, col, .. } => (line.1, col.1),
+            Span::Known(_, _, hi) => *hi,
             Span::Zero => (0, 0),
         }
     }

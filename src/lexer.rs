@@ -319,12 +319,7 @@ pub fn lex(content: &str, fi: Fi) -> Vec<SourceToken<'_>> {
         let line_after = line + content[scanned_to..s.end].matches('\n').count();
         scanned_to = s.end;
 
-        let span = Span::Known {
-            line: (line, line_after),
-            col: (s.start - indent, s.end - indent),
-            fi,
-        };
-
+        let span = Span::Known(fi, (line, s.start - indent), (line_after, s.end - indent));
         match t {
             Ok(Token::Indent(at)) => {
                 // We need to know the indentation of every token - even if there are tokens before it.
@@ -359,11 +354,7 @@ pub fn lex(content: &str, fi: Fi) -> Vec<SourceToken<'_>> {
         }
         line = line_after;
     }
-    let last_span = Span::Known {
-        line: (line, line),
-        col: (0, 0),
-        fi,
-    };
+    let last_span = Span::Known(fi, (line, 0), (line, 0));
     for (s, d) in state.iter() {
         if d.is_indented() && *s != (0, 0) {
             out.push((Ok(Token::LayEnd), last_span));
