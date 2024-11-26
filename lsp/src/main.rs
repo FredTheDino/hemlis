@@ -319,7 +319,6 @@ impl Export {
     }
 }
 
-
 #[allow(unused)]
 mod name_resolution {
     use super::*;
@@ -505,7 +504,12 @@ mod name_resolution {
                 }
             } else {
                 let name = Name(ss, m, n, Visibility::Public);
-                if self.global_exports.get(&m).map(|x| x.iter().any(|ex| ex.contains(name))).unwrap_or_else(|| false) {
+                if self
+                    .global_exports
+                    .get(&m)
+                    .map(|x| x.iter().any(|ex| ex.contains(name)))
+                    .unwrap_or_else(|| false)
+                {
                     return Some(name);
                 }
                 // TODO: Say what is exported
@@ -554,10 +558,18 @@ mod name_resolution {
             self.exports.push(export);
         }
 
+        fn import_resolve(&mut self, h: ast::MName) {
+            // We can't use the normal resolve - because?
+            let name = Name(Module, h.0.0, h.0.0, Visibility::Public);
+            self.global_usages.push((name, h.0.1));
+            self.resolved.insert((h.0.1.lo(), h.0.1.hi()), name);
+        }
+
         fn import(&mut self, i: &ast::ImportDecl) {
             // NOTE: Is the export a usage? IDK...
             match i {
                 ast::ImportDecl::As(a, b) => {
+                    self.import_resolve(*a);
                     match self.module_imports.entry(a.0 .0) {
                         std::collections::btree_map::Entry::Vacant(v) => {
                             v.insert(vec![(b.0 .0, b.0 .1)]);
@@ -569,6 +581,7 @@ mod name_resolution {
                     self.def_global(Module, b.0, false);
                 }
                 ast::ImportDecl::Multiple(a, imports) => {
+                    self.import_resolve(*a);
                     for i in imports {
                         match i {
                             ast::Import::Value(x) => self.def_import(Term, a.0 .0, x.0),
@@ -584,6 +597,7 @@ mod name_resolution {
                     }
                 }
                 ast::ImportDecl::Hiding(a, _) => {
+                    self.import_resolve(*a);
                     // TODO: Hiding imports are kinda tricky
                     match self.module_imports.entry(self.me) {
                         std::collections::btree_map::Entry::Vacant(v) => {
@@ -594,20 +608,18 @@ mod name_resolution {
                         }
                     }
                 }
-                ast::ImportDecl::Bulk(a) => match self.module_imports.entry(self.me) {
-                    std::collections::btree_map::Entry::Vacant(v) => {
-                        v.insert(vec![(a.0 .0, a.0 .1)]);
+                ast::ImportDecl::Bulk(a) => {
+                    self.import_resolve(*a);
+                    match self.module_imports.entry(self.me) {
+                        std::collections::btree_map::Entry::Vacant(v) => {
+                            v.insert(vec![(a.0 .0, a.0 .1)]);
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut v) => {
+                            v.get_mut().push((a.0 .0, a.0 .1));
+                        }
                     }
-                    std::collections::btree_map::Entry::Occupied(mut v) => {
-                        v.get_mut().push((a.0 .0, a.0 .1));
-                    }
-                },
+                }
             }
-        }
-
-        fn def_mname(&mut self, h: &ast::MName) -> ast::Ud {
-            self.def_global(Module, h.0, true);
-            h.0 .0
         }
 
         // TODO: This is needs to be split into two passes - one for the initial declarations and
@@ -1175,9 +1187,13 @@ mod name_resolution {
         // You still get syntax errors - but without a module-header we can't verify the names in
         // the module. This is annoying and could possibly be fixed.
         if let Some(h) = m.0.as_ref() {
-            let name = n.def_mname(&h.0);
+            // NOTE[et]: This is very finicky code. :(
             // NOTE[et]: I don't want this to be done here - but it's way easier to place it here
+            // than in some requirement for `N`.
+            let name = h.0 .0 .0;
             n.me = name;
+            n.exports.push(Export::Just(Name(Module, name, name, Visibility::Public)));
+            n.def_global(Module, h.0 .0, true);
             for i in h.2.iter() {
                 n.import(i);
             }
@@ -1247,7 +1263,9 @@ impl Backend {
             }
             for (name, pos) in n.global_usages.into_iter() {
                 if let Some(mut e) = self.usages.get_mut(&name.1) {
-                    if let Some(e) = e.get_mut(&name) { e.insert(pos); }
+                    if let Some(e) = e.get_mut(&name) {
+                        e.insert(pos);
+                    }
                 }
             }
             self.exports.insert(me, n.exports);
