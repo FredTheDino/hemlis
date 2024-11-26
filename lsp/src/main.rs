@@ -23,8 +23,9 @@ struct Backend {
     fi_to_ud: DashMap<ast::Fi, ast::Ud>,
     url_to_fi: DashMap<String, ast::Fi>,
 
+    exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
-    resolved: DashMap<ast::Ud, BTreeMap<Pos, Name>>,
+    resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
     defines: DashMap<Name, Pos>,
     usages: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<ast::Span>>>,
 }
@@ -40,24 +41,12 @@ impl Backend {
         for pos in lut.iter() {
             error!("LUT: {:?}", pos);
         }
-        let cur = lut.lower_bound(Bound::Included(&pos));
-        let lo_name = cur.peek_prev()?;
-        let hi_name = cur.peek_next()?;
-        // There's a sneaky bug here - consider:
-        //
-        // type _ = B -> * A
-        // type B = Int
-        //
-        // if you place the cursor at * - and "GOTO-DEFINITION" you goto B - even though it's
-        // not a valid symbol. This can be solved by either adding a random value to the name -
-        // which might be more sane than the line/col and 0 I have now. But this change has
-        // annoying implications. If there's a random value, we have to do an expensive lookup
-        // to get the name which makes this code less "paralelizable". Given that `A` is an
-        // undefined symbol - I think this is a niche enough case to warrent ignoring for now.
-        if !(*lo_name.0 <= pos || pos <= *hi_name.0 && *lo_name.1 != *hi_name.1) {
+        let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
+        let ((lo, hi), name) = cur.peek_prev()?;
+        if !(*lo <= pos && pos <= *hi) {
             return None;
         }
-        Some(*hi_name.1)
+        Some(*name)
     }
 }
 
@@ -312,6 +301,25 @@ pub enum Scope {
     Module,
 }
 
+#[derive(Debug)]
+enum Export {
+    DataSome(Name, Vec<Name>),
+    DataAll(Name, Vec<Name>),
+    Just(Name),
+    Module(Vec<Name>),
+}
+impl Export {
+    fn contains(&self, name: Name) -> bool {
+        match self {
+            Export::DataSome(n, xs) => *n == name || xs.iter().any(|x| *x == name),
+            Export::DataAll(n, xs) => *n == name || xs.iter().any(|x| *x == name),
+            Export::Just(n) => *n == name,
+            Export::Module(xs) => xs.iter().any(|x| *x == name),
+        }
+    }
+}
+
+
 #[allow(unused)]
 mod name_resolution {
     use super::*;
@@ -335,23 +343,18 @@ mod name_resolution {
     }
 
     #[derive(Debug)]
-    enum Export {
-        DataSome(Name, Vec<Name>),
-        DataAll(Name, Vec<Name>),
-        Just(Name),
-        Module(Name),
-    }
-
-    #[derive(Debug)]
-    pub struct N {
+    pub struct N<'s> {
         pub me: ast::Ud,
+
+        global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
+        pub global_usages: Vec<(Name, ast::Span)>,
 
         // NOTE: Maybe this should be a `&mut DashMap<Ud, BTreeMap<Name, BTreeSet<ast::Span>>>` instead
         pub usages: BTreeMap<Name, BTreeSet<ast::Span>>,
 
         pub errors: Vec<NRerrors>,
 
-        pub resolved: BTreeMap<Pos, Name>,
+        pub resolved: BTreeMap<(Pos, Pos), Name>,
         pub exports: Vec<Export>,
 
         constructors: BTreeMap<Name, BTreeSet<Name>>,
@@ -363,12 +366,14 @@ mod name_resolution {
         locals: Vec<(Scope, ast::Ud, Name)>,
     }
 
-    impl N {
-        pub fn new() -> Self {
+    impl<'s> N<'s> {
+        pub fn new(global_exports: &'s DashMap<ast::Ud, Vec<Export>>) -> Self {
             Self {
                 // :(((((( This is not correct!!! This state is set inside a member function.
                 me: ast::Ud(0),
                 usages: BTreeMap::new(),
+                global_exports,
+                global_usages: Vec::new(),
 
                 errors: Vec::new(),
                 resolved: BTreeMap::new(),
@@ -403,8 +408,7 @@ mod name_resolution {
                     }
                 }
             }
-            self.resolved.insert(s.lo(), name);
-            self.resolved.insert(s.hi(), name);
+            self.resolved.insert((s.lo(), s.hi()), name);
             self.usages.entry(name).or_insert(BTreeSet::new()).insert(s);
         }
 
@@ -449,13 +453,15 @@ mod name_resolution {
                 .map(|(_, name)| *name)
                 .collect::<BTreeSet<_>>();
             for name in unique_matches.iter() {
-                error!("RESOLVED: {:?} {:?}", s.lo(), *name);
-                self.resolved.insert(s.lo(), *name);
-                self.resolved.insert(s.hi(), *name);
-                self.usages
-                    .entry(*name)
-                    .or_insert(BTreeSet::new())
-                    .insert(s);
+                self.resolved.insert((s.lo(), s.hi()), *name);
+                if name.1 == self.me {
+                    self.usages
+                        .entry(*name)
+                        .or_insert(BTreeSet::new())
+                        .insert(s);
+                } else {
+                    self.global_usages.push((*name, s));
+                }
             }
 
             match unique_matches.len() {
@@ -485,25 +491,24 @@ mod name_resolution {
                 {
                     return Some(*name);
                 }
-            }
 
-            if self
-                .defines
-                .get(&Name(ss, m, n, Visibility::Public))
-                .is_some()
-            {
-                return Some(Name(ss, m, n, Visibility::Public));
-            }
+                if self
+                    .defines
+                    .get(&Name(ss, m, n, Visibility::Public))
+                    .is_some()
+                {
+                    return Some(Name(ss, m, n, Visibility::Public));
+                }
 
-            if m == self.me {
                 if let Some(name) = self.imports.get(&(ss, n)) {
                     return Some(*name);
                 }
             } else {
-                // let name = (ss, m, n, Export::Public);
-                // if self.global_defines.get(name).is_some() {
-                //     return Some(name);
-                // }
+                let name = Name(ss, m, n, Visibility::Public);
+                if self.global_exports.get(&m).map(|x| x.iter().any(|ex| ex.contains(name))).unwrap_or_else(|| false) {
+                    return Some(name);
+                }
+                // TODO: Say what is exported
             }
 
             None
@@ -1216,7 +1221,6 @@ struct TextDocumentItem<'a> {
 
 impl Backend {
     async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
-        // TODO: Strip out old usages
         let fi = match self.url_to_fi.entry(params.uri.to_string()) {
             dashmap::Entry::Occupied(v) => *v.get(),
             dashmap::Entry::Vacant(v) => {
@@ -1228,7 +1232,7 @@ impl Backend {
         let l = lexer::lex(params.text, fi);
         let mut p = parser::P::new(&l, &self.names);
         let m = parser::module(&mut p);
-        let mut n = name_resolution::N::new();
+        let mut n = name_resolution::N::new(&self.exports);
         if let Some(m) = m {
             name_resolution::resolve_names(&mut n, &m);
             let me = n.me;
@@ -1241,6 +1245,12 @@ impl Backend {
             for (name, pos) in n.defines.iter() {
                 self.defines.insert(*name, *pos);
             }
+            for (name, pos) in n.global_usages.into_iter() {
+                if let Some(mut e) = self.usages.get_mut(&name.1) {
+                    if let Some(e) = e.get_mut(&name) { e.insert(pos); }
+                }
+            }
+            self.exports.insert(me, n.exports);
         };
 
         let diagnostics: std::vec::Vec<tower_lsp::lsp_types::Diagnostic> = [
@@ -1342,6 +1352,7 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
         names: DashMap::new(),
+        exports: DashMap::new(),
         url_to_ud: DashMap::new(),
         ud_to_url: DashMap::new(),
         fi_to_ud: DashMap::new(),
