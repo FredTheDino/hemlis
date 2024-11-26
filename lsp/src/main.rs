@@ -335,6 +335,14 @@ mod name_resolution {
     }
 
     #[derive(Debug)]
+    enum Export {
+        DataSome(Name, Vec<Name>),
+        DataAll(Name, Vec<Name>),
+        Just(Name),
+        Module(Name),
+    }
+
+    #[derive(Debug)]
     pub struct N {
         pub me: ast::Ud,
 
@@ -500,6 +508,660 @@ mod name_resolution {
 
             None
         }
+
+        fn export(&mut self, ex: &ast::Export) {
+            use Export::*;
+            let export = match ex {
+                ast::Export::Value(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Symbol(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Typ(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::TypSymbol(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::TypDat(v, ds) => {
+                    let x = Name(Type, self.me, v.0 .0, Visibility::Public);
+                    let ms = match self.constructors.get(&x) {
+                        None => {
+                            self.errors.push(NRerrors::NoConstructors(x, v.0 .1));
+                            return;
+                        }
+                        Some(ms) => ms,
+                    };
+                    match ds {
+                        ast::DataMember::All => DataAll(x, ms.iter().cloned().collect()),
+                        ast::DataMember::Some(ns) => DataSome(
+                            x,
+                            ns.iter()
+                                .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
+                                    Some(a) => Some(*a),
+                                    None => {
+                                        self.errors.push(NRerrors::NotAConstructor(x, *m));
+                                        None
+                                    }
+                                })
+                                .collect(),
+                        ),
+                    }
+                }
+                ast::Export::Class(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Module(v) => {
+                    Just(Name(Scope::Module, self.me, v.0 .0, Visibility::Public))
+                }
+            };
+            self.exports.push(export);
+        }
+
+        fn import(&mut self, i: &ast::ImportDecl) {
+            // NOTE: Is the export a usage? IDK...
+            match i {
+                ast::ImportDecl::As(a, b) => {
+                    match self.module_imports.entry(a.0 .0) {
+                        std::collections::btree_map::Entry::Vacant(v) => {
+                            v.insert(vec![(b.0 .0, b.0 .1)]);
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut v) => {
+                            v.get_mut().push((b.0 .0, b.0 .1));
+                        }
+                    }
+                    self.def_global(Module, b.0, false);
+                }
+                ast::ImportDecl::Multiple(a, imports) => {
+                    for i in imports {
+                        match i {
+                            ast::Import::Value(x) => self.def_import(Term, a.0 .0, x.0),
+                            ast::Import::Symbol(x) => self.def_import(Term, a.0 .0, x.0),
+                            ast::Import::Typ(x) => self.def_import(Type, a.0 .0, x.0),
+                            ast::Import::TypDat(x, _) => {
+                                // TODO: The data-members
+                                self.def_import(Type, a.0 .0, x.0)
+                            }
+                            ast::Import::TypSymbol(x) => self.def_import(Type, a.0 .0, x.0),
+                            ast::Import::Class(x) => self.def_import(Type, a.0 .0, x.0),
+                        }
+                    }
+                }
+                ast::ImportDecl::Hiding(a, _) => {
+                    // TODO: Hiding imports are kinda tricky
+                    match self.module_imports.entry(self.me) {
+                        std::collections::btree_map::Entry::Vacant(v) => {
+                            v.insert(vec![(a.0 .0, a.0 .1)]);
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut v) => {
+                            v.get_mut().push((a.0 .0, a.0 .1));
+                        }
+                    }
+                }
+                ast::ImportDecl::Bulk(a) => match self.module_imports.entry(self.me) {
+                    std::collections::btree_map::Entry::Vacant(v) => {
+                        v.insert(vec![(a.0 .0, a.0 .1)]);
+                    }
+                    std::collections::btree_map::Entry::Occupied(mut v) => {
+                        v.get_mut().push((a.0 .0, a.0 .1));
+                    }
+                },
+            }
+        }
+
+        fn def_mname(&mut self, h: &ast::MName) -> ast::Ud {
+            self.def_global(Module, h.0, true);
+            h.0 .0
+        }
+
+        // TODO: This is needs to be split into two passes - one for the initial declarations and
+        // one for inner declarations - since there is no order here. One could also push these
+        // references first and check them later - saying where the same declaration is used in e.g
+        // error messages.
+        fn decl_first(&mut self, d: &ast::Decl, prev: Option<ast::Ud>) -> Option<ast::Ud> {
+            // I skipped references in Kinds for now - not because it's hard but because I
+            // want a demo ASAP and it has little value.
+            //
+            // NOTE: There's a sneaky bug here, where multiple kind definitions don't cause an error. I
+            // don't think this will be that annoying - but it requires more through analysis to
+            // resolve. There's also the case with term-definitions where there can be guards - this
+            // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
+            match d {
+                ast::Decl::DataKind(d, _) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    q
+                }
+                ast::Decl::Data(d, _, cs) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    let mut cons = BTreeSet::new();
+                    for c in cs {
+                        self.def_global(Term, c.0 .0, false);
+                        cons.insert(Name(Term, self.me, c.0 .0 .0, Visibility::Public));
+                    }
+                    self.constructors
+                        .insert(Name(Type, self.me, d.0 .0, Visibility::Public), cons);
+                    None
+                }
+                ast::Decl::TypeKind(d, _) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    q
+                }
+                ast::Decl::Type(d, xs, t) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    // Bug compatible with the Purs-compiler
+                    self.constructors.insert(
+                        Name(Type, self.me, d.0 .0, Visibility::Public),
+                        BTreeSet::new(),
+                    );
+                    None
+                }
+                ast::Decl::NewTypeKind(d, _) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    q
+                }
+                ast::Decl::NewType(d, xs, c, t) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    self.def_global(Term, c.0, false);
+                    self.constructors.insert(
+                        Name(Type, self.me, d.0 .0, Visibility::Public),
+                        [Name(Term, self.me, c.0 .0, Visibility::Public)].into(),
+                    );
+                    None
+                }
+                ast::Decl::ClassKind(d, _) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    q
+                }
+                ast::Decl::Class(cs, d, xs, fd, mem) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Type, d.0, prev == q);
+                    q
+                }
+                ast::Decl::Foreign(d, _) => {
+                    self.def_global(Term, d.0, false);
+                    None
+                }
+                ast::Decl::ForeignData(d, _) => {
+                    self.def_global(Type, d.0, false);
+                    None
+                }
+                ast::Decl::Fixity(_, _, _, o) => {
+                    self.def_global(Term, o.0, false);
+                    None
+                }
+                ast::Decl::FixityTyp(_, _, _, o) => {
+                    self.def_global(Type, o.0, false);
+                    None
+                }
+                ast::Decl::Sig(d, _) => {
+                    self.def_global(Type, d.0, false);
+                    Some(d.0 .0)
+                }
+                ast::Decl::Def(d, _, _) => {
+                    let q = Some(d.0 .0);
+                    self.def_global(Term, d.0, prev == q);
+                    q
+                }
+                ast::Decl::Instance(_, _, _) => None,
+                ast::Decl::Derive(_, _) => None,
+                ast::Decl::Role(_, _) => None,
+            }
+        }
+
+        fn decl_body(&mut self, d: &ast::Decl) {
+            // I skipped references in Kinds for now - not because it's hard but because I
+            // want a demo ASAP and it has little value.
+            match d {
+                ast::Decl::DataKind(_, _) => (),
+                ast::Decl::Data(d, xs, cs) => {
+                    let sf = self.push();
+                    for x in xs.iter() {
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    for c in cs {
+                        for t in c.1.iter() {
+                            self.typ(t);
+                        }
+                    }
+                    self.pop(sf);
+                }
+                ast::Decl::TypeKind(_, _) => (),
+                ast::Decl::Type(d, xs, t) => {
+                    let sf = self.push();
+                    for x in xs.iter() {
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    self.typ(t);
+                    self.pop(sf);
+                }
+                ast::Decl::NewTypeKind(_, _) => (),
+                ast::Decl::NewType(d, xs, c, t) => {
+                    let sf = self.push();
+                    for x in xs.iter() {
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    self.typ(t);
+                    self.pop(sf);
+                }
+                ast::Decl::ClassKind(_, _) => (),
+                ast::Decl::Class(cs, d, xs, fd, mem) => {
+                    let sf = self.push();
+                    for x in xs.iter() {
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    for c in cs {
+                        self.constraint(c);
+                    }
+                    self.pop(sf);
+                }
+                ast::Decl::Instance(_, head, bindings) => {
+                    let u = self.inst_head(head);
+                    for b in bindings.iter() {
+                        self.inst_binding(b, u);
+                    }
+                }
+                ast::Decl::Derive(_, head) => {
+                    let _u = self.inst_head(head);
+                }
+                ast::Decl::Foreign(d, t) => {
+                    self.typ(t);
+                }
+                ast::Decl::ForeignData(_, _) => {}
+                ast::Decl::Role(d, _) => {
+                    self.resolve(Term, self.me, d.0);
+                }
+                ast::Decl::Fixity(_, _, e, _) => {
+                    self.expr(e);
+                }
+                ast::Decl::FixityTyp(_, _, t, _) => {
+                    self.typ(t);
+                }
+                ast::Decl::Sig(_, t) => {
+                    self.typ(t);
+                }
+                ast::Decl::Def(_, bs, e) => {
+                    for b in bs.iter() {
+                        self.binder(b);
+                    }
+                    self.guarded_expr(e);
+                }
+            }
+        }
+
+        fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> ast::Ud {
+            for c in cs.iter() {
+                self.constraint(c);
+            }
+            self.resolveq(Type, d.0, d.1 .0);
+            for t in ts.iter() {
+                self.typ(t);
+            }
+            match d.0 {
+                Some(u) => u.0 .0,
+                None => self.me,
+            }
+        }
+
+        fn inst_binding(&mut self, b: &ast::InstBinding, u: ast::Ud) {
+            match b {
+                ast::InstBinding::Sig(l, t) => {
+                    self.resolve(Type, u, l.0);
+                    self.typ(t);
+                }
+                ast::InstBinding::Def(l, binders, e) => {
+                    self.resolve(Type, u, l.0);
+                    let sf = self.push();
+                    for b in binders.iter() {
+                        self.binder(b);
+                    }
+                    self.guarded_expr(e);
+                    self.pop(sf);
+                }
+            }
+        }
+
+        fn guarded_expr(&mut self, e: &ast::GuardedExpr) {
+            match e {
+                ast::GuardedExpr::Unconditional(e) => self.expr(e),
+                ast::GuardedExpr::Guarded(es) => {
+                    for (gs, e) in es.iter() {
+                        let sf = self.push();
+                        for g in gs {
+                            match g {
+                                ast::Guard::Expr(e) => self.expr(e),
+                                ast::Guard::Binder(b, e) => {
+                                    // NOTE[et]: We define things from the expression, so the flow of
+                                    // execution is different here.
+                                    self.expr(e);
+                                    self.binder(b);
+                                }
+                            }
+                        }
+                        self.expr(e);
+                        self.pop(sf);
+                    }
+                }
+            }
+        }
+
+        fn expr(&mut self, e: &ast::Expr) {
+            match e {
+                ast::Expr::Typed(e, t) => {
+                    self.expr(e);
+                    self.typ(t);
+                }
+                ast::Expr::Op(a, o, b) => {
+                    self.expr(a);
+                    self.resolveq(Term, o.0, o.1 .0);
+                    self.expr(b);
+                }
+                ast::Expr::Infix(a, o, b) => {
+                    self.expr(a);
+                    self.expr(o);
+                    self.expr(b);
+                }
+                ast::Expr::Negate(e) => {
+                    self.expr(e);
+                }
+                ast::Expr::App(a, b) => {
+                    self.expr(a);
+                    self.expr(b);
+                }
+                ast::Expr::Vta(e, t) => {
+                    self.expr(e);
+                    self.typ(t);
+                }
+                ast::Expr::IfThenElse(_, a, tru, fal) => {
+                    self.expr(a);
+                    self.expr(tru);
+                    self.expr(fal);
+                }
+                ast::Expr::Do(_qual, stmts) => {
+                    // TODO: Add in the qualified to jump to the module/import
+                    let sf = self.push();
+                    for s in stmts.iter() {
+                        match s {
+                            ast::DoStmt::Stmt(Some(b), e) => {
+                                // NOTE[et]: We define things from the expression, so the flow of
+                                // execution is different here.
+                                self.expr(e);
+                                self.binder(b);
+                            }
+                            ast::DoStmt::Stmt(None, e) => {
+                                self.expr(e);
+                            }
+                            ast::DoStmt::Let(ls) => {
+                                self.let_binders(ls);
+                            }
+                        }
+                    }
+                    self.pop(sf);
+                }
+                ast::Expr::Ado(_qual, stmts, ret) => {
+                    let sf = self.push();
+                    // NOTE[et]: We define things from the expression, so the flow of
+                    // execution is different here.
+                    for s in stmts.iter() {
+                        match s {
+                            ast::DoStmt::Stmt(_, e) => {
+                                self.expr(e);
+                            }
+                            ast::DoStmt::Stmt(_, e) => {
+                                self.expr(e);
+                            }
+                            ast::DoStmt::Let(ls) => {}
+                        }
+                    }
+                    for s in stmts.iter() {
+                        match s {
+                            ast::DoStmt::Stmt(Some(b), e) => {
+                                self.binder(b);
+                            }
+                            ast::DoStmt::Stmt(None, e) => {}
+                            ast::DoStmt::Let(ls) => {
+                                self.let_binders(ls);
+                            }
+                        }
+                    }
+                    self.expr(ret);
+                    self.pop(sf);
+                }
+                ast::Expr::Lambda(_, bs, e) => {
+                    let sf = self.push();
+                    for b in bs.iter() {
+                        self.binder(b);
+                    }
+                    self.expr(e);
+                    self.pop(sf);
+                }
+                ast::Expr::Where(_, e, ls) | ast::Expr::Let(_, ls, e) => {
+                    let sf = self.push();
+                    self.let_binders(ls);
+                    self.expr(e);
+                    self.pop(sf);
+                }
+                ast::Expr::Case(_, es, cs) => {
+                    for e in es.iter() {
+                        self.expr(e);
+                    }
+                    for ast::CaseBranch(bs, e) in cs.iter() {
+                        let sf = self.push();
+                        for b in bs.iter() {
+                            self.binder(b);
+                        }
+                        self.guarded_expr(e);
+                        self.pop(sf);
+                    }
+                }
+                ast::Expr::Array(_, es, _) => {
+                    for e in es.iter() {
+                        self.expr(e);
+                    }
+                }
+                ast::Expr::Record(_, rs, _) => {
+                    for r in rs {
+                        match r {
+                            ast::RecordLabelExpr::Pun(l) => {
+                                self.resolve(Term, self.me, l.0);
+                            }
+                            ast::RecordLabelExpr::Field(_, e) => {
+                                self.expr(e);
+                            }
+                        }
+                    }
+                }
+                ast::Expr::Update(e, rs) => {
+                    self.expr(e);
+                    for r in rs.iter() {
+                        self.record_update(r);
+                    }
+                }
+                ast::Expr::Access(e, _) => {
+                    self.expr(e);
+                }
+                ast::Expr::Section(_) => (),
+                ast::Expr::Hole(_) => (),
+                ast::Expr::Ident(v) => {
+                    self.resolveq(Term, v.0, v.1 .0);
+                }
+                ast::Expr::Constructor(v) => {
+                    self.resolveq(Term, v.0, v.1 .0);
+                }
+                ast::Expr::Symbol(v) => {
+                    self.resolveq(Term, v.0, v.1 .0);
+                }
+                ast::Expr::Boolean(_) => (),
+                ast::Expr::Char(_) => (),
+                ast::Expr::Str(_) => (),
+                ast::Expr::Number(_) => (),
+                ast::Expr::HexInt(_) => (),
+                ast::Expr::Paren(e) => {
+                    self.expr(e);
+                }
+            }
+        }
+
+        fn record_update(&mut self, r: &ast::RecordUpdate) {
+            match r {
+                ast::RecordUpdate::Leaf(_, e) => {
+                    self.expr(e);
+                }
+                ast::RecordUpdate::Branch(_, rs) => {
+                    for r in rs.iter() {
+                        self.record_update(r);
+                    }
+                }
+            }
+        }
+
+        fn let_binders(&mut self, ls: &Vec<ast::LetBinding>) {
+            for l in ls {
+                match l {
+                    ast::LetBinding::Sig(l, t) => {
+                        self.def_local(Term, l.0 .0, l.0 .1);
+                    }
+                    ast::LetBinding::Name(l, bs, e) => {
+                        self.def_local(Term, l.0 .0, l.0 .1);
+                    }
+                    ast::LetBinding::Pattern(b, e) => {
+                        self.binder(b);
+                    }
+                }
+            }
+            for l in ls {
+                match l {
+                    ast::LetBinding::Sig(l, t) => {
+                        self.typ(t);
+                    }
+                    ast::LetBinding::Name(l, bs, e) => {
+                        let sf = self.push();
+                        for b in bs.iter() {
+                            self.binder(b);
+                        }
+                        self.guarded_expr(e);
+                        self.pop(sf);
+                    }
+                    ast::LetBinding::Pattern(b, e) => {
+                        self.expr(e);
+                        self.binder(b);
+                    }
+                }
+            }
+        }
+
+        fn binder(&mut self, b: &ast::Binder) {
+            match b {
+                ast::Binder::Typed(b, t) => {
+                    self.binder(b);
+                    self.typ(t);
+                }
+                ast::Binder::App(a, b) => {
+                    self.binder(a);
+                    self.binder(b);
+                }
+                ast::Binder::Op(a, o, b) => {
+                    self.binder(a);
+                    self.resolveq(Term, o.0, o.1 .0);
+                    self.binder(b);
+                }
+                ast::Binder::Wildcard(_) => (),
+                ast::Binder::Var(name) => {
+                    self.def_local(Term, name.0 .0, name.0 .1);
+                }
+                ast::Binder::Named(name, b) => {
+                    self.def_local(Term, name.0 .0, name.0 .1);
+                    self.binder(b);
+                }
+                ast::Binder::Constructor(c) => {
+                    self.resolveq(Term, c.0, c.1 .0);
+                }
+                ast::Binder::Boolean(_) => (),
+                ast::Binder::Char(_) => (),
+                ast::Binder::Str(_) => (),
+                ast::Binder::Number(_, _) => (),
+                ast::Binder::Array(ts) => {
+                    for b in ts.iter() {
+                        self.binder(b);
+                    }
+                }
+                ast::Binder::Record(bs) => {
+                    for b in bs.iter() {
+                        match b {
+                            ast::RecordLabelBinder::Pun(l) => {
+                                self.resolve(Term, self.me, l.0);
+                            }
+                            ast::RecordLabelBinder::Field(_, b) => {
+                                self.binder(b);
+                            }
+                        }
+                    }
+                }
+                ast::Binder::Paren(b) => {
+                    self.binder(b);
+                }
+            }
+        }
+
+        fn constraint(&mut self, ast::Constraint(c, ts): &ast::Constraint) {
+            self.resolveq(Type, c.0, c.1 .0);
+            for t in ts.iter() {
+                self.typ(t);
+            }
+        }
+
+        fn typ(&mut self, t: &ast::Typ) {
+            match t {
+                ast::Typ::Wildcard(_) => (),
+                ast::Typ::Var(v) => {
+                    self.resolve(Type, self.me, v.0);
+                }
+                ast::Typ::Constructor(v) => {
+                    self.resolveq(Type, v.0, v.1 .0);
+                }
+                ast::Typ::Symbol(v) => {
+                    self.resolveq(Type, v.0, v.1 .0);
+                }
+                ast::Typ::Str(_) => (),
+                ast::Typ::Int(_) => (),
+                ast::Typ::Hole(_) => (),
+                ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
+                    let rs = &rs.0;
+                    for (_, t) in rs.0.iter() {
+                        self.typ(t);
+                    }
+                    if let Some(t) = &rs.1 {
+                        self.typ(t);
+                    }
+                }
+                ast::Typ::Forall(xs, t) => {
+                    let sf = self.push();
+                    for x in xs.iter() {
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    self.typ(t);
+                    self.pop(sf);
+                }
+                ast::Typ::Kinded(t, _t) => {
+                    // Not doing Kinds for now
+                    self.typ(t);
+                }
+                ast::Typ::Arr(a, b) => {
+                    self.typ(a);
+                    self.typ(b);
+                }
+                ast::Typ::Op(a, o, b) => {
+                    self.typ(a);
+                    self.resolveq(Type, o.0, o.1 .0);
+                    self.typ(b);
+                }
+                ast::Typ::Constrained(c, t) => {
+                    self.constraint(c);
+                    self.typ(t);
+                }
+                ast::Typ::App(a, b) => {
+                    self.typ(a);
+                    self.typ(b);
+                }
+            }
+        }
     }
 
     // Build a map of all source positions that have a name connected with them. We can then use
@@ -508,682 +1170,29 @@ mod name_resolution {
         // You still get syntax errors - but without a module-header we can't verify the names in
         // the module. This is annoying and could possibly be fixed.
         if let Some(h) = m.0.as_ref() {
-            let name = def_mname(n, &h.0);
+            let name = n.def_mname(&h.0);
             // NOTE[et]: I don't want this to be done here - but it's way easier to place it here
             n.me = name;
             for i in h.2.iter() {
-                import(n, i);
+                n.import(i);
             }
             let mut prev = None;
             for d in m.1.iter() {
-                prev = decl_first(n, d, prev);
+                prev = n.decl_first(d, prev);
             }
             for d in m.1.iter() {
                 let sf = n.push();
-                decl_body(n, d);
+                n.decl_body(d);
                 n.pop(sf);
             }
 
             for ex in h.1.iter() {
-                export(n, ex);
+                n.export(ex);
             }
 
             Some(h.0 .0 .0)
         } else {
             None
-        }
-    }
-
-    #[derive(Debug)]
-    enum Export {
-        DataSome(Name, Vec<Name>),
-        DataAll(Name, Vec<Name>),
-        Just(Name),
-        Module(Name),
-    }
-
-    fn export(n: &mut N, ex: &ast::Export) {
-        use Export::*;
-        let export = match ex {
-            ast::Export::Value(v) => Just(Name(Term, n.me, v.0 .0, Visibility::Public)),
-            ast::Export::Symbol(v) => Just(Name(Term, n.me, v.0 .0, Visibility::Public)),
-            ast::Export::Typ(v) => Just(Name(Type, n.me, v.0 .0, Visibility::Public)),
-            ast::Export::TypSymbol(v) => Just(Name(Type, n.me, v.0 .0, Visibility::Public)),
-            ast::Export::TypDat(v, ds) => {
-                let x = Name(Type, n.me, v.0 .0, Visibility::Public);
-                let ms = match n.constructors.get(&x) {
-                    None => {
-                        n.errors.push(NRerrors::NoConstructors(x, v.0.1));
-                        return;
-                    }
-                    Some(ms) => ms,
-                };
-                match ds {
-                    ast::DataMember::All => DataAll(x, ms.iter().cloned().collect()),
-                    ast::DataMember::Some(ns) => DataSome(
-                        x,
-                        ns.iter()
-                            .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
-                                Some(a) => Some(*a),
-                                None => {
-                                    n.errors.push(NRerrors::NotAConstructor(x, *m));
-                                    None
-                                }
-                            })
-                            .collect(),
-                    ),
-                }
-            }
-            ast::Export::Class(v) => Just(Name(Type, n.me, v.0 .0, Visibility::Public)),
-            ast::Export::Module(v) => Just(Name(Scope::Module, n.me, v.0 .0, Visibility::Public)),
-        };
-        n.exports.push(export);
-    }
-
-    fn import( n: &mut N, i: &ast::ImportDecl) {
-        // NOTE: Is the export a usage? IDK...
-        match i {
-            ast::ImportDecl::As(a, b) => {
-                match n.module_imports.entry(a.0 .0) {
-                    std::collections::btree_map::Entry::Vacant(v) => {
-                        v.insert(vec![(b.0 .0, b.0 .1)]);
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut v) => {
-                        v.get_mut().push((b.0 .0, b.0 .1));
-                    }
-                }
-                n.def_global(Module, b.0, false);
-            }
-            ast::ImportDecl::Multiple(a, imports) => {
-                for i in imports {
-                    match i {
-                        ast::Import::Value(x) => n.def_import(Term, a.0 .0, x.0),
-                        ast::Import::Symbol(x) => n.def_import(Term, a.0 .0, x.0),
-                        ast::Import::Typ(x) => n.def_import(Type, a.0 .0, x.0),
-                        ast::Import::TypDat(x, _) => {
-                            // TODO: The data-members
-                            n.def_import(Type, a.0 .0, x.0)
-                        }
-                        ast::Import::TypSymbol(x) => n.def_import(Type, a.0 .0, x.0),
-                        ast::Import::Class(x) => n.def_import(Type, a.0 .0, x.0),
-                    }
-                }
-            }
-            ast::ImportDecl::Hiding(a, _) => {
-                // TODO: Hiding imports are kinda tricky
-                match n.module_imports.entry(n.me) {
-                    std::collections::btree_map::Entry::Vacant(v) => {
-                        v.insert(vec![(a.0 .0, a.0 .1)]);
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut v) => {
-                        v.get_mut().push((a.0 .0, a.0 .1));
-                    }
-                }
-            }
-            ast::ImportDecl::Bulk(a) => match n.module_imports.entry(n.me) {
-                std::collections::btree_map::Entry::Vacant(v) => {
-                    v.insert(vec![(a.0 .0, a.0 .1)]);
-                }
-                std::collections::btree_map::Entry::Occupied(mut v) => {
-                    v.get_mut().push((a.0 .0, a.0 .1));
-                }
-            },
-        }
-    }
-
-    fn def_mname(n: &mut N, h: &ast::MName) -> ast::Ud {
-        n.def_global(Module, h.0, true);
-        h.0 .0
-    }
-
-    // TODO: This is needs to be split into two passes - one for the initial declarations and
-    // one for inner declarations - since there is no order here. One could also push these
-    // references first and check them later - saying where the same declaration is used in e.g
-    // error messages.
-    fn decl_first(n: &mut N, d: &ast::Decl, prev: Option<ast::Ud>) -> Option<ast::Ud> {
-        // I skipped references in Kinds for now - not because it's hard but because I
-        // want a demo ASAP and it has little value.
-        //
-        // NOTE: There's a sneaky bug here, where multiple kind definitions don't cause an error. I
-        // don't think this will be that annoying - but it requires more through analysis to
-        // resolve. There's also the case with term-definitions where there can be guards - this
-        // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
-        match d {
-            ast::Decl::DataKind(d, _) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                q
-            }
-            ast::Decl::Data(d, _, cs) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                let mut cons = BTreeSet::new();
-                for c in cs {
-                    n.def_global(Term, c.0.0, false);
-                    cons.insert(Name(Term, n.me, c.0.0.0, Visibility::Public));
-                }
-                n.constructors.insert(Name(Type, n.me, d.0.0, Visibility::Public), cons);
-                None
-            }
-            ast::Decl::TypeKind(d, _) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                q
-            }
-            ast::Decl::Type(d, xs, t) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                // Bug compatible with the Purs-compiler
-                n.constructors.insert(Name(Type, n.me, d.0.0, Visibility::Public), BTreeSet::new());
-                None
-            }
-            ast::Decl::NewTypeKind(d, _) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                q
-            }
-            ast::Decl::NewType(d, xs, c, t) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                n.def_global(Term, c.0, false);
-                n.constructors.insert(Name(Type, n.me, d.0.0, Visibility::Public), [Name(Term, n.me, c.0.0, Visibility::Public)].into());
-                None
-            }
-            ast::Decl::ClassKind(d, _) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                q
-            }
-            ast::Decl::Class(cs, d, xs, fd, mem) => {
-                let q = Some(d.0 .0);
-                n.def_global(Type, d.0, prev == q);
-                q
-            }
-            ast::Decl::Foreign(d, _) => {
-                n.def_global(Term, d.0, false);
-                None
-            }
-            ast::Decl::ForeignData(d, _) => {
-                n.def_global(Type, d.0, false);
-                None
-            }
-            ast::Decl::Fixity(_, _, _, o) => {
-                n.def_global(Term, o.0, false);
-                None
-            }
-            ast::Decl::FixityTyp(_, _, _, o) => {
-                n.def_global(Type, o.0, false);
-                None
-            }
-            ast::Decl::Sig(d, _) => {
-                n.def_global(Type, d.0, false);
-                Some(d.0 .0)
-            }
-            ast::Decl::Def(d, _, _) => {
-                let q = Some(d.0 .0);
-                n.def_global(Term, d.0, prev == q);
-                q
-            }
-            ast::Decl::Instance(_, _, _) => None,
-            ast::Decl::Derive(_, _) => None,
-            ast::Decl::Role(_, _) => None,
-        }
-    }
-
-    fn decl_body(n: &mut N, d: &ast::Decl) {
-        // I skipped references in Kinds for now - not because it's hard but because I
-        // want a demo ASAP and it has little value.
-        match d {
-            ast::Decl::DataKind(_, _) => (),
-            ast::Decl::Data(d, xs, cs) => {
-                let sf = n.push();
-                for x in xs.iter() {
-                    n.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
-                for c in cs {
-                    for t in c.1.iter() {
-                        typ(n, t);
-                    }
-                }
-                n.pop(sf);
-            }
-            ast::Decl::TypeKind(_, _) => (),
-            ast::Decl::Type(d, xs, t) => {
-                let sf = n.push();
-                for x in xs.iter() {
-                    n.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
-                typ(n, t);
-                n.pop(sf);
-            }
-            ast::Decl::NewTypeKind(_, _) => (),
-            ast::Decl::NewType(d, xs, c, t) => {
-                let sf = n.push();
-                for x in xs.iter() {
-                    n.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
-                typ(n, t);
-                n.pop(sf);
-            }
-            ast::Decl::ClassKind(_, _) => (),
-            ast::Decl::Class(cs, d, xs, fd, mem) => {
-                let sf = n.push();
-                for x in xs.iter() {
-                    n.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
-                for c in cs {
-                    constraint(n, c);
-                }
-                n.pop(sf);
-            }
-            ast::Decl::Instance(_, head, bindings) => {
-                let u = inst_head(n, head);
-                for b in bindings.iter() {
-                    inst_binding(n, b, u);
-                }
-            }
-            ast::Decl::Derive(_, head) => {
-                let _u = inst_head(n, head);
-            }
-            ast::Decl::Foreign(d, t) => {
-                typ(n, t);
-            }
-            ast::Decl::ForeignData(_, _) => {}
-            ast::Decl::Role(d, _) => {
-                n.resolve(Term, n.me, d.0);
-            }
-            ast::Decl::Fixity(_, _, e, _) => {
-                expr(n, e);
-            }
-            ast::Decl::FixityTyp(_, _, t, _) => {
-                typ(n, t);
-            }
-            ast::Decl::Sig(_, t) => {
-                typ(n, t);
-            }
-            ast::Decl::Def(_, bs, e) => {
-                for b in bs.iter() {
-                    binder(n, b);
-                }
-                guarded_expr(n, e);
-            }
-        }
-    }
-
-    fn inst_head(n: &mut N, ast::InstHead(cs, d, ts): &ast::InstHead) -> ast::Ud {
-        for c in cs.iter() {
-            constraint(n, c);
-        }
-        n.resolveq(Type, d.0, d.1 .0);
-        for t in ts.iter() {
-            typ(n, t);
-        }
-        match d.0 {
-            Some(u) => u.0 .0,
-            None => n.me,
-        }
-    }
-
-    fn inst_binding(n: &mut N, b: &ast::InstBinding, u: ast::Ud) {
-        match b {
-            ast::InstBinding::Sig(l, t) => {
-                n.resolve(Type, u, l.0);
-                typ(n, t);
-            }
-            ast::InstBinding::Def(l, binders, e) => {
-                n.resolve(Type, u, l.0);
-                let sf = n.push();
-                for b in binders.iter() {
-                    binder(n, b);
-                }
-                guarded_expr(n, e);
-                n.pop(sf);
-            }
-        }
-    }
-
-    fn guarded_expr(n: &mut N, e: &ast::GuardedExpr) {
-        match e {
-            ast::GuardedExpr::Unconditional(e) => expr(n, e),
-            ast::GuardedExpr::Guarded(es) => {
-                for (gs, e) in es.iter() {
-                    let sf = n.push();
-                    for g in gs {
-                        match g {
-                            ast::Guard::Expr(e) => expr(n, e),
-                            ast::Guard::Binder(b, e) => {
-                                // NOTE[et]: We define things from the expression, so the flow of
-                                // execution is different here.
-                                expr(n, e);
-                                binder(n, b);
-                            }
-                        }
-                    }
-                    expr(n, e);
-                    n.pop(sf);
-                }
-            }
-        }
-    }
-
-    fn expr(n: &mut N, e: &ast::Expr) {
-        match e {
-            ast::Expr::Typed(e, t) => {
-                expr(n, e);
-                typ(n, t);
-            }
-            ast::Expr::Op(a, o, b) => {
-                expr(n, a);
-                n.resolveq(Term, o.0, o.1 .0);
-                expr(n, b);
-            }
-            ast::Expr::Infix(a, o, b) => {
-                expr(n, a);
-                expr(n, o);
-                expr(n, b);
-            }
-            ast::Expr::Negate(e) => {
-                expr(n, e);
-            }
-            ast::Expr::App(a, b) => {
-                expr(n, a);
-                expr(n, b);
-            }
-            ast::Expr::Vta(e, t) => {
-                expr(n, e);
-                typ(n, t);
-            }
-            ast::Expr::IfThenElse(_, a, tru, fal) => {
-                expr(n, a);
-                expr(n, tru);
-                expr(n, fal);
-            }
-            ast::Expr::Do(_qual, stmts) => {
-                // TODO: Add in the qualified to jump to the module/import
-                let sf = n.push();
-                for s in stmts.iter() {
-                    match s {
-                        ast::DoStmt::Stmt(Some(b), e) => {
-                            // NOTE[et]: We define things from the expression, so the flow of
-                            // execution is different here.
-                            expr(n, e);
-                            binder(n, b);
-                        }
-                        ast::DoStmt::Stmt(None, e) => {
-                            expr(n, e);
-                        }
-                        ast::DoStmt::Let(ls) => {
-                            let_binders(n, ls);
-                        }
-                    }
-                }
-                n.pop(sf);
-            }
-            ast::Expr::Ado(_qual, stmts, ret) => {
-                let sf = n.push();
-                // NOTE[et]: We define things from the expression, so the flow of
-                // execution is different here.
-                for s in stmts.iter() {
-                    match s {
-                        ast::DoStmt::Stmt(_, e) => {
-                            expr(n, e);
-                        }
-                        ast::DoStmt::Stmt(_, e) => {
-                            expr(n, e);
-                        }
-                        ast::DoStmt::Let(ls) => {}
-                    }
-                }
-                for s in stmts.iter() {
-                    match s {
-                        ast::DoStmt::Stmt(Some(b), e) => {
-                            binder(n, b);
-                        }
-                        ast::DoStmt::Stmt(None, e) => {}
-                        ast::DoStmt::Let(ls) => {
-                            let_binders(n, ls);
-                        }
-                    }
-                }
-                expr(n, ret);
-                n.pop(sf);
-            }
-            ast::Expr::Lambda(_, bs, e) => {
-                let sf = n.push();
-                for b in bs.iter() {
-                    binder(n, b);
-                }
-                expr(n, e);
-                n.pop(sf);
-            }
-            ast::Expr::Where(_, e, ls) | ast::Expr::Let(_, ls, e) => {
-                let sf = n.push();
-                let_binders(n, ls);
-                expr(n, e);
-                n.pop(sf);
-            }
-            ast::Expr::Case(_, es, cs) => {
-                for e in es.iter() {
-                    expr(n, e);
-                }
-                for ast::CaseBranch(bs, e) in cs.iter() {
-                    let sf = n.push();
-                    for b in bs.iter() {
-                        binder(n, b);
-                    }
-                    guarded_expr(n, e);
-                    n.pop(sf);
-                }
-            }
-            ast::Expr::Array(_, es, _) => {
-                for e in es.iter() {
-                    expr(n, e);
-                }
-            }
-            ast::Expr::Record(_, rs, _) => {
-                for r in rs {
-                    match r {
-                        ast::RecordLabelExpr::Pun(l) => {
-                            n.resolve(Term, n.me, l.0);
-                        }
-                        ast::RecordLabelExpr::Field(_, e) => {
-                            expr(n, e);
-                        }
-                    }
-                }
-            }
-            ast::Expr::Update(e, rs) => {
-                expr(n, e);
-                for r in rs.iter() {
-                    record_update(n, r);
-                }
-            }
-            ast::Expr::Access(e, _) => {
-                expr(n, e);
-            }
-            ast::Expr::Section(_) => (),
-            ast::Expr::Hole(_) => (),
-            ast::Expr::Ident(v) => {
-                n.resolveq(Term, v.0, v.1 .0);
-            }
-            ast::Expr::Constructor(v) => {
-                n.resolveq(Term, v.0, v.1 .0);
-            }
-            ast::Expr::Symbol(v) => {
-                n.resolveq(Term, v.0, v.1 .0);
-            }
-            ast::Expr::Boolean(_) => (),
-            ast::Expr::Char(_) => (),
-            ast::Expr::Str(_) => (),
-            ast::Expr::Number(_) => (),
-            ast::Expr::HexInt(_) => (),
-            ast::Expr::Paren(e) => {
-                expr(n, e);
-            }
-        }
-    }
-
-    fn record_update(n: &mut N, r: &ast::RecordUpdate) {
-        match r {
-            ast::RecordUpdate::Leaf(_, e) => {
-                expr(n, e);
-            }
-            ast::RecordUpdate::Branch(_, rs) => {
-                for r in rs.iter() {
-                    record_update(n, r);
-                }
-            }
-        }
-    }
-
-    fn let_binders(n: &mut N, ls: &Vec<ast::LetBinding>) {
-        for l in ls {
-            match l {
-                ast::LetBinding::Sig(l, t) => {
-                    n.def_local(Term, l.0 .0, l.0 .1);
-                }
-                ast::LetBinding::Name(l, bs, e) => {
-                    n.def_local(Term, l.0 .0, l.0 .1);
-                }
-                ast::LetBinding::Pattern(b, e) => {
-                    binder(n, b);
-                }
-            }
-        }
-        for l in ls {
-            match l {
-                ast::LetBinding::Sig(l, t) => {
-                    typ(n, t);
-                }
-                ast::LetBinding::Name(l, bs, e) => {
-                    let sf = n.push();
-                    for b in bs.iter() {
-                        binder(n, b);
-                    }
-                    guarded_expr(n, e);
-                    n.pop(sf);
-                }
-                ast::LetBinding::Pattern(b, e) => {
-                    expr(n, e);
-                    binder(n, b);
-                }
-            }
-        }
-    }
-
-    fn binder(n: &mut N, b: &ast::Binder) {
-        match b {
-            ast::Binder::Typed(b, t) => {
-                binder(n, b);
-                typ(n, t);
-            }
-            ast::Binder::App(a, b) => {
-                binder(n, a);
-                binder(n, b);
-            }
-            ast::Binder::Op(a, o, b) => {
-                binder(n, a);
-                n.resolveq(Term, o.0, o.1 .0);
-                binder(n, b);
-            }
-            ast::Binder::Wildcard(_) => (),
-            ast::Binder::Var(name) => {
-                n.def_local(Term, name.0 .0, name.0 .1);
-            }
-            ast::Binder::Named(name, b) => {
-                n.def_local(Term, name.0 .0, name.0 .1);
-                binder(n, b);
-            }
-            ast::Binder::Constructor(c) => {
-                n.resolveq(Term, c.0, c.1 .0);
-            }
-            ast::Binder::Boolean(_) => (),
-            ast::Binder::Char(_) => (),
-            ast::Binder::Str(_) => (),
-            ast::Binder::Number(_, _) => (),
-            ast::Binder::Array(ts) => {
-                for b in ts.iter() {
-                    binder(n, b);
-                }
-            }
-            ast::Binder::Record(bs) => {
-                for b in bs.iter() {
-                    match b {
-                        ast::RecordLabelBinder::Pun(l) => {
-                            n.resolve(Term, n.me, l.0);
-                        }
-                        ast::RecordLabelBinder::Field(_, b) => {
-                            binder(n, b);
-                        }
-                    }
-                }
-            }
-            ast::Binder::Paren(b) => {
-                binder(n, b);
-            }
-        }
-    }
-
-    fn constraint(n: &mut N, ast::Constraint(c, ts): &ast::Constraint) {
-        n.resolveq(Type, c.0, c.1 .0);
-        for t in ts.iter() {
-            typ(n, t);
-        }
-    }
-
-    fn typ(n: &mut N, t: &ast::Typ) {
-        match t {
-            ast::Typ::Wildcard(_) => (),
-            ast::Typ::Var(v) => {
-                n.resolve(Type, n.me, v.0);
-            }
-            ast::Typ::Constructor(v) => {
-                n.resolveq(Type, v.0, v.1 .0);
-            }
-            ast::Typ::Symbol(v) => {
-                n.resolveq(Type, v.0, v.1 .0);
-            }
-            ast::Typ::Str(_) => (),
-            ast::Typ::Int(_) => (),
-            ast::Typ::Hole(_) => (),
-            ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
-                let rs = &rs.0;
-                for (_, t) in rs.0.iter() {
-                    typ(n, t);
-                }
-                if let Some(t) = &rs.1 {
-                    typ(n, t);
-                }
-            }
-            ast::Typ::Forall(xs, t) => {
-                let sf = n.push();
-                for x in xs.iter() {
-                    n.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
-                typ(n, t);
-                n.pop(sf);
-            }
-            ast::Typ::Kinded(t, _t) => {
-                // Not doing Kinds for now
-                typ(n, t);
-            }
-            ast::Typ::Arr(a, b) => {
-                typ(n, a);
-                typ(n, b);
-            }
-            ast::Typ::Op(a, o, b) => {
-                typ(n, a);
-                n.resolveq(Type, o.0, o.1 .0);
-                typ(n, b);
-            }
-            ast::Typ::Constrained(c, t) => {
-                constraint(n, c);
-                typ(n, t);
-            }
-            ast::Typ::App(a, b) => {
-                typ(n, a);
-                typ(n, b);
-            }
         }
     }
 }
@@ -1284,33 +1293,30 @@ impl Backend {
                                 .unwrap_or_else(|| "?".into())
                         ),
                     ),
-                    name_resolution::NRerrors::NotAConstructor(d, m) => 
-                        Diagnostic::new_simple(
-                            Range::new(pos_from_tup(m.0.1.lo()), pos_from_tup(m.0.1.hi())),
-                            format!(
-                                "{} does not have a constructors {}",
-                                self.names
-                                    .get(&d.2)
-                                    .map(|x| x.clone())
-                                    .unwrap_or_else(|| "?".into()),
-                                self.names
-                                    .get(&m.0.0)
-                                    .map(|x| x.clone())
-                                    .unwrap_or_else(|| "?".into())
-                            ),
+                    name_resolution::NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
+                        Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
+                        format!(
+                            "{} does not have a constructors {}",
+                            self.names
+                                .get(&d.2)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            self.names
+                                .get(&m.0 .0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into())
                         ),
-                    name_resolution::NRerrors::NoConstructors(m, s) =>
-                        Diagnostic::new_simple(
-                            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                            format!(
-                                "{} does not have constructors",
-                                self.names
-                                    .get(&m.2)
-                                    .map(|x| x.clone())
-                                    .unwrap_or_else(|| "?".into()),
-                            ),
+                    ),
+                    name_resolution::NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{} does not have constructors",
+                            self.names
+                                .get(&m.2)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
                         ),
-
+                    ),
                 })
                 .collect::<Vec<_>>(),
         ]
