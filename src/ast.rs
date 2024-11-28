@@ -268,7 +268,7 @@ pub struct MName(pub S<Ud>);
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Header(
     pub MName,
-    pub Vec<Export>,
+    pub Option<Vec<Export>>,
     pub Vec<ImportDecl>,
 );
 

@@ -18,11 +18,12 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 struct Backend {
     client: Client,
 
+    builtins: BTreeSet<(Scope, ast::Ud)>,
     names: DashMap<ast::Ud, String>,
 
     fi_to_url: DashMap<ast::Fi, Url>,
     fi_to_ud: DashMap<ast::Fi, ast::Ud>,
-    url_to_fi: DashMap<String, ast::Fi>,
+    url_to_fi: DashMap<Url, ast::Fi>,
     fi_to_version: DashMap<ast::Fi, Option<i32>>,
     ud_to_fi: DashMap<ast::Ud, ast::Fi>,
 
@@ -43,7 +44,7 @@ struct Backend {
 }
 
 impl Backend {
-    fn resolve_name(&self, url: &String, pos: Position) -> Option<Name> {
+    fn resolve_name(&self, url: &Url, pos: Position) -> Option<Name> {
         let m = self.fi_to_ud.get(&*self.url_to_fi.get(url)?)?;
         // error!("M: {:?}", m);
         // NOTE: might have an off-by-one
@@ -143,8 +144,7 @@ impl LanguageServer for Backend {
                 &params
                     .text_document_position_params
                     .text_document
-                    .uri
-                    .to_string(),
+                    .uri,
                 params.text_document_position_params.position,
             )?;
             let def_at = self.defines.get(&name)?;
@@ -163,9 +163,14 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let reference_list = || -> Option<Vec<Location>> {
             let name = self.resolve_name(
-                &params.text_document_position.text_document.uri.to_string(),
+                &params.text_document_position.text_document.uri,
                 params.text_document_position.position,
             )?;
+            for x in self.usages.iter() {
+                for (k, v) in x.iter() {
+                    error!("{:?}: {:?}", self.names.get(&k.2)?.value(), v.len());
+                }
+            }
             Some(
                 self.usages
                     .get(&name.1)?
@@ -502,6 +507,9 @@ mod name_resolution {
     pub struct N<'s> {
         pub me: ast::Ud,
 
+
+        builtins: &'s BTreeSet<(Scope, ast::Ud)>,
+
         global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
         pub global_usages: BTreeSet<(Name, ast::Span)>,
 
@@ -514,7 +522,7 @@ mod name_resolution {
         pub exports: Vec<Export>,
 
         constructors: BTreeMap<Name, BTreeSet<Name>>,
-        pub module_imports: BTreeMap<ast::Ud, Vec<(ast::Ud, ast::Span)>>,
+        pub module_imports: BTreeMap<Option<ast::Ud>, Vec<(ast::Ud, ast::Span)>>,
 
         imports: BTreeMap<(Scope, ast::Ud), Name>,
 
@@ -523,11 +531,13 @@ mod name_resolution {
     }
 
     impl<'s> N<'s> {
-        pub fn new(global_exports: &'s DashMap<ast::Ud, Vec<Export>>) -> Self {
+        pub fn new(me: ast::Ud, builtins: &'s BTreeSet<(Scope, ast::Ud)>, global_exports: &'s DashMap<ast::Ud, Vec<Export>>) -> Self {
             Self {
-                // :(((((( This is not correct!!! This state is set inside a member function.
-                me: ast::Ud(0),
+                me,
                 usages: BTreeMap::new(),
+
+                builtins,
+
                 global_exports,
                 global_usages: BTreeSet::new(),
 
@@ -535,7 +545,7 @@ mod name_resolution {
                 resolved: BTreeMap::new(),
                 exports: Vec::new(),
                 constructors: BTreeMap::new(),
-                module_imports: BTreeMap::new(),
+                module_imports: [(None, vec![(me, ast::Span::Zero)])].into(),
                 imports: BTreeMap::new(),
                 defines: BTreeMap::new(),
                 locals: Vec::new(),
@@ -594,27 +604,34 @@ mod name_resolution {
                 }
             }
             if matches.is_empty() {
-                for (nn, ss) in self.module_imports.get(&m).iter().flat_map(|x| x.iter()) {
+                for (nn, ss) in self.module_imports.get(&Some(m)).iter().flat_map(|x| x.iter()) {
                     if let Some(name) = self.resolve_inner(scope, *nn, n) {
                         matches.push((*ss, name));
                     }
                 }
             }
 
+            // TODO: This is technically incorrect, since this is only valid if it is not a
+            // namespace at all.
+            if matches.is_empty() && m == self.me && self.builtins.contains(&(scope, n)) {
+                matches.push((s, Name(scope, ast::Ud(0), n, Visibility::Public)));
+            }
+
             let unique_matches = matches
                 .iter()
-                .map(|(_, name)| *name)
+                .map(|x| x.1)
                 .collect::<BTreeSet<_>>();
-            for name in unique_matches.iter() {
-                self.resolved.insert((s.lo(), s.hi()), *name);
+            let num_unique_matches = unique_matches.len();
+            for name in unique_matches.into_iter() {
+                self.resolved.insert((s.lo(), s.hi()), name);
                 if name.1 == self.me {
-                    self.usages.entry(*name).or_default().insert(s);
+                    self.usages.entry(name).or_default().insert(s);
                 } else {
-                    self.global_usages.insert((*name, s));
+                    self.global_usages.insert((name, s));
                 }
             }
 
-            match unique_matches.len() {
+            match num_unique_matches {
                 0 => self.errors.push(NRerrors::Unknown(s)),
                 1 => (),
                 _ => self.errors.push(NRerrors::MultipleImports(matches, s)),
@@ -622,37 +639,16 @@ mod name_resolution {
         }
 
         fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) {
-            match m {
-                Some(m) => {
-                    self.resolve(Namespace, self.me, m.0);
-                    self.resolve(scope, m.0 .0, n);
-                }
-                None => {
-                    self.resolve(scope, self.me, n);
-                }
-            }
+            let m = m.map(|x| {
+                    self.resolve(Namespace, self.me, x.0);
+                x.0.0
+            });
+            self.resolve(scope, m.unwrap_or(self.me), n);
         }
 
         // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
         fn resolve_inner(&self, ss: Scope, m: ast::Ud, n: ast::Ud) -> Option<Name> {
-            if m == self.me {
-                if let Some((_, _, name)) =
-                    self.locals.iter().rfind(|(s, u, _)| *u == n && *s == ss)
-                {
-                    return Some(*name);
-                }
-
-                if self
-                    .defines
-                    .contains_key(&Name(ss, m, n, Visibility::Public))
-                {
-                    return Some(Name(ss, m, n, Visibility::Public));
-                }
-
-                if let Some(name) = self.imports.get(&(ss, n)) {
-                    return Some(*name);
-                }
-            } else {
+            if m != self.me {
                 let name = Name(ss, m, n, Visibility::Public);
                 if self
                     .global_exports
@@ -661,6 +657,23 @@ mod name_resolution {
                     .unwrap_or_else(|| false)
                 {
                     return Some(name);
+                }
+            } else {
+                if let Some((_, _, name)) =
+                    self.locals.iter().rfind(|(s, u, _)| *u == n && *s == ss)
+                {
+                    return Some(*name);
+                }
+
+                if self
+                    .defines
+                    .contains_key(&Name(ss, self.me, n, Visibility::Public))
+                {
+                    return Some(Name(ss, self.me, n, Visibility::Public));
+                }
+
+                if let Some(name) = self.imports.get(&(ss, n)) {
+                    return Some(*name);
                 }
             }
 
@@ -701,12 +714,14 @@ mod name_resolution {
                 }
                 ast::Export::Class(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
                 ast::Export::Module(v) => {
-                    if let Some(vs) = self.module_imports.get(&v.0 .0) {
+                    if let Some(vs) = self.module_imports.get(&Some(v.0 .0)) {
                         Module(
                             vs.iter()
                                 .map(|(a, _)| Name(Scope::Module, *a, *a, Visibility::Public))
                                 .collect(),
                         )
+                    } else if let Some((a, _)) = self.module_imports.values().flatten().find(|(x, _)| *x == v.0.0) {
+                        Module(vec![Name(Scope::Module, *a, *a, Visibility::Public)])
                     } else {
                         self.errors.push(NRerrors::Unknown(v.0 .1));
                         return;
@@ -724,10 +739,7 @@ mod name_resolution {
         }
 
         fn register_import_as(&mut self, a: ast::MName, b: Option<ast::MName>) {
-            let mut out = self.module_imports.entry(a.0 .0).or_default();
-            if let Some(b) = b {
-                out.push((b.0 .0, b.0 .1));
-            }
+            self.module_imports.entry(b.map(|x| x.0 .0)).or_default().push((a.0.0, a.0.1));
         }
 
         fn import(
@@ -935,6 +947,9 @@ mod name_resolution {
                 ast::Decl::Class(cs, d, xs, fd, mem) => {
                     let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
+                    for ast::ClassMember(name, _) in mem.iter() {
+                        self.def_global(Term, d.0, false);
+                    }
                     q
                 }
                 ast::Decl::Foreign(d, _) => {
@@ -1458,8 +1473,24 @@ mod name_resolution {
                 n.pop(sf);
             }
 
-            for ex in h.1.iter() {
-                n.export(ex);
+            if let Some(exports) = &h.1 {
+                for ex in exports.iter() {
+                    n.export(ex);
+                }
+            } else {
+                let cs: BTreeSet<_> = n.constructors.values().flatten().collect();
+                for name@Name(s, m, _, x) in n.defines.keys() {
+                    if *m != n.me { continue; }
+                    if !matches!(s, Scope::Term | Scope::Type) { continue; }
+                    if cs.contains(name) { continue; }
+                    let e = if let Some(co) = n.constructors.get(name) {
+                        Export::ConstructorsAll(*name, co.iter().copied().collect::<Vec<_>>())
+                    } else {
+                        Export::Just(*name)
+                    };
+                    n.exports.push(e);
+
+                }
             }
 
             Some(h.0 .0 .0)
@@ -1487,8 +1518,9 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
-    fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> (bool, ast::Ud) {
-        let mut n = name_resolution::N::new(&self.exports);
+    fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> Option<(bool, ast::Ud)> {
+        let me = m.0.as_ref()?.0.0.0;
+        let mut n = name_resolution::N::new(me, &self.builtins, &self.exports);
         name_resolution::resolve_names(&mut n, m);
         let me = n.me;
 
@@ -1546,11 +1578,8 @@ impl Backend {
             }
 
             for (name, pos) in new.difference(&old) {
-                if let Some(mut e) = self.usages.get_mut(&name.1) {
-                    if let Some(e) = e.get_mut(name) {
-                        e.insert(*pos);
-                    }
-                }
+                let mut e = self.usages.entry(name.1).or_insert(BTreeMap::new());
+                e.entry(*name).or_insert(BTreeSet::new()).insert(*pos);
             }
         }
 
@@ -1563,7 +1592,7 @@ impl Backend {
             }
         };
 
-        let new_imports: BTreeSet<_> = n.module_imports.keys().copied().collect();
+        let new_imports: BTreeSet<_> = n.module_imports.values().flatten().map(|(u, _)| *u).collect();
         let old_imports = self
             .imports
             .insert(me, new_imports.clone())
@@ -1576,7 +1605,7 @@ impl Backend {
             let mut e = self.importers.entry(*x).or_insert(BTreeSet::new());
             e.insert(me);
         }
-        (exports_changed, n.me)
+        Some((exports_changed, n.me))
     }
 
     async fn resolve_cascading(&self, me: ast::Ud) {
@@ -1598,7 +1627,7 @@ impl Backend {
             }
             checked.insert(x);
             if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
-                let (_, _) = self.resolve_module(&m, *fi);
+                let _ = self.resolve_module(&m, *fi);
                 self.show_errors(*fi).await;
                 if let Some(ex) = self.exports.get(&x) {
                     if ex.iter().any(|x| x.contains(name)) {
@@ -1652,7 +1681,7 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         // TODO: How to handle two files with the same module name?
         // TODO: Some fundamental types are built into the compiler - like `Int`
-        let fi = match self.url_to_fi.entry(params.uri.to_string()) {
+        let fi = match self.url_to_fi.entry(params.uri.clone()) {
             dashmap::Entry::Occupied(v) => *v.get(),
             dashmap::Entry::Vacant(v) => {
                 let fi = ast::Fi(sungod::Ra::ggen::<usize>());
@@ -1695,17 +1724,20 @@ impl Backend {
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
-            let (exports_changed, me) = self.resolve_module(&m, fi);
-            self.modules.insert(me, m);
-            self.fi_to_ud.insert(fi, me);
-            self.ud_to_fi.insert(me, fi);
+            if let Some((exports_changed, me)) = self.resolve_module(&m, fi) {
+                self.modules.insert(me, m);
+                self.fi_to_ud.insert(fi, me);
+                self.ud_to_fi.insert(me, fi);
 
-            self.show_errors(fi).await;
-            if exports_changed {
-                self.resolve_cascading(me).await;
+                self.show_errors(fi).await;
+                if exports_changed {
+                    self.resolve_cascading(me).await;
+                }
+            } else {
+                self.show_errors(fi).await;
             }
         } else {
-            self.show_errors(fi).await;
+                self.show_errors(fi).await;
         }
     }
 }
@@ -1720,17 +1752,43 @@ fn pos_from_tup((line, col): (usize, usize)) -> Position {
     Position::new(line as u32, col as u32)
 }
 
+fn build_builtins() -> (BTreeSet<(Scope, ast::Ud)>, DashMap<ast::Ud, String>) {
+    use Scope::*; 
+    let names = DashMap::new();
+    let h = |a: Scope, s: &'static str| -> (Scope, ast::Ud) {
+        let mut hasher = DefaultHasher::new();
+        s.hash(&mut hasher);
+        let ud = ast::Ud(hasher.finish() as usize);
+        names.insert(ud, s.into());
+        (a, ud)
+    };
+
+
+    ([ h(Type, "Int"),
+     h(Type, "Number"),
+     h(Type, "Row"),
+     h(Type, "Record"),
+     h(Type, "Symbol"),
+     h(Type, "Array"),
+     h(Type, "Boolean"),
+     h(Type, "String"),
+     ].into(), names)
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
+    
+    let (builtins, names) = build_builtins();
 
     let (service, socket) = LspService::build(|client| Backend {
         client,
 
-        names: DashMap::new(),
+        builtins,
+        names,
 
         fi_to_url: DashMap::new(),
         fi_to_ud: DashMap::new(),

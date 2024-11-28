@@ -34,8 +34,14 @@ t!(number, Number, Number);
 t!(hex_int, HexInt, HexInt);
 t!(char, Char, Char);
 t!(op, Op, Op);
-t!(symbol, Symbol, Symbol);
 t!(hole, Hole, Hole);
+
+fn symbol(p: &mut P<'_>) -> Option<Symbol> {
+    match p.next() {
+        (Some(T::Symbol(x)), s) => Some(Symbol(S(p.intern(&x[1..x.len() - 1]), s))),
+        _ => p.raise_(stringify!(Symbol)),
+    }
+}
 
 fn mname(p: &mut P<'_>) -> Option<MName> {
     match p.peek2t() {
@@ -383,14 +389,14 @@ where
     Some(out)
 }
 
-fn exports<'t>(p: &mut P<'t>) -> Vec<Export> {
+fn exports<'t>(p: &mut P<'t>) -> Option<Vec<Export>> {
     if matches!(p.peekt(), Some(T::LeftParen)) {
         kw_lp(p);
         let exports = sep_until(p, "export", kw_comma, export, next_is!(T::RightParen));
         kw_rp(p);
-        exports
+        Some(exports)
     } else {
-        Vec::new()
+        None
     }
 }
 
@@ -489,7 +495,12 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
     } else {
         None
     };
-    Some(ImportDecl { from, hiding, names, to })
+    Some(ImportDecl {
+        from,
+        hiding,
+        names,
+        to,
+    })
 }
 
 fn import<'t>(p: &mut P<'t>) -> Option<Import> {
