@@ -756,6 +756,7 @@ mod name_resolution {
             let exports: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
 
             let mut ii = Vec::new();
+            // TODO: I'm gonna need a test-suite for this
             // NOTE[et]: I've choosen to ignore hiding imports and re-exporting that module, because it really complicates things...
             for i in names {
                 match i {
@@ -839,24 +840,30 @@ mod name_resolution {
                 exports.retain(|x| !x.iter().any(|Name(s, _, u, _)| hiding.contains(&(*s, *u))));
             }
 
-            for (k, v) in ii
-                .iter()
-                .filter_map(|(s, u)| {
-                    let span = u.1;
-                    let u = u.0;
-                    let out = valid.get(&(*s, u));
-                    if let Some(n) = out {
-                        // Opinionatedly not adding imports to usages
-                        self.resolved.insert((span.lo(), span.hi()), *n);
-                    } else {
-                        self.errors
-                            .push(NRerrors::NotExportedOrDoesNotExist(from.0, *s, u, span));
-                    }
-                    Some(((*s, u), *out?))
-                })
-                .collect::<Vec<_>>()
-            {
-                self.imports.insert(k, v);
+            if ii.is_empty() {
+                for (k, v) in valid.into_iter() {
+                    self.imports.insert(k, v);
+                }
+            } else {
+                for (k, v) in ii
+                    .iter()
+                    .filter_map(|(s, u)| {
+                        let span = u.1;
+                        let u = u.0;
+                        let out = valid.get(&(*s, u));
+                        if let Some(n) = out {
+                            // Opinionatedly not adding imports to usages
+                            self.resolved.insert((span.lo(), span.hi()), *n);
+                        } else {
+                            self.errors
+                                .push(NRerrors::NotExportedOrDoesNotExist(from.0, *s, u, span));
+                        }
+                        Some(((*s, u), *out?))
+                    })
+                    .collect::<Vec<_>>()
+                {
+                    self.imports.insert(k, v);
+                }
             }
         }
 
@@ -1645,7 +1652,6 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         // TODO: How to handle two files with the same module name?
         // TODO: Some fundamental types are built into the compiler - like `Int`
-        // TODO: Remove old usages when reinterpreting the module
         let fi = match self.url_to_fi.entry(params.uri.to_string()) {
             dashmap::Entry::Occupied(v) => *v.get(),
             dashmap::Entry::Vacant(v) => {
@@ -1687,6 +1693,7 @@ impl Backend {
                 .collect::<Vec<_>>(),
         );
 
+        // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
             let (exports_changed, me) = self.resolve_module(&m, fi);
             self.modules.insert(me, m);
