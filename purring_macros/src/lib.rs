@@ -162,7 +162,7 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    let out = TokenStream::from(quote!(
+    TokenStream::from(quote!(
         impl #generics Ast for #ident #generics {
             fn show(&self, indent__: usize, w__: &mut impl ::std::io::Write) -> ::std::io::Result<()> {
                 #show
@@ -173,8 +173,6 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
                 #span
             }
         }
-    ));
-    // println!("Output: {}", out);
-    out
+    ))
 }
 

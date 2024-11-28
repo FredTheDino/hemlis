@@ -12,6 +12,7 @@ pub mod lexer;
 pub mod parser;
 pub mod symtab;
 
+#[allow(dead_code)]
 fn main() {
     if env::var("PURRING_GEN").is_ok() {
         linear_parse_generate_test();

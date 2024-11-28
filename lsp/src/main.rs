@@ -1,6 +1,7 @@
 #![feature(btree_cursors)]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
 
 use dashmap::DashMap;
@@ -20,8 +21,11 @@ struct Backend {
 
     url_to_ud: DashMap<String, ast::Ud>,
     ud_to_url: DashMap<ast::Ud, Url>,
+    fi_to_url: DashMap<ast::Fi, Url>,
     fi_to_ud: DashMap<ast::Fi, ast::Ud>,
+    ud_to_fi: DashMap<ast::Ud, ast::Fi>,
     url_to_fi: DashMap<String, ast::Fi>,
+    fi_to_version: DashMap<ast::Fi, Option<i32>>,
 
     importers: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
     imports: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
@@ -31,6 +35,9 @@ struct Backend {
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
     defines: DashMap<Name, Pos>,
     usages: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<ast::Span>>>,
+
+    syntax_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
+    name_resolution_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
 }
 
 impl Backend {
@@ -117,7 +124,7 @@ impl LanguageServer for Backend {
         .await
     }
 
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+    async fn did_save(&self, _: DidSaveTextDocumentParams) {
         debug!("file saved!");
     }
 
@@ -302,9 +309,10 @@ pub enum Scope {
     Type,
     Term,
     Module,
+    Namespace,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 enum Export {
     ConstructorsSome(Name, Vec<Name>),
     ConstructorsAll(Name, Vec<Name>),
@@ -335,7 +343,7 @@ impl Export {
     fn to_names(&self) -> Vec<Name> {
         match self {
             Export::ConstructorsAll(n, xs) | Export::ConstructorsSome(n, xs) => {
-                [vec![*n], xs.iter().copied().collect()].concat()
+                [vec![*n], xs.to_vec()].concat()
             }
             Export::Just(n) => vec![*n],
             Export::Module(xs) => xs.clone(),
@@ -371,6 +379,122 @@ mod name_resolution {
         NoConstructorOfThatName(ast::S<ast::Ud>, ast::Ud, ast::Ud, ast::Span),
         NotExportedOrDoesNotExist(ast::S<ast::Ud>, Scope, ast::Ud, ast::Span),
         CannotImportSelf(ast::Span),
+    }
+
+    impl NRerrors {
+        pub fn turn_into_diagnostic(
+            self,
+            names: &DashMap<ast::Ud, String>,
+        ) -> tower_lsp::lsp_types::Diagnostic {
+            match self {
+                name_resolution::NRerrors::Unknown(span) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+                    "Failed to resolve this name".into(),
+                ),
+                name_resolution::NRerrors::MultipleImports(_, span) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+                    "This name is imported from two different modules".into(),
+                ),
+                name_resolution::NRerrors::MultipleDefinitions(
+                    Name(scope, _m, i, _),
+                    _first,
+                    second,
+                ) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(second), pos_from_tup(second)),
+                    format!(
+                        "{:?} {:?} is defined multiple times",
+                        scope,
+                        names
+                            .get(&i)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into())
+                    ),
+                ),
+                name_resolution::NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
+                    format!(
+                        "{} does not have a constructors {}",
+                        names
+                            .get(&d.2)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                        names
+                            .get(&m.0 .0)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into())
+                    ),
+                ),
+                name_resolution::NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                    format!(
+                        "{} does not have constructors",
+                        names
+                            .get(&m.2)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                    ),
+                ),
+                name_resolution::NRerrors::ConstructorsDoesntExistOrIsntExported(
+                    m,
+                    ast::S(u, s),
+                ) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                    format!(
+                        "{}.{} does not exist or has no constructors exported",
+                        names
+                            .get(&m.0)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                        names
+                            .get(&u)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                    ),
+                ),
+
+                name_resolution::NRerrors::NoConstructorOfThatName(m, a, b, s) => {
+                    Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{} is not an exported constructor for the type {}.{}",
+                            names
+                                .get(&b)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            names
+                                .get(&m.0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            names
+                                .get(&a)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    )
+                }
+                name_resolution::NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => {
+                    Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{:?} {}.{} is not exported or does not exist",
+                            scope,
+                            names
+                                .get(&m.0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            names
+                                .get(&ud)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    )
+                }
+                name_resolution::NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                    "A module cannot import itself".to_string(),
+                ),
+            }
+        }
     }
 
     #[derive(Debug)]
@@ -431,16 +555,14 @@ mod name_resolution {
                     v.insert(s.lo());
                 }
                 std::collections::btree_map::Entry::Occupied(v) => {
-                    if ignore_error {
-                        ();
-                    } else {
+                    if !ignore_error {
                         self.errors
                             .push(NRerrors::MultipleDefinitions(*v.key(), *v.get(), s.lo()));
                     }
                 }
             }
             self.resolved.insert((s.lo(), s.hi()), name);
-            self.usages.entry(name).or_insert(BTreeSet::new()).insert(s);
+            self.usages.entry(name).or_default().insert(s);
         }
 
         fn def_global(&mut self, scope: Scope, s: ast::S<ast::Ud>, is_redecl: bool) {
@@ -487,7 +609,7 @@ mod name_resolution {
                 if name.1 == self.me {
                     self.usages
                         .entry(*name)
-                        .or_insert(BTreeSet::new())
+                        .or_default()
                         .insert(s);
                 } else {
                     self.global_usages.push((*name, s));
@@ -504,8 +626,8 @@ mod name_resolution {
         fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) {
             match m {
                 Some(m) => {
-                    self.resolve(Module, self.me, m.0);
-                    self.resolve(scope, m.0.0, n);
+                    self.resolve(Namespace, self.me, m.0);
+                    self.resolve(scope, m.0 .0, n);
                 }
                 None => {
                     self.resolve(scope, self.me, n);
@@ -542,7 +664,6 @@ mod name_resolution {
                 {
                     return Some(name);
                 }
-                // TODO: Say what is exported
             }
 
             None
@@ -551,15 +672,15 @@ mod name_resolution {
         fn export(&mut self, ex: &ast::Export) {
             use Export::*;
             let export = match ex {
-                ast::Export::Value(v) => Just(Name(Term, self.me, v.0.0, Visibility::Public)),
-                ast::Export::Symbol(v) => Just(Name(Term, self.me, v.0.0, Visibility::Public)),
-                ast::Export::Typ(v) => Just(Name(Type, self.me, v.0.0, Visibility::Public)),
-                ast::Export::TypSymbol(v) => Just(Name(Type, self.me, v.0.0, Visibility::Public)),
+                ast::Export::Value(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Symbol(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Typ(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::TypSymbol(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
                 ast::Export::TypDat(v, ds) => {
-                    let x = Name(Type, self.me, v.0.0, Visibility::Public);
+                    let x = Name(Type, self.me, v.0 .0, Visibility::Public);
                     let ms = match self.constructors.get(&x) {
                         None => {
-                            self.errors.push(NRerrors::NoConstructors(x, v.0.1));
+                            self.errors.push(NRerrors::NoConstructors(x, v.0 .1));
                             return;
                         }
                         Some(ms) => ms,
@@ -569,7 +690,7 @@ mod name_resolution {
                         ast::DataMember::Some(ns) => ConstructorsSome(
                             x,
                             ns.iter()
-                                .filter_map(|m| match ms.iter().find(|a| a.2 == m.0.0) {
+                                .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
                                     Some(a) => Some(*a),
                                     None => {
                                         self.errors.push(NRerrors::NotAConstructor(x, *m));
@@ -580,9 +701,18 @@ mod name_resolution {
                         ),
                     }
                 }
-                ast::Export::Class(v) => Just(Name(Type, self.me, v.0.0, Visibility::Public)),
+                ast::Export::Class(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
                 ast::Export::Module(v) => {
-                    Just(Name(Scope::Module, self.me, v.0.0, Visibility::Public))
+                    if let Some(vs) = self.module_imports.get(&v.0 .0) {
+                        Module(
+                            vs.iter()
+                                .map(|(a, _)| Name(Scope::Module, *a, *a, Visibility::Public))
+                                .collect(),
+                        )
+                    } else {
+                        self.errors.push(NRerrors::Unknown(v.0 .1));
+                        return;
+                    }
                 }
             };
             self.exports.push(export);
@@ -590,15 +720,15 @@ mod name_resolution {
 
         fn import_resolve(&mut self, h: ast::MName) {
             // We can't use the normal resolve - because?
-            let name = Name(Module, h.0.0, h.0.0, Visibility::Public);
-            self.global_usages.push((name, h.0.1));
-            self.resolved.insert((h.0.1.lo(), h.0.1.hi()), name);
+            let name = Name(Module, h.0 .0, h.0 .0, Visibility::Public);
+            self.global_usages.push((name, h.0 .1));
+            self.resolved.insert((h.0 .1.lo(), h.0 .1.hi()), name);
         }
 
         fn register_import_as(&mut self, a: ast::MName, b: Option<ast::MName>) {
-            let mut out = self.module_imports.entry(a.0.0).or_default();
+            let mut out = self.module_imports.entry(a.0 .0).or_default();
             if let Some(b) = b {
-                out.push((b.0.0, b.0.1));
+                out.push((b.0 .0, b.0 .1));
             }
         }
 
@@ -616,16 +746,16 @@ mod name_resolution {
             self.import_resolve(*from);
             self.register_import_as(*from, *to);
             if let Some(b) = to {
-                self.def_global(Module, b.0, false);
+                self.def_global(Namespace, b.0, false);
             }
             let b = to.unwrap_or(*from);
-            if !self.global_exports.contains_key(&from.0.0) {
+            if !self.global_exports.contains_key(&from.0 .0) {
                 return;
             }
-            if from.0.0 == self.me {
-                self.errors.push(NRerrors::CannotImportSelf(from.0.1));
+            if from.0 .0 == self.me {
+                self.errors.push(NRerrors::CannotImportSelf(from.0 .1));
             }
-            let exports: Vec<Export> = self.global_exports.get(&from.0.0).unwrap().value().clone();
+            let exports: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
 
             let mut ii = Vec::new();
             // NOTE[et]: I've choosen to ignore hiding imports and re-exporting that module, because it really complicates things...
@@ -635,37 +765,33 @@ mod name_resolution {
                     ast::Import::Symbol(x) => ii.push((Term, x.0)),
                     ast::Import::Typ(x) => ii.push((Type, x.0)),
                     ast::Import::TypDat(x, cs) => {
-                        // TODO: The data-members
                         ii.push((Type, x.0));
-                        let es = match exports.iter().find(|e| e.contains_(Type, x.0.0)) {
+                        let es = match exports.iter().find(|e| e.contains_(Type, x.0 .0)) {
                             Some(
                                 Export::ConstructorsSome(_, es) | Export::ConstructorsAll(_, es),
-                            ) => es
-                        .iter()
-                        .map(|x| x.2)
-                        .collect::<BTreeSet<_>>()
+                            ) => es.iter().map(|x| x.2).collect::<BTreeSet<_>>(),
 
-                                ,
                             _ => {
                                 self.errors
-                                    .push(NRerrors::ConstructorsDoesntExistOrIsntExported(from.0, x.0));
+                                    .push(NRerrors::ConstructorsDoesntExistOrIsntExported(
+                                        from.0, x.0,
+                                    ));
                                 BTreeSet::new()
                             }
                         };
                         match cs {
                             ast::DataMember::All => {
                                 for c in es.iter() {
-                                    ii.push((Term, ast::S(*c, x.0.1)))
+                                    ii.push((Term, ast::S(*c, x.0 .1)))
                                 }
                             }
                             ast::DataMember::Some(xs) => {
                                 for xx in xs {
-                                    if es.contains(&xx.0.0) {
+                                    if es.contains(&xx.0 .0) {
                                         ii.push((Term, xx.0));
                                     } else {
                                         self.errors.push(NRerrors::NoConstructorOfThatName(
-                                                from.0,
-                                            x.0.0, xx.0.0, xx.0.1,
+                                            from.0, x.0 .0, xx.0 .0, xx.0 .1,
                                         ));
                                     }
                                 }
@@ -677,9 +803,16 @@ mod name_resolution {
                 }
             }
             let mut exports: Vec<_> = exports.into_iter().map(|x| x.to_names()).collect();
-            let valid: BTreeMap<_, _> = exports.iter().flatten().copied().map(|name@Name(s, _, u, _)| ((s, u), name)).collect();
-            if !hiding.is_empty(){
-                let hiding = hiding.iter().filter_map(|x|  {
+            let valid: BTreeMap<_, _> = exports
+                .iter()
+                .flatten()
+                .copied()
+                .map(|name @ Name(s, _, u, _)| ((s, u), name))
+                .collect();
+            if !hiding.is_empty() {
+                let hiding = hiding
+                    .iter()
+                    .filter_map(|x| {
                         let (s, u) = match x {
                             ast::Import::Value(x) => (Term, x.0),
                             ast::Import::Symbol(x) => (Term, x.0),
@@ -695,32 +828,41 @@ mod name_resolution {
                             // Opinionatedly not adding imports to usages
                             self.resolved.insert((u.1.lo(), u.1.hi()), *n);
                         } else {
-                            self.errors.push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1))
+                            self.errors
+                                .push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1))
                         }
                         // NOTE[et]: This is bug-compatible with purs
-                        if matches!(x, ast::Import::TypDat(x, ast::DataMember::Some(_))) { return None; }
+                        if matches!(x, ast::Import::TypDat(x, ast::DataMember::Some(_))) {
+                            return None;
+                        }
                         Some((s, u.0))
-                    }).collect::<BTreeSet<_>>();
+                    })
+                    .collect::<BTreeSet<_>>();
                 exports.retain(|x| !x.iter().any(|Name(s, _, u, _)| hiding.contains(&(*s, *u))));
             }
 
-            for (k, v) in ii.iter().filter_map(|(s, u)| {
-                let span = u.1;
-                let u = u.0;
-                let out = valid.get(&(*s, u));
-                if let Some(n) = out {
-                    // Opinionatedly not adding imports to usages
-                    self.resolved.insert((span.lo(), span.hi()), *n);
-                } else {
-                    self.errors.push(NRerrors::NotExportedOrDoesNotExist(from.0, *s, u, span));
-                }
-                Some(((*s, u), *out?))
-            }).collect::<Vec<_>>() {
+            for (k, v) in ii
+                .iter()
+                .filter_map(|(s, u)| {
+                    let span = u.1;
+                    let u = u.0;
+                    let out = valid.get(&(*s, u));
+                    if let Some(n) = out {
+                        // Opinionatedly not adding imports to usages
+                        self.resolved.insert((span.lo(), span.hi()), *n);
+                    } else {
+                        self.errors
+                            .push(NRerrors::NotExportedOrDoesNotExist(from.0, *s, u, span));
+                    }
+                    Some(((*s, u), *out?))
+                })
+                .collect::<Vec<_>>()
+            {
                 self.imports.insert(k, v);
             }
         }
 
-        // TODO: This is needs to be split into two passes - one for the initial declarations and
+        // NOTE: This is needs to be split into two passes - one for the initial declarations and
         // one for inner declarations - since there is no order here. One could also push these
         // references first and check them later - saying where the same declaration is used in e.g
         // error messages.
@@ -734,59 +876,59 @@ mod name_resolution {
             // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
             match d {
                 ast::Decl::DataKind(d, _) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::Data(d, _, cs) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     let mut cons = BTreeSet::new();
                     for c in cs {
-                        self.def_global(Term, c.0.0, false);
-                        cons.insert(Name(Term, self.me, c.0.0.0, Visibility::Public));
+                        self.def_global(Term, c.0 .0, false);
+                        cons.insert(Name(Term, self.me, c.0 .0 .0, Visibility::Public));
                     }
                     self.constructors
-                        .insert(Name(Type, self.me, d.0.0, Visibility::Public), cons);
+                        .insert(Name(Type, self.me, d.0 .0, Visibility::Public), cons);
                     None
                 }
                 ast::Decl::TypeKind(d, _) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::Type(d, xs, t) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     // Bug compatible with the Purs-compiler
                     self.constructors.insert(
-                        Name(Type, self.me, d.0.0, Visibility::Public),
+                        Name(Type, self.me, d.0 .0, Visibility::Public),
                         BTreeSet::new(),
                     );
                     None
                 }
                 ast::Decl::NewTypeKind(d, _) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::NewType(d, xs, c, t) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     self.def_global(Term, c.0, false);
                     self.constructors.insert(
-                        Name(Type, self.me, d.0.0, Visibility::Public),
-                        [Name(Term, self.me, c.0.0, Visibility::Public)].into(),
+                        Name(Type, self.me, d.0 .0, Visibility::Public),
+                        [Name(Term, self.me, c.0 .0, Visibility::Public)].into(),
                     );
                     None
                 }
                 ast::Decl::ClassKind(d, _) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::Class(cs, d, xs, fd, mem) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
@@ -808,10 +950,10 @@ mod name_resolution {
                 }
                 ast::Decl::Sig(d, _) => {
                     self.def_global(Type, d.0, false);
-                    Some(d.0.0)
+                    Some(d.0 .0)
                 }
                 ast::Decl::Def(d, _, _) => {
-                    let q = Some(d.0.0);
+                    let q = Some(d.0 .0);
                     self.def_global(Term, d.0, prev == q);
                     q
                 }
@@ -829,7 +971,7 @@ mod name_resolution {
                 ast::Decl::Data(d, xs, cs) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0.0.0, x.0.0.1);
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
                     for c in cs {
                         for t in c.1.iter() {
@@ -842,7 +984,7 @@ mod name_resolution {
                 ast::Decl::Type(d, xs, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0.0.0, x.0.0.1);
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
                     self.typ(t);
                     self.pop(sf);
@@ -851,7 +993,7 @@ mod name_resolution {
                 ast::Decl::NewType(d, xs, c, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0.0.0, x.0.0.1);
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
                     self.typ(t);
                     self.pop(sf);
@@ -860,7 +1002,7 @@ mod name_resolution {
                 ast::Decl::Class(cs, d, xs, fd, mem) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0.0.0, x.0.0.1);
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
                     for c in cs {
                         self.constraint(c);
@@ -905,12 +1047,12 @@ mod name_resolution {
             for c in cs.iter() {
                 self.constraint(c);
             }
-            self.resolveq(Type, d.0, d.1.0);
+            self.resolveq(Type, d.0, d.1 .0);
             for t in ts.iter() {
                 self.typ(t);
             }
             match d.0 {
-                Some(u) => u.0.0,
+                Some(u) => u.0 .0,
                 None => self.me,
             }
         }
@@ -965,7 +1107,7 @@ mod name_resolution {
                 }
                 ast::Expr::Op(a, o, b) => {
                     self.expr(a);
-                    self.resolveq(Term, o.0, o.1.0);
+                    self.resolveq(Term, o.0, o.1 .0);
                     self.expr(b);
                 }
                 ast::Expr::Infix(a, o, b) => {
@@ -989,8 +1131,10 @@ mod name_resolution {
                     self.expr(tru);
                     self.expr(fal);
                 }
-                ast::Expr::Do(_qual, stmts) => {
-                    // TODO: Add in the qualified to jump to the module/import
+                ast::Expr::Do(qual, stmts) => {
+                    if let Some(qual) = qual {
+                        self.resolve(Namespace, self.me, qual.0);
+                    }
                     let sf = self.push();
                     for s in stmts.iter() {
                         match s {
@@ -1010,7 +1154,10 @@ mod name_resolution {
                     }
                     self.pop(sf);
                 }
-                ast::Expr::Ado(_qual, stmts, ret) => {
+                ast::Expr::Ado(qual, stmts, ret) => {
+                    if let Some(qual) = qual {
+                        self.resolve(Namespace, self.me, qual.0);
+                    }
                     let sf = self.push();
                     // NOTE[et]: We define things from the expression, so the flow of
                     // execution is different here.
@@ -1095,13 +1242,13 @@ mod name_resolution {
                 ast::Expr::Section(_) => (),
                 ast::Expr::Hole(_) => (),
                 ast::Expr::Ident(v) => {
-                    self.resolveq(Term, v.0, v.1.0);
+                    self.resolveq(Term, v.0, v.1 .0);
                 }
                 ast::Expr::Constructor(v) => {
-                    self.resolveq(Term, v.0, v.1.0);
+                    self.resolveq(Term, v.0, v.1 .0);
                 }
                 ast::Expr::Symbol(v) => {
-                    self.resolveq(Term, v.0, v.1.0);
+                    self.resolveq(Term, v.0, v.1 .0);
                 }
                 ast::Expr::Boolean(_) => (),
                 ast::Expr::Char(_) => (),
@@ -1131,10 +1278,10 @@ mod name_resolution {
             for l in ls {
                 match l {
                     ast::LetBinding::Sig(l, t) => {
-                        self.def_local(Term, l.0.0, l.0.1);
+                        self.def_local(Term, l.0 .0, l.0 .1);
                     }
                     ast::LetBinding::Name(l, bs, e) => {
-                        self.def_local(Term, l.0.0, l.0.1);
+                        self.def_local(Term, l.0 .0, l.0 .1);
                     }
                     ast::LetBinding::Pattern(b, e) => {
                         self.binder(b);
@@ -1174,19 +1321,19 @@ mod name_resolution {
                 }
                 ast::Binder::Op(a, o, b) => {
                     self.binder(a);
-                    self.resolveq(Term, o.0, o.1.0);
+                    self.resolveq(Term, o.0, o.1 .0);
                     self.binder(b);
                 }
                 ast::Binder::Wildcard(_) => (),
                 ast::Binder::Var(name) => {
-                    self.def_local(Term, name.0.0, name.0.1);
+                    self.def_local(Term, name.0 .0, name.0 .1);
                 }
                 ast::Binder::Named(name, b) => {
-                    self.def_local(Term, name.0.0, name.0.1);
+                    self.def_local(Term, name.0 .0, name.0 .1);
                     self.binder(b);
                 }
                 ast::Binder::Constructor(c) => {
-                    self.resolveq(Term, c.0, c.1.0);
+                    self.resolveq(Term, c.0, c.1 .0);
                 }
                 ast::Binder::Boolean(_) => (),
                 ast::Binder::Char(_) => (),
@@ -1216,7 +1363,7 @@ mod name_resolution {
         }
 
         fn constraint(&mut self, ast::Constraint(c, ts): &ast::Constraint) {
-            self.resolveq(Type, c.0, c.1.0);
+            self.resolveq(Type, c.0, c.1 .0);
             for t in ts.iter() {
                 self.typ(t);
             }
@@ -1229,10 +1376,10 @@ mod name_resolution {
                     self.resolve(Type, self.me, v.0);
                 }
                 ast::Typ::Constructor(v) => {
-                    self.resolveq(Type, v.0, v.1.0);
+                    self.resolveq(Type, v.0, v.1 .0);
                 }
                 ast::Typ::Symbol(v) => {
-                    self.resolveq(Type, v.0, v.1.0);
+                    self.resolveq(Type, v.0, v.1 .0);
                 }
                 ast::Typ::Str(_) => (),
                 ast::Typ::Int(_) => (),
@@ -1249,7 +1396,7 @@ mod name_resolution {
                 ast::Typ::Forall(xs, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0.0.0, x.0.0.1);
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
                     self.typ(t);
                     self.pop(sf);
@@ -1264,7 +1411,7 @@ mod name_resolution {
                 }
                 ast::Typ::Op(a, o, b) => {
                     self.typ(a);
-                    self.resolveq(Type, o.0, o.1.0);
+                    self.resolveq(Type, o.0, o.1 .0);
                     self.typ(b);
                 }
                 ast::Typ::Constrained(c, t) => {
@@ -1288,11 +1435,11 @@ mod name_resolution {
             // NOTE[et]: This is very finicky code. :(
             // NOTE[et]: I don't want this to be done here - but it's way easier to place it here
             // than in some requirement for `N`.
-            let name = h.0.0.0;
+            let name = h.0 .0 .0;
             n.me = name;
             n.exports
                 .push(Export::Just(Name(Module, name, name, Visibility::Public)));
-            n.def_global(Module, h.0.0, true);
+            n.def_global(Module, h.0 .0, true);
             for i in h.2.iter() {
                 n.import(i);
             }
@@ -1310,7 +1457,7 @@ mod name_resolution {
                 n.export(ex);
             }
 
-            Some(h.0.0.0)
+            Some(h.0 .0 .0)
         } else {
             None
         }
@@ -1335,14 +1482,126 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
+    fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> (bool, ast::Ud) {
+        let mut n = name_resolution::N::new(&self.exports);
+        name_resolution::resolve_names(&mut n, m);
+        let me = n.me;
+
+        self.name_resolution_errors.insert(
+            fi,
+            n.errors
+                .into_iter()
+                .map(|x| x.turn_into_diagnostic(&self.names))
+                .collect::<Vec<_>>(),
+        );
+
+        self.resolved.insert(me, n.resolved);
+        // TODO: This needs an update
+        self.usages.insert(me, n.usages);
+        for (name, pos) in n.defines.iter() {
+            self.defines.insert(*name, *pos);
+        }
+        for (name, pos) in n.global_usages.into_iter() {
+            if let Some(mut e) = self.usages.get_mut(&name.1) {
+                if let Some(e) = e.get_mut(&name) {
+                    e.insert(pos);
+                }
+            }
+        }
+        let new_hash = hash_exports(&n.exports);
+        let exports_changed = if let Some(old) = self.exports.insert(me, n.exports) {
+            new_hash != hash_exports(&old)
+        } else {
+            true
+        };
+
+        let new_imports: BTreeSet<_> = n.module_imports.keys().copied().collect();
+        let old_imports = self.imports.insert(me, new_imports.clone()).unwrap_or_else(BTreeSet::new);
+        for x in old_imports.difference(&new_imports) {
+            let mut e = self.importers.entry(*x).or_insert(BTreeSet::new());
+            e.remove(&me);
+        }
+        for x in new_imports.difference(&old_imports) {
+            let mut e = self.importers.entry(*x).or_insert(BTreeSet::new());
+            e.insert(me);
+        }
+        (exports_changed, n.me)
+    }
+
+    async fn resolve_cascading(&self, me: ast::Ud) {
+        // TODO: This can be way way smarter, currently it only runs on changed exports.
+        // Some exteions include: Lineage tracking - saying letting me know what parts actually
+        // changed. 
+        let name = Name(Scope::Module, me, me, Visibility::Public);
+        let mut checked = BTreeSet::new();
+        let mut to_check: Vec<_> = self
+            .importers
+            .get(&me)
+            .iter()
+            .flat_map(|x| x.iter())
+            .copied()
+            .collect();
+        while let Some(x) = to_check.pop() {
+            if checked.contains(&x) {
+                continue;
+            }
+            checked.insert(x);
+            if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
+                let (_, _) = self.resolve_module(&m, *fi);
+                self.show_errors(*fi).await;
+                if let Some(ex) = self.exports.get(&x) {
+                    if ex.iter().any(|x| x.contains(name)) {
+                        // It's a re-export which means we need to check everything that imports it as well!
+                        to_check.append(
+                            &mut self
+                                .importers
+                                .get(&x)
+                                .iter()
+                                .flat_map(|x| x.iter())
+                                .copied()
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                };
+            }
+        }
+    }
+
+    async fn show_errors(&self, fi: ast::Fi) {
+        if let Some(url) = self.fi_to_url.get(&fi) {
+            error!("Show new errors for: {:?}", url.to_string());
+            self.client
+                .publish_diagnostics(
+                    url.clone(),
+                    [
+                        if let Some(x) = self.syntax_errors.get(&fi) {
+                            x.value().clone()
+                        } else {
+                            Vec::new()
+                        },
+                        if let Some(x) = self.name_resolution_errors.get(&fi) {
+                            x.value().clone()
+                        } else {
+                            Vec::new()
+                        },
+                    ]
+                    .concat(),
+                    if let Some(v) = self.fi_to_version.get(&fi) {
+                        *v
+                    } else {
+                        None
+                    },
+                )
+                .await
+        } else {
+            panic!()
+        }
+    }
+
     async fn on_change(&self, params: TextDocumentItem<'_>) {
-        // TODO: We need to find all dependent modules and redo those after a module is done
-        // processing.
-        // TODO: We need to rerun a module through the name resolution
         // TODO: How to handle two files with the same module name?
         // TODO: Some fundamental types are built into the compiler - like `Int`
-        //
-        // error!("URI: {:?}", params.uri.to_string());
+        // TODO: Remove old usages when reinterpreting the module
         let fi = match self.url_to_fi.entry(params.uri.to_string()) {
             dashmap::Entry::Occupied(v) => *v.get(),
             dashmap::Entry::Vacant(v) => {
@@ -1351,61 +1610,28 @@ impl Backend {
                 fi
             }
         };
+        self.fi_to_version.insert(fi, params.version);
+        self.fi_to_url.insert(fi, params.uri.clone());
+
         let l = lexer::lex(params.text, fi);
         let mut p = parser::P::new(&l, &self.names);
         let m = parser::module(&mut p);
-        let mut n = name_resolution::N::new(&self.exports);
-        if let Some(m) = m {
-            name_resolution::resolve_names(&mut n, &m);
-            let me = n.me;
-            self.fi_to_ud.insert(fi, me);
-            self.url_to_ud.insert(params.uri.to_string(), me);
-            self.ud_to_url.insert(me, params.uri.clone());
-            self.modules.insert(me, m);
-            self.resolved.insert(me, n.resolved);
-            self.usages.insert(me, n.usages);
-            for (name, pos) in n.defines.iter() {
-                self.defines.insert(*name, *pos);
-            }
-            for (name, pos) in n.global_usages.into_iter() {
-                if let Some(mut e) = self.usages.get_mut(&name.1) {
-                    if let Some(e) = e.get_mut(&name) {
-                        e.insert(pos);
-                    }
-                }
-            }
-            self.exports.insert(me, n.exports);
-
-            let new_imports: BTreeSet<_> = n.module_imports.keys().copied().collect();
-            if let Some(old_imports) = self.imports.insert(me, new_imports.clone()) {
-                for x in old_imports.difference(&new_imports) {
-                    if let Some(mut e) = self.imports.get_mut(x) {
-                        e.remove(&me);
-                    }
-                }
-                for x in new_imports.difference(&old_imports) {
-                    if let Some(mut e) = self.imports.get_mut(x) {
-                        e.insert(me);
-                    }
-                }
-            }
-        };
-
-        let diagnostics: std::vec::Vec<tower_lsp::lsp_types::Diagnostic> = [
+        self.syntax_errors.insert(
+            fi,
             p.errors
                 .into_iter()
                 .map(|err| {
                     let message = match err {
                         parser::Serror::Info(_, s) => format!("Info: {}", s),
                         parser::Serror::Unexpected(_, t, s) => format!("Unexpected {:?}: {}", t, s),
-                        parser::Serror::NotSimpleTypeVarBinding(_) => 
-                            "Not a simple type-var binding".to_string(),
-                        parser::Serror::NotAConstraint(_) =>
-                                "Not a constraint".to_string(),
-                        parser::Serror::NotAtEOF(_, _) =>
-                            "Not at end of file".to_string(),
-                        parser::Serror::FailedToParseDecl(_, _, _, _) => 
-                            "Failed to parse this declaration".to_string(),
+                        parser::Serror::NotSimpleTypeVarBinding(_) => {
+                            "Not a simple type-var binding".to_string()
+                        }
+                        parser::Serror::NotAConstraint(_) => "Not a constraint".to_string(),
+                        parser::Serror::NotAtEOF(_, _) => "Not at end of file".to_string(),
+                        parser::Serror::FailedToParseDecl(_, _, _, _) => {
+                            "Failed to parse this declaration".to_string()
+                        }
                     };
                     let span = err.span();
 
@@ -1415,123 +1641,30 @@ impl Backend {
                     )
                 })
                 .collect::<Vec<_>>(),
-            n.errors
-                .into_iter()
-                .map(|err| match err {
-                    name_resolution::NRerrors::Unknown(span) => Diagnostic::new_simple(
-                        Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                        "Failed to resolve this name".into(),
-                    ),
-                    name_resolution::NRerrors::MultipleImports(_, span) => Diagnostic::new_simple(
-                        Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                        "This name is imported from two different modules".into(),
-                    ),
-                    name_resolution::NRerrors::MultipleDefinitions(
-                        Name(scope, _m, i, _),
-                        _first,
-                        second,
-                    ) => Diagnostic::new_simple(
-                        Range::new(pos_from_tup(second), pos_from_tup(second)),
-                        format!(
-                            "{:?} {:?} is defined multiple times",
-                            scope,
-                            self.names
-                                .get(&i)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into())
-                        ),
-                    ),
-                    name_resolution::NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
-                        Range::new(pos_from_tup(m.0.1.lo()), pos_from_tup(m.0.1.hi())),
-                        format!(
-                            "{} does not have a constructors {}",
-                            self.names
-                                .get(&d.2)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            self.names
-                                .get(&m.0.0)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into())
-                        ),
-                    ),
-                    name_resolution::NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "{} does not have constructors",
-                            self.names
-                                .get(&m.2)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    ),
-                    name_resolution::NRerrors::ConstructorsDoesntExistOrIsntExported(m, ast::S(u, s)) => 
-                        Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "{}.{} does not exist or has no constructors exported",
-                            self.names
-                                .get(&m.0)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            self.names
-                                .get(&u)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    ),
+        );
 
-                    name_resolution::NRerrors::NoConstructorOfThatName(m, a, b, s) => 
-                        Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "{} is not an exported constructor for the type {}.{}",
-                            self.names
-                                .get(&b)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            self.names
-                                .get(&m.0)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            self.names
-                                .get(&a)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    ),
-                    name_resolution::NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => {
-                        Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "{:?} {}.{} is not exported or does not exist",
-                            scope,
-                            self.names
-                                .get(&m.0)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            self.names
-                                .get(&ud)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    )
-                    }
-                    name_resolution::NRerrors::CannotImportSelf(s) => {
-                        Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        "A module cannot import itself".to_string(),
-                    )
-                    }
-                })
-                .collect::<Vec<_>>(),
-        ]
-        .concat();
+        if let Some(m) = m {
+            let (exports_changed, me) = self.resolve_module(&m, fi);
+            self.modules.insert(me, m);
+            self.fi_to_ud.insert(fi, me);
+            self.ud_to_fi.insert(me, fi);
+            self.url_to_ud.insert(params.uri.to_string(), me);
+            self.ud_to_url.insert(me, params.uri.clone());
 
-        self.client
-            .publish_diagnostics(params.uri.clone(), diagnostics, params.version)
-            .await;
+            self.show_errors(fi).await;
+            if exports_changed {
+                self.resolve_cascading(me).await;
+            }
+        } else {
+            self.show_errors(fi).await;
+        }
     }
+}
+
+fn hash_exports(exports: &[Export]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    exports.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn pos_from_tup((line, col): (usize, usize)) -> Position {
@@ -1553,14 +1686,18 @@ async fn main() {
         ud_to_url: DashMap::new(),
         fi_to_ud: DashMap::new(),
         url_to_fi: DashMap::new(),
-
         importers: DashMap::new(),
         imports: DashMap::new(),
-
         modules: DashMap::new(),
         resolved: DashMap::new(),
         defines: DashMap::new(),
         usages: DashMap::new(),
+
+        fi_to_url: DashMap::new(),
+        ud_to_fi: DashMap::new(),
+        fi_to_version: DashMap::new(),
+        syntax_errors: DashMap::new(),
+        name_resolution_errors: DashMap::new(),
     })
     .finish();
 

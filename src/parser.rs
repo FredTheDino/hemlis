@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused, clippy::needless_lifetimes)]
 
 use std::hash::DefaultHasher;
 use std::hash::Hash as _;
@@ -65,21 +65,21 @@ fn qual(p: &mut P<'_>) -> Option<Qual> {
     }
 }
 
-fn boolean<'t>(p: &mut P<'t>) -> Option<Boolean> {
+fn boolean(p: &mut P<'_>) -> Option<Boolean> {
     match p.next() {
         (Some(T::Lower(x @ ("true" | "false"))), s) => Some(Boolean(S(p.intern(x), s))),
         _ => p.raise_("Boolean"),
     }
 }
 
-fn string<'t>(p: &mut P<'t>) -> Option<Str> {
+fn string(p: &mut P<'_>) -> Option<Str> {
     match p.next() {
         (Some(T::String(x) | T::RawString(x)), s) => Some(Str(S(p.intern(x), s))),
         _ => p.raise_("String | RawString"),
     }
 }
 
-fn label<'t>(p: &mut P<'t>) -> Option<Label> {
+fn label(p: &mut P<'_>) -> Option<Label> {
     Some(match p.peek() {
         (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(p.intern(n), s)),
         _ => return None,
@@ -1274,10 +1274,10 @@ fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate> {
 
     alt!(p: Serror::Info(p.span(), "record_label"),
         |p: &mut P<'t>| {
-            Some(RecordUpdate::Leaf(f.clone(), expr(p)?))
+            Some(RecordUpdate::Leaf(f, expr(p)?))
         },
         |p: &mut P<'t>| {
-            Some(RecordUpdate::Branch(f.clone(), record_updates(p)?))
+            Some(RecordUpdate::Branch(f, record_updates(p)?))
         },
     )
 }
