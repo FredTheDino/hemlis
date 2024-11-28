@@ -1,5 +1,6 @@
 #![feature(btree_cursors)]
 
+use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
@@ -46,14 +47,8 @@ struct Backend {
 impl Backend {
     fn resolve_name(&self, url: &Url, pos: Position) -> Option<Name> {
         let m = self.fi_to_ud.get(&*self.url_to_fi.get(url)?)?;
-        // error!("M: {:?}", m);
-        // NOTE: might have an off-by-one
         let pos = (pos.line as usize, (pos.character + 1) as usize);
         let lut = self.resolved.get(&m)?;
-        // error!("POS: {:?}", pos);
-        // for pos in lut.iter() {
-        //     error!("LUT: {:?}", pos);
-        // }
         let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
         let ((lo, hi), name) = cur.peek_prev()?;
         if !(*lo <= pos && pos <= *hi) {
@@ -1518,6 +1513,31 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
+    async fn load_workspace(&self) -> Option<()> {
+        let folders = self.client.workspace_folders().await.ok()??;
+        for folder in folders {
+            use glob::glob;
+            let mut found = glob(&format!("{}/**/*.purs", folder.uri.to_string().strip_prefix("file://").unwrap())).ok()?.collect::<Vec<_>>();
+            found.par_iter().for_each(|path| {
+                let path = path.as_ref().unwrap();
+                let source = std::fs::read_to_string(path.clone());
+                if source.is_err() { return }
+                let source = source.unwrap();
+                let url = Url::parse(&format!("file://{}", &path.clone().into_os_string().into_string().unwrap())).unwrap();
+                let (m, fi) = self.parse(url, None, &source);
+
+                if let Some(m) = m {
+                    if let Some(me) = m.0.as_ref().map(|x| x.0.0.0) {
+                        self.modules.insert(me, m);
+                        self.fi_to_ud.insert(fi, me);
+                        self.ud_to_fi.insert(me, fi);
+                    }
+                }
+            });
+        }
+        Some(())
+    }
+
     fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> Option<(bool, ast::Ud)> {
         let me = m.0.as_ref()?.0.0.0;
         let mut n = name_resolution::N::new(me, &self.builtins, &self.exports);
@@ -1649,7 +1669,6 @@ impl Backend {
 
     async fn show_errors(&self, fi: ast::Fi) {
         if let Some(url) = self.fi_to_url.get(&fi) {
-            error!("Show new errors for: {:?}", url.to_string());
             self.client
                 .publish_diagnostics(
                     url.clone(),
@@ -1678,10 +1697,9 @@ impl Backend {
         }
     }
 
-    async fn on_change(&self, params: TextDocumentItem<'_>) {
+    fn parse(&self, uri: Url, version: Option<i32>, source: &'_ str) -> (Option<ast::Module>, ast::Fi) {
         // TODO: How to handle two files with the same module name?
-        // TODO: Some fundamental types are built into the compiler - like `Int`
-        let fi = match self.url_to_fi.entry(params.uri.clone()) {
+        let fi = match self.url_to_fi.entry(uri.clone()) {
             dashmap::Entry::Occupied(v) => *v.get(),
             dashmap::Entry::Vacant(v) => {
                 let fi = ast::Fi(sungod::Ra::ggen::<usize>());
@@ -1689,10 +1707,10 @@ impl Backend {
                 fi
             }
         };
-        self.fi_to_version.insert(fi, params.version);
-        self.fi_to_url.insert(fi, params.uri.clone());
+        self.fi_to_version.insert(fi, version);
+        self.fi_to_url.insert(fi, uri.clone());
 
-        let l = lexer::lex(params.text, fi);
+        let l = lexer::lex(source, fi);
         let mut p = parser::P::new(&l, &self.names);
         let m = parser::module(&mut p);
         self.syntax_errors.insert(
@@ -1721,6 +1739,15 @@ impl Backend {
                 })
                 .collect::<Vec<_>>(),
         );
+        (m, fi)
+    }
+
+    async fn on_change(&self, params: TextDocumentItem<'_>) {
+        let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
+        error!("LOADED: {}", self.modules.len());
+        if self.modules.len() < 5 {
+            self.load_workspace().await;
+        }
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
@@ -1784,7 +1811,8 @@ async fn main() {
     
     let (builtins, names) = build_builtins();
 
-    let (service, socket) = LspService::build(|client| Backend {
+    let (service, socket) = LspService::build(|client|  {
+        Backend {
         client,
 
         builtins,
@@ -1810,8 +1838,10 @@ async fn main() {
 
         syntax_errors: DashMap::new(),
         name_resolution_errors: DashMap::new(),
-    })
+    }})
     .finish();
+
+    service.inner().load_workspace().await;
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }
