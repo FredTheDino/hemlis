@@ -23,6 +23,9 @@ struct Backend {
     fi_to_ud: DashMap<ast::Fi, ast::Ud>,
     url_to_fi: DashMap<String, ast::Fi>,
 
+    importers: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
+    imports: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
+
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
@@ -37,10 +40,10 @@ impl Backend {
         // NOTE: might have an off-by-one
         let pos = (pos.line as usize, (pos.character + 1) as usize);
         let lut = self.resolved.get(&m)?;
-        error!("POS: {:?}", pos);
-        for pos in lut.iter() {
-            error!("LUT: {:?}", pos);
-        }
+        // error!("POS: {:?}", pos);
+        // for pos in lut.iter() {
+        //     error!("LUT: {:?}", pos);
+        // }
         let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
         let ((lo, hi), name) = cur.peek_prev()?;
         if !(*lo <= pos && pos <= *hi) {
@@ -301,22 +304,47 @@ pub enum Scope {
     Module,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Export {
-    DataSome(Name, Vec<Name>),
-    DataAll(Name, Vec<Name>),
+    ConstructorsSome(Name, Vec<Name>),
+    ConstructorsAll(Name, Vec<Name>),
     Just(Name),
     Module(Vec<Name>),
 }
 impl Export {
     fn contains(&self, name: Name) -> bool {
         match self {
-            Export::DataSome(n, xs) => *n == name || xs.iter().any(|x| *x == name),
-            Export::DataAll(n, xs) => *n == name || xs.iter().any(|x| *x == name),
+            Export::ConstructorsSome(n, xs) | Export::ConstructorsAll(n, xs) => {
+                *n == name || xs.iter().any(|x| *x == name)
+            }
             Export::Just(n) => *n == name,
             Export::Module(xs) => xs.iter().any(|x| *x == name),
         }
     }
+
+    fn contains_(&self, s: Scope, u: ast::Ud) -> bool {
+        match self {
+            Export::ConstructorsAll(n, xs) | Export::ConstructorsSome(n, xs) => {
+                name_is(*n, s, u) || xs.iter().any(|x| name_is(*x, s, u))
+            }
+            Export::Just(n) => name_is(*n, s, u),
+            Export::Module(xs) => xs.iter().any(|x| name_is(*x, s, u)),
+        }
+    }
+
+    fn to_names(&self) -> Vec<Name> {
+        match self {
+            Export::ConstructorsAll(n, xs) | Export::ConstructorsSome(n, xs) => {
+                [vec![*n], xs.iter().copied().collect()].concat()
+            }
+            Export::Just(n) => vec![*n],
+            Export::Module(xs) => xs.clone(),
+        }
+    }
+}
+
+fn name_is(Name(ss, _, uu, _): Name, s: Scope, u: ast::Ud) -> bool {
+    ss == s && uu == u
 }
 
 #[allow(unused)]
@@ -339,6 +367,10 @@ mod name_resolution {
         MultipleDefinitions(Name, (usize, usize), (usize, usize)),
         NotAConstructor(Name, ast::ProperName),
         NoConstructors(Name, ast::Span),
+        ConstructorsDoesntExistOrIsntExported(ast::S<ast::Ud>, ast::S<ast::Ud>),
+        NoConstructorOfThatName(ast::S<ast::Ud>, ast::Ud, ast::Ud, ast::Span),
+        NotExportedOrDoesNotExist(ast::S<ast::Ud>, Scope, ast::Ud, ast::Span),
+        CannotImportSelf(ast::Span),
     }
 
     #[derive(Debug)]
@@ -357,7 +389,7 @@ mod name_resolution {
         pub exports: Vec<Export>,
 
         constructors: BTreeMap<Name, BTreeSet<Name>>,
-        module_imports: BTreeMap<ast::Ud, Vec<(ast::Ud, ast::Span)>>,
+        pub module_imports: BTreeMap<ast::Ud, Vec<(ast::Ud, ast::Span)>>,
 
         imports: BTreeMap<(Scope, ast::Ud), Name>,
 
@@ -432,7 +464,6 @@ mod name_resolution {
         fn resolve(&mut self, scope: Scope, m: ast::Ud, n: ast::S<ast::Ud>) {
             let s = n.1;
             let n = n.0;
-            error!("resolve: {:?}", (scope, m, n));
             let mut matches = Vec::new();
             if m == self.me {
                 if let Some(name) = self.resolve_inner(scope, m, n) {
@@ -474,7 +505,7 @@ mod name_resolution {
             match m {
                 Some(m) => {
                     self.resolve(Module, self.me, m.0);
-                    self.resolve(scope, m.0 .0, n);
+                    self.resolve(scope, m.0.0, n);
                 }
                 None => {
                     self.resolve(scope, self.me, n);
@@ -493,8 +524,7 @@ mod name_resolution {
 
                 if self
                     .defines
-                    .get(&Name(ss, m, n, Visibility::Public))
-                    .is_some()
+                    .contains_key(&Name(ss, m, n, Visibility::Public))
                 {
                     return Some(Name(ss, m, n, Visibility::Public));
                 }
@@ -521,25 +551,25 @@ mod name_resolution {
         fn export(&mut self, ex: &ast::Export) {
             use Export::*;
             let export = match ex {
-                ast::Export::Value(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
-                ast::Export::Symbol(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
-                ast::Export::Typ(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
-                ast::Export::TypSymbol(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Value(v) => Just(Name(Term, self.me, v.0.0, Visibility::Public)),
+                ast::Export::Symbol(v) => Just(Name(Term, self.me, v.0.0, Visibility::Public)),
+                ast::Export::Typ(v) => Just(Name(Type, self.me, v.0.0, Visibility::Public)),
+                ast::Export::TypSymbol(v) => Just(Name(Type, self.me, v.0.0, Visibility::Public)),
                 ast::Export::TypDat(v, ds) => {
-                    let x = Name(Type, self.me, v.0 .0, Visibility::Public);
+                    let x = Name(Type, self.me, v.0.0, Visibility::Public);
                     let ms = match self.constructors.get(&x) {
                         None => {
-                            self.errors.push(NRerrors::NoConstructors(x, v.0 .1));
+                            self.errors.push(NRerrors::NoConstructors(x, v.0.1));
                             return;
                         }
                         Some(ms) => ms,
                     };
                     match ds {
-                        ast::DataMember::All => DataAll(x, ms.iter().cloned().collect()),
-                        ast::DataMember::Some(ns) => DataSome(
+                        ast::DataMember::All => ConstructorsAll(x, ms.iter().copied().collect()),
+                        ast::DataMember::Some(ns) => ConstructorsSome(
                             x,
                             ns.iter()
-                                .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
+                                .filter_map(|m| match ms.iter().find(|a| a.2 == m.0.0) {
                                     Some(a) => Some(*a),
                                     None => {
                                         self.errors.push(NRerrors::NotAConstructor(x, *m));
@@ -550,9 +580,9 @@ mod name_resolution {
                         ),
                     }
                 }
-                ast::Export::Class(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Class(v) => Just(Name(Type, self.me, v.0.0, Visibility::Public)),
                 ast::Export::Module(v) => {
-                    Just(Name(Scope::Module, self.me, v.0 .0, Visibility::Public))
+                    Just(Name(Scope::Module, self.me, v.0.0, Visibility::Public))
                 }
             };
             self.exports.push(export);
@@ -565,60 +595,128 @@ mod name_resolution {
             self.resolved.insert((h.0.1.lo(), h.0.1.hi()), name);
         }
 
-        fn import(&mut self, i: &ast::ImportDecl) {
+        fn register_import_as(&mut self, a: ast::MName, b: Option<ast::MName>) {
+            let mut out = self.module_imports.entry(a.0.0).or_default();
+            if let Some(b) = b {
+                out.push((b.0.0, b.0.1));
+            }
+        }
+
+        fn import(
+            &mut self,
+            ast::ImportDecl {
+                from,
+                hiding,
+                names,
+                to,
+            }: &ast::ImportDecl,
+        ) {
             // NOTE: Is the export a usage? IDK...
-            match i {
-                ast::ImportDecl::As(a, b) => {
-                    self.import_resolve(*a);
-                    match self.module_imports.entry(a.0 .0) {
-                        std::collections::btree_map::Entry::Vacant(v) => {
-                            v.insert(vec![(b.0 .0, b.0 .1)]);
-                        }
-                        std::collections::btree_map::Entry::Occupied(mut v) => {
-                            v.get_mut().push((b.0 .0, b.0 .1));
-                        }
-                    }
-                    self.def_global(Module, b.0, false);
-                }
-                ast::ImportDecl::Multiple(a, imports) => {
-                    self.import_resolve(*a);
-                    for i in imports {
-                        match i {
-                            ast::Import::Value(x) => self.def_import(Term, a.0 .0, x.0),
-                            ast::Import::Symbol(x) => self.def_import(Term, a.0 .0, x.0),
-                            ast::Import::Typ(x) => self.def_import(Type, a.0 .0, x.0),
-                            ast::Import::TypDat(x, _) => {
-                                // TODO: The data-members
-                                self.def_import(Type, a.0 .0, x.0)
+
+            self.import_resolve(*from);
+            self.register_import_as(*from, *to);
+            if let Some(b) = to {
+                self.def_global(Module, b.0, false);
+            }
+            let b = to.unwrap_or(*from);
+            if !self.global_exports.contains_key(&from.0.0) {
+                return;
+            }
+            if from.0.0 == self.me {
+                self.errors.push(NRerrors::CannotImportSelf(from.0.1));
+            }
+            let exports: Vec<Export> = self.global_exports.get(&from.0.0).unwrap().value().clone();
+
+            let mut ii = Vec::new();
+            // NOTE[et]: I've choosen to ignore hiding imports and re-exporting that module, because it really complicates things...
+            for i in names {
+                match i {
+                    ast::Import::Value(x) => ii.push((Term, x.0)),
+                    ast::Import::Symbol(x) => ii.push((Term, x.0)),
+                    ast::Import::Typ(x) => ii.push((Type, x.0)),
+                    ast::Import::TypDat(x, cs) => {
+                        // TODO: The data-members
+                        ii.push((Type, x.0));
+                        let es = match exports.iter().find(|e| e.contains_(Type, x.0.0)) {
+                            Some(
+                                Export::ConstructorsSome(_, es) | Export::ConstructorsAll(_, es),
+                            ) => es
+                        .iter()
+                        .map(|x| x.2)
+                        .collect::<BTreeSet<_>>()
+
+                                ,
+                            _ => {
+                                self.errors
+                                    .push(NRerrors::ConstructorsDoesntExistOrIsntExported(from.0, x.0));
+                                BTreeSet::new()
                             }
-                            ast::Import::TypSymbol(x) => self.def_import(Type, a.0 .0, x.0),
-                            ast::Import::Class(x) => self.def_import(Type, a.0 .0, x.0),
+                        };
+                        match cs {
+                            ast::DataMember::All => {
+                                for c in es.iter() {
+                                    ii.push((Term, ast::S(*c, x.0.1)))
+                                }
+                            }
+                            ast::DataMember::Some(xs) => {
+                                for xx in xs {
+                                    if es.contains(&xx.0.0) {
+                                        ii.push((Term, xx.0));
+                                    } else {
+                                        self.errors.push(NRerrors::NoConstructorOfThatName(
+                                                from.0,
+                                            x.0.0, xx.0.0, xx.0.1,
+                                        ));
+                                    }
+                                }
+                            }
                         }
                     }
+                    ast::Import::TypSymbol(x) => ii.push((Type, x.0)),
+                    ast::Import::Class(x) => ii.push((Type, x.0)),
                 }
-                ast::ImportDecl::Hiding(a, _) => {
-                    self.import_resolve(*a);
-                    // TODO: Hiding imports are kinda tricky
-                    match self.module_imports.entry(self.me) {
-                        std::collections::btree_map::Entry::Vacant(v) => {
-                            v.insert(vec![(a.0 .0, a.0 .1)]);
+            }
+            let mut exports: Vec<_> = exports.into_iter().map(|x| x.to_names()).collect();
+            let valid: BTreeMap<_, _> = exports.iter().flatten().copied().map(|name@Name(s, _, u, _)| ((s, u), name)).collect();
+            if !hiding.is_empty(){
+                let hiding = hiding.iter().filter_map(|x|  {
+                        let (s, u) = match x {
+                            ast::Import::Value(x) => (Term, x.0),
+                            ast::Import::Symbol(x) => (Term, x.0),
+                            ast::Import::Typ(x) => (Type, x.0),
+                            // NOTE[et]: It's bug compatible with purs to not hide the members
+                            ast::Import::TypDat(x, ast::DataMember::All) => (Type, x.0),
+                            // These are not references in hiding since they don't do anything.
+                            ast::Import::TypDat(x, ast::DataMember::Some(_)) => (Type, x.0),
+                            ast::Import::TypSymbol(x) => (Type, x.0),
+                            ast::Import::Class(x) => (Type, x.0),
+                        };
+                        if let Some(n) = valid.get(&(s, u.0)) {
+                            // Opinionatedly not adding imports to usages
+                            self.resolved.insert((u.1.lo(), u.1.hi()), *n);
+                        } else {
+                            self.errors.push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1))
                         }
-                        std::collections::btree_map::Entry::Occupied(mut v) => {
-                            v.get_mut().push((a.0 .0, a.0 .1));
-                        }
-                    }
+                        // NOTE[et]: This is bug-compatible with purs
+                        if matches!(x, ast::Import::TypDat(x, ast::DataMember::Some(_))) { return None; }
+                        Some((s, u.0))
+                    }).collect::<BTreeSet<_>>();
+                exports.retain(|x| !x.iter().any(|Name(s, _, u, _)| hiding.contains(&(*s, *u))));
+            }
+
+            for (k, v) in ii.iter().filter_map(|(s, u)| {
+                let span = u.1;
+                let u = u.0;
+                let out = valid.get(&(*s, u));
+                if let Some(n) = out {
+                    // Opinionatedly not adding imports to usages
+                    self.resolved.insert((span.lo(), span.hi()), *n);
+                } else {
+                    self.errors.push(NRerrors::NotExportedOrDoesNotExist(from.0, *s, u, span));
                 }
-                ast::ImportDecl::Bulk(a) => {
-                    self.import_resolve(*a);
-                    match self.module_imports.entry(self.me) {
-                        std::collections::btree_map::Entry::Vacant(v) => {
-                            v.insert(vec![(a.0 .0, a.0 .1)]);
-                        }
-                        std::collections::btree_map::Entry::Occupied(mut v) => {
-                            v.get_mut().push((a.0 .0, a.0 .1));
-                        }
-                    }
-                }
+                Some(((*s, u), *out?))
+            }).collect::<Vec<_>>() {
+                self.imports.insert(k, v);
             }
         }
 
@@ -636,59 +734,59 @@ mod name_resolution {
             // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
             match d {
                 ast::Decl::DataKind(d, _) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::Data(d, _, cs) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     let mut cons = BTreeSet::new();
                     for c in cs {
-                        self.def_global(Term, c.0 .0, false);
-                        cons.insert(Name(Term, self.me, c.0 .0 .0, Visibility::Public));
+                        self.def_global(Term, c.0.0, false);
+                        cons.insert(Name(Term, self.me, c.0.0.0, Visibility::Public));
                     }
                     self.constructors
-                        .insert(Name(Type, self.me, d.0 .0, Visibility::Public), cons);
+                        .insert(Name(Type, self.me, d.0.0, Visibility::Public), cons);
                     None
                 }
                 ast::Decl::TypeKind(d, _) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::Type(d, xs, t) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     // Bug compatible with the Purs-compiler
                     self.constructors.insert(
-                        Name(Type, self.me, d.0 .0, Visibility::Public),
+                        Name(Type, self.me, d.0.0, Visibility::Public),
                         BTreeSet::new(),
                     );
                     None
                 }
                 ast::Decl::NewTypeKind(d, _) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::NewType(d, xs, c, t) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     self.def_global(Term, c.0, false);
                     self.constructors.insert(
-                        Name(Type, self.me, d.0 .0, Visibility::Public),
-                        [Name(Term, self.me, c.0 .0, Visibility::Public)].into(),
+                        Name(Type, self.me, d.0.0, Visibility::Public),
+                        [Name(Term, self.me, c.0.0, Visibility::Public)].into(),
                     );
                     None
                 }
                 ast::Decl::ClassKind(d, _) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
                 ast::Decl::Class(cs, d, xs, fd, mem) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
@@ -710,10 +808,10 @@ mod name_resolution {
                 }
                 ast::Decl::Sig(d, _) => {
                     self.def_global(Type, d.0, false);
-                    Some(d.0 .0)
+                    Some(d.0.0)
                 }
                 ast::Decl::Def(d, _, _) => {
-                    let q = Some(d.0 .0);
+                    let q = Some(d.0.0);
                     self.def_global(Term, d.0, prev == q);
                     q
                 }
@@ -731,7 +829,7 @@ mod name_resolution {
                 ast::Decl::Data(d, xs, cs) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                        self.def_local(Type, x.0.0.0, x.0.0.1);
                     }
                     for c in cs {
                         for t in c.1.iter() {
@@ -744,7 +842,7 @@ mod name_resolution {
                 ast::Decl::Type(d, xs, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                        self.def_local(Type, x.0.0.0, x.0.0.1);
                     }
                     self.typ(t);
                     self.pop(sf);
@@ -753,7 +851,7 @@ mod name_resolution {
                 ast::Decl::NewType(d, xs, c, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                        self.def_local(Type, x.0.0.0, x.0.0.1);
                     }
                     self.typ(t);
                     self.pop(sf);
@@ -762,7 +860,7 @@ mod name_resolution {
                 ast::Decl::Class(cs, d, xs, fd, mem) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                        self.def_local(Type, x.0.0.0, x.0.0.1);
                     }
                     for c in cs {
                         self.constraint(c);
@@ -807,12 +905,12 @@ mod name_resolution {
             for c in cs.iter() {
                 self.constraint(c);
             }
-            self.resolveq(Type, d.0, d.1 .0);
+            self.resolveq(Type, d.0, d.1.0);
             for t in ts.iter() {
                 self.typ(t);
             }
             match d.0 {
-                Some(u) => u.0 .0,
+                Some(u) => u.0.0,
                 None => self.me,
             }
         }
@@ -867,7 +965,7 @@ mod name_resolution {
                 }
                 ast::Expr::Op(a, o, b) => {
                     self.expr(a);
-                    self.resolveq(Term, o.0, o.1 .0);
+                    self.resolveq(Term, o.0, o.1.0);
                     self.expr(b);
                 }
                 ast::Expr::Infix(a, o, b) => {
@@ -997,13 +1095,13 @@ mod name_resolution {
                 ast::Expr::Section(_) => (),
                 ast::Expr::Hole(_) => (),
                 ast::Expr::Ident(v) => {
-                    self.resolveq(Term, v.0, v.1 .0);
+                    self.resolveq(Term, v.0, v.1.0);
                 }
                 ast::Expr::Constructor(v) => {
-                    self.resolveq(Term, v.0, v.1 .0);
+                    self.resolveq(Term, v.0, v.1.0);
                 }
                 ast::Expr::Symbol(v) => {
-                    self.resolveq(Term, v.0, v.1 .0);
+                    self.resolveq(Term, v.0, v.1.0);
                 }
                 ast::Expr::Boolean(_) => (),
                 ast::Expr::Char(_) => (),
@@ -1033,10 +1131,10 @@ mod name_resolution {
             for l in ls {
                 match l {
                     ast::LetBinding::Sig(l, t) => {
-                        self.def_local(Term, l.0 .0, l.0 .1);
+                        self.def_local(Term, l.0.0, l.0.1);
                     }
                     ast::LetBinding::Name(l, bs, e) => {
-                        self.def_local(Term, l.0 .0, l.0 .1);
+                        self.def_local(Term, l.0.0, l.0.1);
                     }
                     ast::LetBinding::Pattern(b, e) => {
                         self.binder(b);
@@ -1076,19 +1174,19 @@ mod name_resolution {
                 }
                 ast::Binder::Op(a, o, b) => {
                     self.binder(a);
-                    self.resolveq(Term, o.0, o.1 .0);
+                    self.resolveq(Term, o.0, o.1.0);
                     self.binder(b);
                 }
                 ast::Binder::Wildcard(_) => (),
                 ast::Binder::Var(name) => {
-                    self.def_local(Term, name.0 .0, name.0 .1);
+                    self.def_local(Term, name.0.0, name.0.1);
                 }
                 ast::Binder::Named(name, b) => {
-                    self.def_local(Term, name.0 .0, name.0 .1);
+                    self.def_local(Term, name.0.0, name.0.1);
                     self.binder(b);
                 }
                 ast::Binder::Constructor(c) => {
-                    self.resolveq(Term, c.0, c.1 .0);
+                    self.resolveq(Term, c.0, c.1.0);
                 }
                 ast::Binder::Boolean(_) => (),
                 ast::Binder::Char(_) => (),
@@ -1118,7 +1216,7 @@ mod name_resolution {
         }
 
         fn constraint(&mut self, ast::Constraint(c, ts): &ast::Constraint) {
-            self.resolveq(Type, c.0, c.1 .0);
+            self.resolveq(Type, c.0, c.1.0);
             for t in ts.iter() {
                 self.typ(t);
             }
@@ -1131,10 +1229,10 @@ mod name_resolution {
                     self.resolve(Type, self.me, v.0);
                 }
                 ast::Typ::Constructor(v) => {
-                    self.resolveq(Type, v.0, v.1 .0);
+                    self.resolveq(Type, v.0, v.1.0);
                 }
                 ast::Typ::Symbol(v) => {
-                    self.resolveq(Type, v.0, v.1 .0);
+                    self.resolveq(Type, v.0, v.1.0);
                 }
                 ast::Typ::Str(_) => (),
                 ast::Typ::Int(_) => (),
@@ -1151,7 +1249,7 @@ mod name_resolution {
                 ast::Typ::Forall(xs, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
-                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                        self.def_local(Type, x.0.0.0, x.0.0.1);
                     }
                     self.typ(t);
                     self.pop(sf);
@@ -1166,7 +1264,7 @@ mod name_resolution {
                 }
                 ast::Typ::Op(a, o, b) => {
                     self.typ(a);
-                    self.resolveq(Type, o.0, o.1 .0);
+                    self.resolveq(Type, o.0, o.1.0);
                     self.typ(b);
                 }
                 ast::Typ::Constrained(c, t) => {
@@ -1190,10 +1288,11 @@ mod name_resolution {
             // NOTE[et]: This is very finicky code. :(
             // NOTE[et]: I don't want this to be done here - but it's way easier to place it here
             // than in some requirement for `N`.
-            let name = h.0 .0 .0;
+            let name = h.0.0.0;
             n.me = name;
-            n.exports.push(Export::Just(Name(Module, name, name, Visibility::Public)));
-            n.def_global(Module, h.0 .0, true);
+            n.exports
+                .push(Export::Just(Name(Module, name, name, Visibility::Public)));
+            n.def_global(Module, h.0.0, true);
             for i in h.2.iter() {
                 n.import(i);
             }
@@ -1211,7 +1310,7 @@ mod name_resolution {
                 n.export(ex);
             }
 
-            Some(h.0 .0 .0)
+            Some(h.0.0.0)
         } else {
             None
         }
@@ -1236,7 +1335,14 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
-    async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
+    async fn on_change(&self, params: TextDocumentItem<'_>) {
+        // TODO: We need to find all dependent modules and redo those after a module is done
+        // processing.
+        // TODO: We need to rerun a module through the name resolution
+        // TODO: How to handle two files with the same module name?
+        // TODO: Some fundamental types are built into the compiler - like `Int`
+        //
+        // error!("URI: {:?}", params.uri.to_string());
         let fi = match self.url_to_fi.entry(params.uri.to_string()) {
             dashmap::Entry::Occupied(v) => *v.get(),
             dashmap::Entry::Vacant(v) => {
@@ -1269,6 +1375,20 @@ impl Backend {
                 }
             }
             self.exports.insert(me, n.exports);
+
+            let new_imports: BTreeSet<_> = n.module_imports.keys().copied().collect();
+            if let Some(old_imports) = self.imports.insert(me, new_imports.clone()) {
+                for x in old_imports.difference(&new_imports) {
+                    if let Some(mut e) = self.imports.get_mut(x) {
+                        e.remove(&me);
+                    }
+                }
+                for x in new_imports.difference(&old_imports) {
+                    if let Some(mut e) = self.imports.get_mut(x) {
+                        e.insert(me);
+                    }
+                }
+            }
         };
 
         let diagnostics: std::vec::Vec<tower_lsp::lsp_types::Diagnostic> = [
@@ -1278,14 +1398,14 @@ impl Backend {
                     let message = match err {
                         parser::Serror::Info(_, s) => format!("Info: {}", s),
                         parser::Serror::Unexpected(_, t, s) => format!("Unexpected {:?}: {}", t, s),
-                        parser::Serror::NotSimpleTypeVarBinding(_) => {
-                            format!("Not a simple type-var binding")
-                        }
-                        parser::Serror::NotAConstraint(_) => format!("Not a constraint"),
-                        parser::Serror::NotAtEOF(_, _) => format!("Not at end of file"),
-                        parser::Serror::FailedToParseDecl(_, _, _, _) => {
-                            format!("Failed to parse this declaration")
-                        }
+                        parser::Serror::NotSimpleTypeVarBinding(_) => 
+                            "Not a simple type-var binding".to_string(),
+                        parser::Serror::NotAConstraint(_) =>
+                                "Not a constraint".to_string(),
+                        parser::Serror::NotAtEOF(_, _) =>
+                            "Not at end of file".to_string(),
+                        parser::Serror::FailedToParseDecl(_, _, _, _) => 
+                            "Failed to parse this declaration".to_string(),
                     };
                     let span = err.span();
 
@@ -1322,7 +1442,7 @@ impl Backend {
                         ),
                     ),
                     name_resolution::NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
-                        Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
+                        Range::new(pos_from_tup(m.0.1.lo()), pos_from_tup(m.0.1.hi())),
                         format!(
                             "{} does not have a constructors {}",
                             self.names
@@ -1330,7 +1450,7 @@ impl Backend {
                                 .map(|x| x.clone())
                                 .unwrap_or_else(|| "?".into()),
                             self.names
-                                .get(&m.0 .0)
+                                .get(&m.0.0)
                                 .map(|x| x.clone())
                                 .unwrap_or_else(|| "?".into())
                         ),
@@ -1345,6 +1465,64 @@ impl Backend {
                                 .unwrap_or_else(|| "?".into()),
                         ),
                     ),
+                    name_resolution::NRerrors::ConstructorsDoesntExistOrIsntExported(m, ast::S(u, s)) => 
+                        Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{}.{} does not exist or has no constructors exported",
+                            self.names
+                                .get(&m.0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            self.names
+                                .get(&u)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    ),
+
+                    name_resolution::NRerrors::NoConstructorOfThatName(m, a, b, s) => 
+                        Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{} is not an exported constructor for the type {}.{}",
+                            self.names
+                                .get(&b)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            self.names
+                                .get(&m.0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            self.names
+                                .get(&a)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    ),
+                    name_resolution::NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => {
+                        Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{:?} {}.{} is not exported or does not exist",
+                            scope,
+                            self.names
+                                .get(&m.0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            self.names
+                                .get(&ud)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    )
+                    }
+                    name_resolution::NRerrors::CannotImportSelf(s) => {
+                        Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        "A module cannot import itself".to_string(),
+                    )
+                    }
                 })
                 .collect::<Vec<_>>(),
         ]
@@ -1375,6 +1553,10 @@ async fn main() {
         ud_to_url: DashMap::new(),
         fi_to_ud: DashMap::new(),
         url_to_fi: DashMap::new(),
+
+        importers: DashMap::new(),
+        imports: DashMap::new(),
+
         modules: DashMap::new(),
         resolved: DashMap::new(),
         defines: DashMap::new(),
