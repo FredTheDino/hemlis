@@ -17,23 +17,25 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 #[derive(Debug)]
 struct Backend {
     client: Client,
+
     names: DashMap<ast::Ud, String>,
 
-    url_to_ud: DashMap<String, ast::Ud>,
-    ud_to_url: DashMap<ast::Ud, Url>,
     fi_to_url: DashMap<ast::Fi, Url>,
     fi_to_ud: DashMap<ast::Fi, ast::Ud>,
-    ud_to_fi: DashMap<ast::Ud, ast::Fi>,
     url_to_fi: DashMap<String, ast::Fi>,
     fi_to_version: DashMap<ast::Fi, Option<i32>>,
+    ud_to_fi: DashMap<ast::Ud, ast::Fi>,
 
     importers: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
     imports: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
 
+    previouse_global_usages: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
+    previouse_defines: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
+
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
-    defines: DashMap<Name, Pos>,
+    defines: DashMap<Name, ast::Span>,
     usages: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<ast::Span>>>,
 
     syntax_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
@@ -42,7 +44,7 @@ struct Backend {
 
 impl Backend {
     fn resolve_name(&self, url: &String, pos: Position) -> Option<Name> {
-        let m = *self.url_to_ud.get(url)?;
+        let m = self.fi_to_ud.get(&*self.url_to_fi.get(url)?)?;
         // error!("M: {:?}", m);
         // NOTE: might have an off-by-one
         let pos = (pos.line as usize, (pos.character + 1) as usize);
@@ -146,12 +148,12 @@ impl LanguageServer for Backend {
                 params.text_document_position_params.position,
             )?;
             let def_at = self.defines.get(&name)?;
-            let uri = self.ud_to_url.get(&name.1)?.clone();
+            let uri = self.fi_to_url.get(&def_at.fi()?)?.clone();
             Some(GotoDefinitionResponse::Scalar(Location {
                 uri,
                 range: Range {
-                    start: pos_from_tup(*def_at),
-                    end: pos_from_tup(*def_at),
+                    start: pos_from_tup(def_at.lo()),
+                    end: pos_from_tup(def_at.hi()),
                 },
             }))
         }();
@@ -170,8 +172,7 @@ impl LanguageServer for Backend {
                     .get(&name)?
                     .iter()
                     .filter_map(|s: &ast::Span| {
-                        let m = self.fi_to_ud.get(&s.fi()?)?;
-                        let url = self.ud_to_url.get(&m)?;
+                        let url = self.fi_to_url.get(&s.fi()?)?;
                         let lo = pos_from_tup(s.lo());
                         let hi = pos_from_tup(s.hi());
 
@@ -502,7 +503,7 @@ mod name_resolution {
         pub me: ast::Ud,
 
         global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
-        pub global_usages: Vec<(Name, ast::Span)>,
+        pub global_usages: BTreeSet<(Name, ast::Span)>,
 
         // NOTE: Maybe this should be a `&mut DashMap<Ud, BTreeMap<Name, BTreeSet<ast::Span>>>` instead
         pub usages: BTreeMap<Name, BTreeSet<ast::Span>>,
@@ -517,7 +518,7 @@ mod name_resolution {
 
         imports: BTreeMap<(Scope, ast::Ud), Name>,
 
-        pub defines: BTreeMap<Name, Pos>,
+        pub defines: BTreeMap<Name, ast::Span>,
         locals: Vec<(Scope, ast::Ud, Name)>,
     }
 
@@ -528,7 +529,7 @@ mod name_resolution {
                 me: ast::Ud(0),
                 usages: BTreeMap::new(),
                 global_exports,
-                global_usages: Vec::new(),
+                global_usages: BTreeSet::new(),
 
                 errors: Vec::new(),
                 resolved: BTreeMap::new(),
@@ -552,12 +553,12 @@ mod name_resolution {
         fn def(&mut self, s: ast::Span, name: Name, ignore_error: bool) {
             match self.defines.entry(name) {
                 std::collections::btree_map::Entry::Vacant(v) => {
-                    v.insert(s.lo());
+                    v.insert(s);
                 }
                 std::collections::btree_map::Entry::Occupied(v) => {
                     if !ignore_error {
                         self.errors
-                            .push(NRerrors::MultipleDefinitions(*v.key(), *v.get(), s.lo()));
+                            .push(NRerrors::MultipleDefinitions(*v.key(), v.get().lo(), s.lo()));
                     }
                 }
             }
@@ -607,12 +608,9 @@ mod name_resolution {
             for name in unique_matches.iter() {
                 self.resolved.insert((s.lo(), s.hi()), *name);
                 if name.1 == self.me {
-                    self.usages
-                        .entry(*name)
-                        .or_default()
-                        .insert(s);
+                    self.usages.entry(*name).or_default().insert(s);
                 } else {
-                    self.global_usages.push((*name, s));
+                    self.global_usages.insert((*name, s));
                 }
             }
 
@@ -721,7 +719,7 @@ mod name_resolution {
         fn import_resolve(&mut self, h: ast::MName) {
             // We can't use the normal resolve - because?
             let name = Name(Module, h.0 .0, h.0 .0, Visibility::Public);
-            self.global_usages.push((name, h.0 .1));
+            self.global_usages.insert((name, h.0 .1));
             self.resolved.insert((h.0 .1.lo(), h.0 .1.hi()), name);
         }
 
@@ -1496,27 +1494,73 @@ impl Backend {
         );
 
         self.resolved.insert(me, n.resolved);
-        // TODO: This needs an update
-        self.usages.insert(me, n.usages);
-        for (name, pos) in n.defines.iter() {
-            self.defines.insert(*name, *pos);
+
+        let mut us = self.usages.entry(me).or_insert(BTreeMap::new());
+        for (k, v) in us.iter_mut() {
+            v.retain(|x| x.fi() != Some(fi));
+            v.append(&mut n.usages.get(k).cloned().unwrap_or_default());
         }
-        for (name, pos) in n.global_usages.into_iter() {
-            if let Some(mut e) = self.usages.get_mut(&name.1) {
-                if let Some(e) = e.get_mut(&name) {
-                    e.insert(pos);
+        for (k, v) in n.usages.into_iter() {
+            if us.contains_key(&k) {
+                continue;
+            }
+            assert!(us.insert(k, v).is_none());
+        }
+
+        {
+            let new = n.defines.into_iter().collect::<BTreeSet<_>>();
+            let old = self
+                .previouse_defines
+                .insert(fi, new.clone())
+                .unwrap_or_default();
+
+            // Technically, we only need to remove the names which are not just deleted and not
+            // moved. But this is easier to reason about.
+            for (name, _) in old.difference(&new) {
+                self.defines.remove(name);
+            }
+            for (name, pos) in new.difference(&old) {
+                self.defines.insert(*name, *pos);
+            }
+        }
+
+        {
+            let new = n.global_usages;
+            let old = self
+                .previouse_global_usages
+                .insert(fi, new.clone())
+                .unwrap_or_default();
+            for (name, pos) in old.difference(&new) {
+                if let Some(mut e) = self.usages.get_mut(&name.1) {
+                    if let Some(e) = e.get_mut(name) {
+                        e.remove(pos);
+                    }
+                }
+            }
+
+            for (name, pos) in new.difference(&old) {
+                if let Some(mut e) = self.usages.get_mut(&name.1) {
+                    if let Some(e) = e.get_mut(name) {
+                        e.insert(*pos);
+                    }
                 }
             }
         }
-        let new_hash = hash_exports(&n.exports);
-        let exports_changed = if let Some(old) = self.exports.insert(me, n.exports) {
-            new_hash != hash_exports(&old)
-        } else {
-            true
+
+        let exports_changed = {
+            let new_hash = hash_exports(&n.exports);
+            if let Some(old) = self.exports.insert(me, n.exports) {
+                new_hash != hash_exports(&old)
+            } else {
+                true
+            }
         };
 
         let new_imports: BTreeSet<_> = n.module_imports.keys().copied().collect();
-        let old_imports = self.imports.insert(me, new_imports.clone()).unwrap_or_else(BTreeSet::new);
+        let old_imports = self
+            .imports
+            .insert(me, new_imports.clone())
+            .unwrap_or_else(BTreeSet::new);
         for x in old_imports.difference(&new_imports) {
             let mut e = self.importers.entry(*x).or_insert(BTreeSet::new());
             e.remove(&me);
@@ -1531,7 +1575,7 @@ impl Backend {
     async fn resolve_cascading(&self, me: ast::Ud) {
         // TODO: This can be way way smarter, currently it only runs on changed exports.
         // Some exteions include: Lineage tracking - saying letting me know what parts actually
-        // changed. 
+        // changed.
         let name = Name(Scope::Module, me, me, Visibility::Public);
         let mut checked = BTreeSet::new();
         let mut to_check: Vec<_> = self
@@ -1648,8 +1692,6 @@ impl Backend {
             self.modules.insert(me, m);
             self.fi_to_ud.insert(fi, me);
             self.ud_to_fi.insert(me, fi);
-            self.url_to_ud.insert(params.uri.to_string(), me);
-            self.ud_to_url.insert(me, params.uri.clone());
 
             self.show_errors(fi).await;
             if exports_changed {
@@ -1680,22 +1722,27 @@ async fn main() {
 
     let (service, socket) = LspService::build(|client| Backend {
         client,
+
         names: DashMap::new(),
-        exports: DashMap::new(),
-        url_to_ud: DashMap::new(),
-        ud_to_url: DashMap::new(),
+
+        fi_to_url: DashMap::new(),
         fi_to_ud: DashMap::new(),
+        ud_to_fi: DashMap::new(),
         url_to_fi: DashMap::new(),
+        fi_to_version: DashMap::new(),
+
         importers: DashMap::new(),
         imports: DashMap::new(),
+
+        previouse_defines: DashMap::new(),
+        previouse_global_usages: DashMap::new(),
+
+        exports: DashMap::new(),
         modules: DashMap::new(),
         resolved: DashMap::new(),
         defines: DashMap::new(),
         usages: DashMap::new(),
 
-        fi_to_url: DashMap::new(),
-        ud_to_fi: DashMap::new(),
-        fi_to_version: DashMap::new(),
         syntax_errors: DashMap::new(),
         name_resolution_errors: DashMap::new(),
     })
