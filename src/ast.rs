@@ -303,11 +303,11 @@ pub enum Import {
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ImportDecl {
-    As(MName, MName),
-    Multiple(MName, Vec<Import>),
-    Hiding(MName, Vec<Import>),
-    Bulk(MName),
+pub struct ImportDecl {
+    pub from: MName,
+    pub hiding: Vec<Import>,
+    pub names: Vec<Import>,
+    pub to: Option<MName>,
 }
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]

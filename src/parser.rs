@@ -461,34 +461,35 @@ fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl> {
 
 fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
     kw_import(p)?;
-    let name = mname(p)?;
-    Some(match p.peekt() {
-        Some(T::Lower("as")) => {
-            kw_as(p)?;
-            let as_name = mname(p)?;
-            ImportDecl::As(name, as_name)
-        }
-        Some(T::Lower("hiding")) => {
-            kw_hiding(p)?;
-            kw_lp(p)?;
-            let imports = sep_until(
-                p,
-                "hiding imports",
-                kw_comma,
-                import,
-                next_is!(T::RightParen),
-            );
-            kw_rp(p)?;
-            ImportDecl::Hiding(name, imports)
-        }
-        Some(T::LeftParen) => {
-            kw_lp(p)?;
-            let imports = sep_until(p, "imports", kw_comma, import, next_is!(T::RightParen));
-            kw_rp(p)?;
-            ImportDecl::Multiple(name, imports)
-        }
-        _ => ImportDecl::Bulk(name),
-    })
+    let from = mname(p)?;
+    // NOTE: import A hiding (a) (a) - is a syntax error
+    let (hiding, names) = if next_is!(T::Lower("hiding"))(p) {
+        kw_hiding(p)?;
+        kw_lp(p)?;
+        let hiding = sep_until(
+            p,
+            "hiding imports",
+            kw_comma,
+            import,
+            next_is!(T::RightParen),
+        );
+        kw_rp(p)?;
+        (hiding, Vec::new())
+    } else if next_is!(T::LeftParen)(p) {
+        kw_lp(p)?;
+        let names = sep_until(p, "imports", kw_comma, import, next_is!(T::RightParen));
+        kw_rp(p)?;
+        (Vec::new(), names)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let to = if next_is!(T::Lower("as"))(p) {
+        kw_as(p)?;
+        Some(mname(p)?)
+    } else {
+        None
+    };
+    Some(ImportDecl { from, hiding, names, to })
 }
 
 fn import<'t>(p: &mut P<'t>) -> Option<Import> {
