@@ -332,10 +332,10 @@ pub enum Decl {
 
     ClassKind(ProperName, Typ),
     Class(
-        Vec<Constraint>,
+        Option<Vec<Constraint>>,
         ProperName,
         Vec<TypVarBinding>,
-        Vec<FunDep>,
+        Option<Vec<FunDep>>,
         Vec<ClassMember>,
     ),
 
@@ -376,7 +376,7 @@ pub enum InstBinding {
 
 #[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InstHead(
-    pub Vec<Constraint>,
+    pub Option<Vec<Constraint>>,
     pub QProperName,
     pub Vec<Typ>,
 );
@@ -412,6 +412,7 @@ pub enum Typ {
 
 impl Typ {
     pub fn cast_to_constraint(self) -> Option<Constraint> {
+        println!("{:?}", self);
         fn inner(a: Typ, mut args: Vec<Typ>) -> Option<Constraint> {
             match a {
                 Typ::Symbol(_)

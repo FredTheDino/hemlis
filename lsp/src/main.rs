@@ -96,7 +96,9 @@ impl LanguageServer for Backend {
         })
     }
     async fn initialized(&self, _: InitializedParams) {
-        debug!("initialized!");
+        error!("Started loading workspace!");
+        self.load_workspace().await;
+        error!("Finished loading workspace!");
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -161,11 +163,6 @@ impl LanguageServer for Backend {
                 &params.text_document_position.text_document.uri,
                 params.text_document_position.position,
             )?;
-            for x in self.usages.iter() {
-                for (k, v) in x.iter() {
-                    error!("{:?}: {:?}", self.names.get(&k.2)?.value(), v.len());
-                }
-            }
             Some(
                 self.usages
                     .get(&name.1)?
@@ -356,14 +353,13 @@ fn name_is(Name(ss, _, uu, _): Name, s: Scope, u: ast::Ud) -> bool {
     ss == s && uu == u
 }
 
-#[allow(unused)]
 mod name_resolution {
     use super::*;
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::Scope::*;
 
-    use purring_lib::{ast, lexer, parser};
+    use purring_lib::ast;
 
     // Deliberately not `Copy` so you always use it right
     #[derive(Debug)]
@@ -583,12 +579,6 @@ mod name_resolution {
             self.def(s, name, false)
         }
 
-        fn def_import(&mut self, scope: Scope, m: ast::Ud, s: ast::S<ast::Ud>) {
-            let name = Name(scope, m, s.0, Visibility::Private(s.1.lo()));
-
-            self.def(s.1, name, false)
-        }
-
         fn resolve(&mut self, scope: Scope, m: ast::Ud, n: ast::S<ast::Ud>) {
             let s = n.1;
             let n = n.0;
@@ -753,7 +743,6 @@ mod name_resolution {
             if let Some(b) = to {
                 self.def_global(Namespace, b.0, false);
             }
-            let b = to.unwrap_or(*from);
             if !self.global_exports.contains_key(&from.0 .0) {
                 return;
             }
@@ -838,7 +827,7 @@ mod name_resolution {
                                 .push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1))
                         }
                         // NOTE[et]: This is bug-compatible with purs
-                        if matches!(x, ast::Import::TypDat(x, ast::DataMember::Some(_))) {
+                        if matches!(x, ast::Import::TypDat(_, ast::DataMember::Some(_))) {
                             return None;
                         }
                         Some((s, u.0))
@@ -893,6 +882,7 @@ mod name_resolution {
                     q
                 }
                 ast::Decl::Data(d, _, cs) => {
+                    // TODO: Type var bindings
                     let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     let mut cons = BTreeSet::new();
@@ -909,7 +899,7 @@ mod name_resolution {
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
-                ast::Decl::Type(d, xs, t) => {
+                ast::Decl::Type(d, _, _) => {
                     let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     // Bug compatible with the Purs-compiler
@@ -924,7 +914,7 @@ mod name_resolution {
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
-                ast::Decl::NewType(d, xs, c, t) => {
+                ast::Decl::NewType(d, _, c, _) => {
                     let q = Some(d.0 .0);
                     self.def_global(Type, d.0, prev == q);
                     self.def_global(Term, c.0, false);
@@ -939,11 +929,12 @@ mod name_resolution {
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
-                ast::Decl::Class(cs, d, xs, fd, mem) => {
+                ast::Decl::Class(cs, d, vars, deps, mem) => {
                     let q = Some(d.0 .0);
+
                     self.def_global(Type, d.0, prev == q);
                     for ast::ClassMember(name, _) in mem.iter() {
-                        self.def_global(Term, d.0, false);
+                        self.def_global(Term, name.0, false);
                     }
                     q
                 }
@@ -983,7 +974,7 @@ mod name_resolution {
             // want a demo ASAP and it has little value.
             match d {
                 ast::Decl::DataKind(_, _) => (),
-                ast::Decl::Data(d, xs, cs) => {
+                ast::Decl::Data(_, xs, cs) => {
                     let sf = self.push();
                     for x in xs.iter() {
                         self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
@@ -996,7 +987,7 @@ mod name_resolution {
                     self.pop(sf);
                 }
                 ast::Decl::TypeKind(_, _) => (),
-                ast::Decl::Type(d, xs, t) => {
+                ast::Decl::Type(_, xs, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
                         self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
@@ -1005,7 +996,7 @@ mod name_resolution {
                     self.pop(sf);
                 }
                 ast::Decl::NewTypeKind(_, _) => (),
-                ast::Decl::NewType(d, xs, c, t) => {
+                ast::Decl::NewType(_, xs, _, t) => {
                     let sf = self.push();
                     for x in xs.iter() {
                         self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
@@ -1014,15 +1005,19 @@ mod name_resolution {
                     self.pop(sf);
                 }
                 ast::Decl::ClassKind(_, _) => (),
-                ast::Decl::Class(cs, d, xs, fd, mem) => {
+                ast::Decl::Class(cs, _, xs, _, mem) => {
+                    // TODO: Fundeps should also be resolved here
                     let sf = self.push();
                     for x in xs.iter() {
                         self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
-                    for c in cs {
+                    for c in cs.iter().flatten() {
                         self.constraint(c);
                     }
                     self.pop(sf);
+                    for ast::ClassMember(_, typ) in mem.iter() {
+                        self.typ(typ);
+                    }
                 }
                 ast::Decl::Instance(_, head, bindings) => {
                     let u = self.inst_head(head);
@@ -1033,7 +1028,7 @@ mod name_resolution {
                 ast::Decl::Derive(_, head) => {
                     let _u = self.inst_head(head);
                 }
-                ast::Decl::Foreign(d, t) => {
+                ast::Decl::Foreign(_, t) => {
                     self.typ(t);
                 }
                 ast::Decl::ForeignData(_, _) => {}
@@ -1059,7 +1054,7 @@ mod name_resolution {
         }
 
         fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> ast::Ud {
-            for c in cs.iter() {
+            for c in cs.iter().flatten() {
                 self.constraint(c);
             }
             self.resolveq(Type, d.0, d.1 .0);
@@ -1079,7 +1074,7 @@ mod name_resolution {
                     self.typ(t);
                 }
                 ast::InstBinding::Def(l, binders, e) => {
-                    self.resolve(Type, u, l.0);
+                    self.resolve(Term, u, l.0);
                     let sf = self.push();
                     for b in binders.iter() {
                         self.binder(b);
@@ -1181,18 +1176,15 @@ mod name_resolution {
                             ast::DoStmt::Stmt(_, e) => {
                                 self.expr(e);
                             }
-                            ast::DoStmt::Stmt(_, e) => {
-                                self.expr(e);
-                            }
-                            ast::DoStmt::Let(ls) => {}
+                            ast::DoStmt::Let(_) => {}
                         }
                     }
                     for s in stmts.iter() {
                         match s {
-                            ast::DoStmt::Stmt(Some(b), e) => {
+                            ast::DoStmt::Stmt(Some(b), _) => {
                                 self.binder(b);
                             }
-                            ast::DoStmt::Stmt(None, e) => {}
+                            ast::DoStmt::Stmt(None, _) => {}
                             ast::DoStmt::Let(ls) => {
                                 self.let_binders(ls);
                             }
@@ -1292,23 +1284,23 @@ mod name_resolution {
         fn let_binders(&mut self, ls: &Vec<ast::LetBinding>) {
             for l in ls {
                 match l {
-                    ast::LetBinding::Sig(l, t) => {
+                    ast::LetBinding::Sig(l, _) => {
                         self.def_local(Term, l.0 .0, l.0 .1);
                     }
-                    ast::LetBinding::Name(l, bs, e) => {
+                    ast::LetBinding::Name(l, _, _) => {
                         self.def_local(Term, l.0 .0, l.0 .1);
                     }
-                    ast::LetBinding::Pattern(b, e) => {
+                    ast::LetBinding::Pattern(b, _) => {
                         self.binder(b);
                     }
                 }
             }
             for l in ls {
                 match l {
-                    ast::LetBinding::Sig(l, t) => {
+                    ast::LetBinding::Sig(_, t) => {
                         self.typ(t);
                     }
-                    ast::LetBinding::Name(l, bs, e) => {
+                    ast::LetBinding::Name(_, bs, e) => {
                         let sf = self.push();
                         for b in bs.iter() {
                             self.binder(b);
@@ -1474,7 +1466,7 @@ mod name_resolution {
                 }
             } else {
                 let cs: BTreeSet<_> = n.constructors.values().flatten().collect();
-                for name@Name(s, m, _, x) in n.defines.keys() {
+                for name@Name(s, m, _, _) in n.defines.keys() {
                     if *m != n.me { continue; }
                     if !matches!(s, Scope::Term | Scope::Type) { continue; }
                     if cs.contains(name) { continue; }
@@ -1517,23 +1509,38 @@ impl Backend {
         let folders = self.client.workspace_folders().await.ok()??;
         for folder in folders {
             use glob::glob;
-            let mut found = glob(&format!("{}/**/*.purs", folder.uri.to_string().strip_prefix("file://").unwrap())).ok()?.collect::<Vec<_>>();
-            found.par_iter().for_each(|path| {
-                let path = path.as_ref().unwrap();
-                let source = std::fs::read_to_string(path.clone());
-                if source.is_err() { return }
-                let source = source.unwrap();
-                let url = Url::parse(&format!("file://{}", &path.clone().into_os_string().into_string().unwrap())).unwrap();
+            let deps = glob(&format!("{}/lib/**/*.purs", folder.uri.to_string().strip_prefix("file://")?)).ok()?.filter_map(|path| {
+                error!("Found: {:?}", path);
+                let path = path.as_ref().ok()?;
+                let source = std::fs::read_to_string(path.clone()).ok()?;
+                let url = Url::parse(&format!("file://{}", &path.clone().into_os_string().into_string().ok()?)).ok()?;
                 let (m, fi) = self.parse(url, None, &source);
+                let m = m?;
+                let (me, imports) = {
+                    let header = m.0.clone()?;
+                    let me = header.0.0.0;
+                    (me, header.2.iter().map(|x| x.from.0.0).collect::<BTreeSet<_>>())
+                };
+                self.modules.insert(me, m);
+                self.fi_to_ud.insert(fi, me);
+                self.ud_to_fi.insert(me, fi);
+                error!("Parsed: {:?}", path);
+                Some((me, fi, imports))
+            }).collect::<Vec<_>>();
 
-                if let Some(m) = m {
-                    if let Some(me) = m.0.as_ref().map(|x| x.0.0.0) {
-                        self.modules.insert(me, m);
-                        self.fi_to_ud.insert(fi, me);
-                        self.ud_to_fi.insert(me, fi);
-                    }
+            let mut done = BTreeSet::new();
+            loop {
+                let todo: BTreeSet<_> = deps.par_iter().filter(|(m, _, deps)| (!done.contains(m)) && deps.is_subset(&done)).collect();
+                if todo.is_empty() {
+                    break;
                 }
-            });
+                todo.par_iter().for_each(|(m, fi, _)| { 
+                    if let Some(m) = self.modules.get(m) {
+                        self.resolve_module(&m, *fi);
+                    }
+                });
+                done.append(&mut todo.into_iter().map(|(m, _, _)| *m).collect());
+            }
         }
         Some(())
     }
@@ -1745,9 +1752,9 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
         error!("LOADED: {}", self.modules.len());
-        if self.modules.len() < 5 {
-            self.load_workspace().await;
-        }
+        //if self.modules.len() < 5 {
+        //    self.load_workspace().await;
+        //}
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
@@ -1841,7 +1848,6 @@ async fn main() {
     }})
     .finish();
 
-    service.inner().load_workspace().await;
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }

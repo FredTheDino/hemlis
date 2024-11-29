@@ -125,7 +125,7 @@ kw!(kw_minus, T::Op("-"));
 kw!(kw_backslash, T::Slash);
 
 kw!(kw_module, T::Lower("module"));
-kw!(kw_where, T::Lower("where"));
+kw!(kw_where, T::Where);
 kw!(kw_class, T::Lower("class"));
 kw!(kw_as, T::Lower("as"));
 kw!(kw_import, T::Lower("import"));
@@ -200,23 +200,35 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module> {
         let i = p.i;
         let e = p.errors.len();
 
-        if let Some(out) = decl(p) {
+        let failed = if let Some(out) = decl(p) {
             ds.push(out);
-        }
+            false
+        } else {
+            true
+        };
         p.recover();
 
+        let before_skip = p.i;
         if !p.skip_until(|x| matches!(x, T::LayTop)) {
             break;
         }
+        let after_skip = p.i;
 
-        if p.errors.len() != e {
-            let ii = p.i;
+        if before_skip != after_skip {
+            let end = p.span();
+            p.raise(Serror::FailedToParseDecl(
+                start.merge(end),
+                p.errors.len() - e,
+                before_skip,
+                after_skip,
+            ));
+        } else if p.errors.len() != e || failed {
             let end = p.span();
             p.raise(Serror::FailedToParseDecl(
                 start.merge(end),
                 p.errors.len() - e,
                 i,
-                p.i,
+                after_skip,
             ));
         }
     }
@@ -630,6 +642,10 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp> {
             kw_right_imply(p)?;
             Some(TypOp::FatArr)
         }
+        // NOt a type op
+        (Some(T::Op("<=")), _) => {
+            None
+        }
         (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(TypOp::Op(qop(p)?)),
         _ => {
             typ_atom(&mut p.fork(), None)?;
@@ -837,7 +853,7 @@ fn expr<'t>(p: &mut P<'t>) -> Option<Expr> {
 
 fn expr_where<'t>(p: &mut P<'t>) -> Option<Expr> {
     let e = expr(p)?;
-    if matches!(p.peekt(), Some(T::Lower("where"))) {
+    if matches!(p.peekt(), Some(T::Where)) {
         let start = p.span();
         kw_where(p)?;
         let b = sep_until_(p, "where-bindings", let_binding)?;
@@ -882,7 +898,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr> {
             kw_minus(p)?;
             Some(Expr::Negate(b!(expr_atom(p, err)?)))
         }
-        (Some(T::Lower("where")), _) => return None,
+        (Some(T::Where), _) => return None,
         (Some(T::Lower("true" | "false")), _) => Some(Expr::Boolean(boolean(p)?)),
         (Some(T::If), _) => {
             let start = p.span();
@@ -1395,10 +1411,10 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl> {
         }
         (Some(T::Lower("class")), _, _) => {
             kw_class(p)?;
-            let cs = constraints(p)?;
+            let cs = constraints(p);
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
-            let deps = fundeps(p)?;
+            let deps = fundeps(p);
             let mem = members(p)?;
             Some(Decl::Class(cs, name, vars, deps, mem))
         }
@@ -1413,7 +1429,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl> {
             kw_instance(p)?;
             let head = instance_head(p)?;
 
-            let bs = if next_is!(T::Lower("where"))(p) {
+            let bs = if next_is!(T::Where)(p) {
                 kw_where(p)?;
                 // NOTE[et]: This might need to be more graciouse
                 sep_until_(p, "inst_bindings", inst_binding)?
@@ -1528,8 +1544,7 @@ fn role(p: &mut P<'_>) -> Option<S<Role>> {
 }
 
 fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead> {
-    let cs = constraints(p)?;
-    kw_left_imply(p)?;
+    let cs = constraints(p);
     let n = qproper(p)?;
     let bs = many(p, "instance head", |p| typ_atom(p, None));
     Some(InstHead(cs, n, bs))
@@ -1609,7 +1624,8 @@ fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep> {
 }
 
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember>> {
-    if matches!(p.peekt(), Some(T::Lower("where"))) {
+    println!("{:?}", p.peek2t());
+    if matches!(p.peekt(), Some(T::Where)) {
         kw_where(p)?;
         sep_until_(p, "members", member)
         // NOTE[et]: This might need to be more graciouse

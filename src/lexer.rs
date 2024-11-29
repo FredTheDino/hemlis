@@ -172,6 +172,8 @@ pub enum Token<'t> {
     #[token("instance")]
     Instance,
 
+    #[token("where")]
+    Where,
     #[token("if")]
     If,
     #[token("then")]
@@ -542,7 +544,7 @@ fn process(c: &mut C<'_>) {
                 c.popIf(|x| matches!(x, LytProperty));
             }
         }
-        Lower("where") => match c.head() {
+        Where => match c.head() {
             (_, LytTopDeclHead) => {
                 c.popStack();
                 c.appSrc();

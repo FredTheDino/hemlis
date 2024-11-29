@@ -71,7 +71,7 @@ fn parse_modules() {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
 
-                if !p.errors.is_empty() {
+                if true {
                     let mut buf = BufWriter::new(Vec::new());
                     out.show(0, &mut buf).unwrap();
                     let inner = String::from_utf8(
