@@ -438,6 +438,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "hemlis"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.1.0",
+ "goldentests",
+ "hemlis_macros",
+ "insta",
+ "logos",
+ "rayon",
+]
+
+[[package]]
+name = "hemlis-language-server"
+version = "0.1.0"
+dependencies = [
+ "chumsky",
+ "dashmap 6.1.0",
+ "env_logger",
+ "glob",
+ "hemlis",
+ "log",
+ "oxc_index",
+ "rayon",
+ "ropey",
+ "rust-lapper",
+ "serde",
+ "serde_json",
+ "sungod",
+ "tokio",
+ "tower-lsp",
+]
+
+[[package]]
+name = "hemlis_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -838,48 +880,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "200b9ff220857e53e184257720a14553b2f4aa02577d2ed9842d45d4b9654810"
 dependencies = [
  "cc",
-]
-
-[[package]]
-name = "purring"
-version = "0.1.0"
-dependencies = [
- "dashmap 6.1.0",
- "goldentests",
- "insta",
- "logos",
- "purring_macros",
- "rayon",
-]
-
-[[package]]
-name = "purring-language-server"
-version = "0.1.0"
-dependencies = [
- "chumsky",
- "dashmap 6.1.0",
- "env_logger",
- "glob",
- "log",
- "oxc_index",
- "purring",
- "rayon",
- "ropey",
- "rust-lapper",
- "serde",
- "serde_json",
- "sungod",
- "tokio",
- "tower-lsp",
-]
-
-[[package]]
-name = "purring_macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]

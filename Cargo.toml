@@ -1,6 +1,6 @@
 workspace = { members = ["lsp"] }
 [package]
-name = "purring"
+name = "hemlis"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,17 +8,17 @@ edition = "2021"
 logos = { version = "0.14.2", features = [] }
 rayon = "1.10.0"
 dashmap = "6.1.0"
-purring_macros = { path = "purring_macros/" }
+hemlis_macros = { path = "hemlis_macros/" }
 
 [dev-dependencies]
 insta = "1.40.0"
 goldentests = "1.1"
 
 [[bin]]
-name = "purring"
+name = "hemlis"
 path = "src/main.rs"
 
 [lib]
-name = "purring_lib"
+name = "hemlis_lib"
 path = "src/main.rs"
 

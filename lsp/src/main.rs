@@ -7,7 +7,7 @@ use std::ops::Bound;
 
 use dashmap::DashMap;
 use log::{debug, error};
-use purring_lib::*;
+use hemlis_lib::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
@@ -359,7 +359,7 @@ mod name_resolution {
 
     use super::Scope::*;
 
-    use purring_lib::ast;
+    use hemlis_lib::ast;
 
     // Deliberately not `Copy` so you always use it right
     #[derive(Debug)]

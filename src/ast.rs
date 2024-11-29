@@ -225,63 +225,63 @@ where
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct S<T>(pub T, pub Span);
 
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QProperName(pub Option<Qual>, pub ProperName);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QName(pub Option<Qual>, pub Name);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QSymbol(pub Option<Qual>, pub Symbol);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct QOp(pub Option<Qual>, pub Op);
 
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Qual(pub S<Ud>);
 
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ProperName(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Name(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Hole(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Symbol(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Op(pub S<Ud>);
 
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Str(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Int(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Char(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Number(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct HexInt(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Boolean(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Label(pub S<Ud>);
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MName(pub S<Ud>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Header(
     pub MName,
     pub Option<Vec<Export>>,
     pub Vec<ImportDecl>,
 );
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Module(pub Option<Header>, pub Vec<Decl>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DataMember {
     All,
     Some(Vec<ProperName>),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Export {
     Value(Name),
     Symbol(Symbol),
@@ -292,7 +292,7 @@ pub enum Export {
     Module(MName),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Import {
     Value(Name),
     Symbol(Symbol),
@@ -302,7 +302,7 @@ pub enum Import {
     Class(ProperName),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImportDecl {
     pub from: MName,
     pub hiding: Vec<Import>,
@@ -310,7 +310,7 @@ pub struct ImportDecl {
     pub to: Option<MName>,
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Decl {
     DataKind(ProperName, Typ),
     Data(
@@ -354,43 +354,43 @@ pub enum Decl {
     Def(Name, Vec<Binder>, GuardedExpr),
 }
 
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FixitySide {
     L,
     R,
     C,
 }
 
-#[derive(purring_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Role {
     Nominal,
     Representational,
     Phantom,
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum InstBinding {
     Sig(Name, Typ),
     Def(Name, Vec<Binder>, GuardedExpr),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct InstHead(
     pub Option<Vec<Constraint>>,
     pub QProperName,
     pub Vec<Typ>,
 );
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ClassMember(pub Name, pub Typ);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Constraint(pub QProperName, pub Vec<Typ>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FunDep(pub Vec<Name>, pub Vec<Name>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Typ {
     Wildcard(Span),
     Var(Name),
@@ -440,13 +440,13 @@ impl Typ {
     }
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypVarBinding(pub Name, pub Option<Typ>, pub bool);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Row(pub Vec<(Label, Typ)>, pub Option<Box<Typ>>);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Binder {
     Typed(Box<Binder>, Typ),
 
@@ -484,26 +484,26 @@ impl Binder {
     }
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum GuardedExpr {
     Unconditional(Expr),
     Guarded(Vec<(Vec<Guard>, Expr)>),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Guard {
     Expr(Expr),
     Binder(Binder, Expr),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LetBinding {
     Sig(Name, Typ),
     Name(Name, Vec<Binder>, GuardedExpr),
     Pattern(Binder, Expr),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expr {
     Typed(Box<Expr>, Typ),
     Op(Box<Expr>, QOp, Box<Expr>),
@@ -538,28 +538,28 @@ pub enum Expr {
     Paren(Box<Expr>),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RecordLabelExpr {
     Pun(Name),
     Field(Label, Expr),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RecordLabelBinder {
     Pun(Name),
     Field(Label, Binder),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RecordUpdate {
     Leaf(Label, Expr),
     Branch(Label, Vec<RecordUpdate>),
 }
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CaseBranch(pub Vec<Binder>, pub GuardedExpr);
 
-#[derive(purring_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DoStmt {
     Stmt(Option<Binder>, Expr),
     Let(Vec<LetBinding>),
