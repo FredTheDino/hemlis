@@ -1,4 +1,4 @@
-# Purring
+# Hemlis
 A faster frontend for PureScript.
 
 Focuses:
