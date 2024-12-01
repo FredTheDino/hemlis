@@ -47,11 +47,10 @@ fn mname(p: &mut P<'_>) -> Option<MName> {
     match p.peek2t() {
         (Some(T::Qual(q)), Some(T::Upper(u))) => {
             let ud = p.intern(&format!("{}{}", q, u));
-            let a = p.span();
+            let s = p.span();
             p.skip();
-            let b = p.span();
+            let s = s.merge(p.span());
             p.skip();
-            let s = a.merge(b);
             Some(MName(S(ud, s)))
         }
         (Some(T::Upper(u)), _) => {

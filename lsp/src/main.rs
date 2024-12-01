@@ -1,12 +1,10 @@
 #![feature(btree_cursors)]
 
-use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
 
 use dashmap::DashMap;
-use log::{debug, error};
 use hemlis_lib::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -77,7 +75,7 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: None,
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec!["dummy.do_something".to_string()],
+                    commands: vec!["load_workspace".to_string(), "random_command".to_string()],
                     work_done_progress_options: Default::default(),
                 }),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -95,10 +93,11 @@ impl LanguageServer for Backend {
             },
         })
     }
+
     async fn initialized(&self, _: InitializedParams) {
-        error!("Started loading workspace!");
+        self.client.log_message(MessageType::ERROR, "Scanning...".to_string()).await;
         self.load_workspace().await;
-        error!("Finished loading workspace!");
+        self.client.log_message(MessageType::ERROR, "Done scanning!".to_string()).await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -106,7 +105,6 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        debug!("file opened");
         self.on_change(TextDocumentItem {
             uri: params.text_document.uri,
             text: &params.text_document.text,
@@ -125,11 +123,9 @@ impl LanguageServer for Backend {
     }
 
     async fn did_save(&self, _: DidSaveTextDocumentParams) {
-        debug!("file saved!");
     }
 
     async fn did_close(&self, _: DidCloseTextDocumentParams) {
-        debug!("file closed!");
     }
 
     async fn goto_definition(
@@ -138,10 +134,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let definition = || -> Option<GotoDefinitionResponse> {
             let name = self.resolve_name(
-                &params
-                    .text_document_position_params
-                    .text_document
-                    .uri,
+                &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
             )?;
             let def_at = self.defines.get(&name)?;
@@ -265,27 +258,32 @@ impl LanguageServer for Backend {
     */
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
-        debug!("configuration changed!");
     }
 
     async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
-        debug!("workspace folders changed!");
     }
 
     async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
-        debug!("watched files have changed!");
+        self.client.log_message(MessageType::ERROR, "Does not handle changed watched files".to_string()).await;
     }
 
-    async fn execute_command(&self, _: ExecuteCommandParams) -> Result<Option<Value>> {
-        debug!("command executed!");
-
-        // Rename? Extract functions? Add import? Add export?
-        match self.client.apply_edit(WorkspaceEdit::default()).await {
-            Ok(res) if res.applied => self.client.log_message(MessageType::INFO, "applied").await,
-            Ok(_) => self.client.log_message(MessageType::INFO, "rejected").await,
-            Err(err) => self.client.log_message(MessageType::ERROR, err).await,
+    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+        if params.command == "load_workspace" {
+            self.client
+                .log_message(MessageType::INFO, "Loading entire workspace...".to_string())
+                .await;
+            self.load_workspace().await;
+            self.client
+                .log_message(MessageType::INFO, "Done loading!".to_string())
+                .await;
+        } else {
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    format!("Unkown command: {}", params.command),
+                )
+                .await;
         }
-
         Ok(None)
     }
 }
@@ -300,6 +298,24 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name(Scope, ast::Ud, ast::Ud, Visibility);
+
+impl Name {
+    fn show(self, names: &DashMap<ast::Ud, String>) -> String {
+        let Name(s, m, n, v) = self;
+        format!("{:?} {}.{} ({:?})",
+            s,
+                        names
+                            .get(&m)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                        names
+                            .get(&n)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+            v
+        )
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
@@ -376,6 +392,7 @@ mod name_resolution {
         NoConstructorOfThatName(ast::S<ast::Ud>, ast::Ud, ast::Ud, ast::Span),
         NotExportedOrDoesNotExist(ast::S<ast::Ud>, Scope, ast::Ud, ast::Span),
         CannotImportSelf(ast::Span),
+        CouldNotFindImport(ast::Ud, ast::Span),
     }
 
     impl NRerrors {
@@ -384,15 +401,15 @@ mod name_resolution {
             names: &DashMap<ast::Ud, String>,
         ) -> tower_lsp::lsp_types::Diagnostic {
             match self {
-                name_resolution::NRerrors::Unknown(span) => Diagnostic::new_simple(
+                NRerrors::Unknown(span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
                     "Failed to resolve this name".into(),
                 ),
-                name_resolution::NRerrors::MultipleImports(_, span) => Diagnostic::new_simple(
+                NRerrors::MultipleImports(ns, span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                    "This name is imported from two different modules".into(),
+                    format!("This name is imported from {} different modules", ns.len()),
                 ),
-                name_resolution::NRerrors::MultipleDefinitions(
+                NRerrors::MultipleDefinitions(
                     Name(scope, _m, i, _),
                     _first,
                     second,
@@ -407,7 +424,7 @@ mod name_resolution {
                             .unwrap_or_else(|| "?".into())
                     ),
                 ),
-                name_resolution::NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
+                NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
                     format!(
                         "{} does not have a constructors {}",
@@ -421,7 +438,7 @@ mod name_resolution {
                             .unwrap_or_else(|| "?".into())
                     ),
                 ),
-                name_resolution::NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
+                NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
                     format!(
                         "{} does not have constructors",
@@ -431,7 +448,7 @@ mod name_resolution {
                             .unwrap_or_else(|| "?".into()),
                     ),
                 ),
-                name_resolution::NRerrors::ConstructorsDoesntExistOrIsntExported(
+                NRerrors::ConstructorsDoesntExistOrIsntExported(
                     m,
                     ast::S(u, s),
                 ) => Diagnostic::new_simple(
@@ -449,7 +466,7 @@ mod name_resolution {
                     ),
                 ),
 
-                name_resolution::NRerrors::NoConstructorOfThatName(m, a, b, s) => {
+                NRerrors::NoConstructorOfThatName(m, a, b, s) => {
                     Diagnostic::new_simple(
                         Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
                         format!(
@@ -469,7 +486,7 @@ mod name_resolution {
                         ),
                     )
                 }
-                name_resolution::NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => {
+                NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => {
                     Diagnostic::new_simple(
                         Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
                         format!(
@@ -486,10 +503,22 @@ mod name_resolution {
                         ),
                     )
                 }
-                name_resolution::NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
+                NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
                     "A module cannot import itself".to_string(),
                 ),
+                NRerrors::CouldNotFindImport(n, s) => {
+                    Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "Could not find this import {}",
+                            names
+                                .get(&n)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    )
+                }
             }
         }
     }
@@ -497,7 +526,6 @@ mod name_resolution {
     #[derive(Debug)]
     pub struct N<'s> {
         pub me: ast::Ud,
-
 
         builtins: &'s BTreeSet<(Scope, ast::Ud)>,
 
@@ -515,14 +543,18 @@ mod name_resolution {
         constructors: BTreeMap<Name, BTreeSet<Name>>,
         pub module_imports: BTreeMap<Option<ast::Ud>, Vec<(ast::Ud, ast::Span)>>,
 
-        imports: BTreeMap<(Scope, ast::Ud), Name>,
+        pub imports: BTreeMap<(Scope, ast::Ud, ast::Ud), Name>,
 
         pub defines: BTreeMap<Name, ast::Span>,
         locals: Vec<(Scope, ast::Ud, Name)>,
     }
 
     impl<'s> N<'s> {
-        pub fn new(me: ast::Ud, builtins: &'s BTreeSet<(Scope, ast::Ud)>, global_exports: &'s DashMap<ast::Ud, Vec<Export>>) -> Self {
+        pub fn new(
+            me: ast::Ud,
+            builtins: &'s BTreeSet<(Scope, ast::Ud)>,
+            global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
+        ) -> Self {
             Self {
                 me,
                 usages: BTreeMap::new(),
@@ -558,8 +590,11 @@ mod name_resolution {
                 }
                 std::collections::btree_map::Entry::Occupied(v) => {
                     if !ignore_error {
-                        self.errors
-                            .push(NRerrors::MultipleDefinitions(*v.key(), v.get().lo(), s.lo()));
+                        self.errors.push(NRerrors::MultipleDefinitions(
+                            *v.key(),
+                            v.get().lo(),
+                            s.lo(),
+                        ));
                     }
                 }
             }
@@ -589,7 +624,12 @@ mod name_resolution {
                 }
             }
             if matches.is_empty() {
-                for (nn, ss) in self.module_imports.get(&Some(m)).iter().flat_map(|x| x.iter()) {
+                for (nn, ss) in self
+                    .module_imports
+                    .get(&Some(m))
+                    .iter()
+                    .flat_map(|x| x.iter())
+                {
                     if let Some(name) = self.resolve_inner(scope, *nn, n) {
                         matches.push((*ss, name));
                     }
@@ -602,10 +642,7 @@ mod name_resolution {
                 matches.push((s, Name(scope, ast::Ud(0), n, Visibility::Public)));
             }
 
-            let unique_matches = matches
-                .iter()
-                .map(|x| x.1)
-                .collect::<BTreeSet<_>>();
+            let unique_matches = matches.iter().map(|x| x.1).collect::<BTreeSet<_>>();
             let num_unique_matches = unique_matches.len();
             for name in unique_matches.into_iter() {
                 self.resolved.insert((s.lo(), s.hi()), name);
@@ -625,29 +662,25 @@ mod name_resolution {
 
         fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) {
             let m = m.map(|x| {
-                    self.resolve(Namespace, self.me, x.0);
-                x.0.0
-            });
-            self.resolve(scope, m.unwrap_or(self.me), n);
+                eprintln!("\nresolve: {:?}", x.0);
+                self.resolve(Namespace, self.me, x.0);
+                x.0 .0
+            }).unwrap_or(self.me);
+            self.resolve(scope, m, n);
+        }
+
+        fn find_local(&self, ss: Scope, n: ast::Ud) -> Option<Name> {
+            self.locals
+                .iter()
+                .rfind(|(s, u, _)| *u == n && *s == ss)
+                .map(|(_, _, name)| *name)
         }
 
         // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
         fn resolve_inner(&self, ss: Scope, m: ast::Ud, n: ast::Ud) -> Option<Name> {
-            if m != self.me {
-                let name = Name(ss, m, n, Visibility::Public);
-                if self
-                    .global_exports
-                    .get(&m)
-                    .map(|x| x.iter().any(|ex| ex.contains(name)))
-                    .unwrap_or_else(|| false)
-                {
+            if m == self.me {
+                if let Some(name) = self.find_local(ss, n) {
                     return Some(name);
-                }
-            } else {
-                if let Some((_, _, name)) =
-                    self.locals.iter().rfind(|(s, u, _)| *u == n && *s == ss)
-                {
-                    return Some(*name);
                 }
 
                 if self
@@ -656,10 +689,9 @@ mod name_resolution {
                 {
                     return Some(Name(ss, self.me, n, Visibility::Public));
                 }
-
-                if let Some(name) = self.imports.get(&(ss, n)) {
-                    return Some(*name);
-                }
+            }
+            if let Some(name) = self.imports.get(&(ss, m, n)) {
+                return Some(*name);
             }
 
             None
@@ -705,7 +737,12 @@ mod name_resolution {
                                 .map(|(a, _)| Name(Scope::Module, *a, *a, Visibility::Public))
                                 .collect(),
                         )
-                    } else if let Some((a, _)) = self.module_imports.values().flatten().find(|(x, _)| *x == v.0.0) {
+                    } else if let Some((a, _)) = self
+                        .module_imports
+                        .values()
+                        .flatten()
+                        .find(|(x, _)| *x == v.0 .0)
+                    {
                         Module(vec![Name(Scope::Module, *a, *a, Visibility::Public)])
                     } else {
                         self.errors.push(NRerrors::Unknown(v.0 .1));
@@ -723,10 +760,6 @@ mod name_resolution {
             self.resolved.insert((h.0 .1.lo(), h.0 .1.hi()), name);
         }
 
-        fn register_import_as(&mut self, a: ast::MName, b: Option<ast::MName>) {
-            self.module_imports.entry(b.map(|x| x.0 .0)).or_default().push((a.0.0, a.0.1));
-        }
-
         fn import(
             &mut self,
             ast::ImportDecl {
@@ -736,18 +769,24 @@ mod name_resolution {
                 to,
             }: &ast::ImportDecl,
         ) {
-            // NOTE: Is the export a usage? IDK...
-
+            // NOTE: I've decided the export isn't a usage - it's annoying to see references that
+            // aren't really used.
             self.import_resolve(*from);
-            self.register_import_as(*from, *to);
+            self.module_imports
+                .entry(to.map(|x| x.0 .0))
+                .or_default()
+                .push((from.0 .0, from.0 .1));
             if let Some(b) = to {
+                eprintln!("\nDEFINE: {:?}", b.0);
                 self.def_global(Namespace, b.0, false);
-            }
-            if !self.global_exports.contains_key(&from.0 .0) {
-                return;
             }
             if from.0 .0 == self.me {
                 self.errors.push(NRerrors::CannotImportSelf(from.0 .1));
+                return;
+            }
+            if !self.global_exports.contains_key(&from.0 .0) {
+                self.errors.push(NRerrors::CouldNotFindImport(from.0.0, from.0 .1));
+                return;
             }
             let exports: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
 
@@ -836,12 +875,13 @@ mod name_resolution {
                 exports.retain(|x| !x.iter().any(|Name(s, _, u, _)| hiding.contains(&(*s, *u))));
             }
 
+            let q = to.map(|x|x.0.0).unwrap_or(self.me);
             if ii.is_empty() {
-                for (k, v) in valid.into_iter() {
-                    self.imports.insert(k, v);
+                for ((s, k), v) in valid.into_iter() {
+                    self.imports.insert((s, q, k), v);
                 }
             } else {
-                for (k, v) in ii
+                for ((s, k), v) in ii
                     .iter()
                     .filter_map(|(s, u)| {
                         let span = u.1;
@@ -858,7 +898,7 @@ mod name_resolution {
                     })
                     .collect::<Vec<_>>()
                 {
-                    self.imports.insert(k, v);
+                    self.imports.insert((s, q, k), v);
                 }
             }
         }
@@ -929,7 +969,7 @@ mod name_resolution {
                     self.def_global(Type, d.0, prev == q);
                     q
                 }
-                ast::Decl::Class(cs, d, vars, deps, mem) => {
+                ast::Decl::Class(_, d, _, _, mem) => {
                     let q = Some(d.0 .0);
 
                     self.def_global(Type, d.0, prev == q);
@@ -1014,19 +1054,23 @@ mod name_resolution {
                     for c in cs.iter().flatten() {
                         self.constraint(c);
                     }
-                    self.pop(sf);
                     for ast::ClassMember(_, typ) in mem.iter() {
                         self.typ(typ);
                     }
+                    self.pop(sf);
                 }
                 ast::Decl::Instance(_, head, bindings) => {
+                    let sf = self.push();
                     let u = self.inst_head(head);
                     for b in bindings.iter() {
                         self.inst_binding(b, u);
                     }
+                    self.pop(sf);
                 }
                 ast::Decl::Derive(_, head) => {
+                    let sf = self.push();
                     let _u = self.inst_head(head);
+                    self.pop(sf);
                 }
                 ast::Decl::Foreign(_, t) => {
                     self.typ(t);
@@ -1054,13 +1098,21 @@ mod name_resolution {
         }
 
         fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> ast::Ud {
+            for t in ts.iter() {
+                self.typ_define_vars(t);
+            }
+            for ast::Constraint(_, ts) in cs.iter().flatten() {
+                for t in ts.iter() {
+                    self.typ_define_vars(t);
+                }
+            }
+            for t in ts.iter() {
+                self.typ(t);
+            }
             for c in cs.iter().flatten() {
                 self.constraint(c);
             }
             self.resolveq(Type, d.0, d.1 .0);
-            for t in ts.iter() {
-                self.typ(t);
-            }
             match d.0 {
                 Some(u) => u.0 .0,
                 None => self.me,
@@ -1376,6 +1428,61 @@ mod name_resolution {
             }
         }
 
+        fn typ_define_vars(&mut self, t: &ast::Typ) {
+            match t {
+                ast::Typ::Wildcard(_)
+                | ast::Typ::Constructor(_)
+                | ast::Typ::Symbol(_)
+                | ast::Typ::Str(_)
+                | ast::Typ::Int(_)
+                | ast::Typ::Hole(_) => (),
+
+                ast::Typ::Var(v) => {
+                    if self.find_local(Type, v.0 .0).is_some() {
+                        self.resolve(Type, self.me, v.0);
+                    } else {
+                        self.def_local(Type, v.0 .0, v.0 .1);
+                    }
+                }
+                ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
+                    let rs = &rs.0;
+                    for (_, t) in rs.0.iter() {
+                        self.typ_define_vars(t);
+                    }
+                    if let Some(t) = &rs.1 {
+                        self.typ_define_vars(t);
+                    }
+                }
+                ast::Typ::Forall(xs, t) => {
+                    let sf = self.push();
+                    for x in xs.iter() {
+                        self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    self.typ_define_vars(t);
+                    self.pop(sf);
+                }
+                ast::Typ::Kinded(t, _t) => {
+                    // Not doing Kinds for now
+                    self.typ_define_vars(t);
+                }
+                ast::Typ::Arr(a, b) => {
+                    self.typ_define_vars(a);
+                    self.typ_define_vars(b);
+                }
+                ast::Typ::Op(a, _, b) => {
+                    self.typ_define_vars(a);
+                    self.typ_define_vars(b);
+                }
+                ast::Typ::Constrained(_, t) => {
+                    self.typ_define_vars(t);
+                }
+                ast::Typ::App(a, b) => {
+                    self.typ_define_vars(a);
+                    self.typ_define_vars(b);
+                }
+            }
+        }
+
         fn typ(&mut self, t: &ast::Typ) {
             match t {
                 ast::Typ::Wildcard(_) => (),
@@ -1466,17 +1573,21 @@ mod name_resolution {
                 }
             } else {
                 let cs: BTreeSet<_> = n.constructors.values().flatten().collect();
-                for name@Name(s, m, _, _) in n.defines.keys() {
-                    if *m != n.me { continue; }
-                    if !matches!(s, Scope::Term | Scope::Type) { continue; }
-                    if cs.contains(name) { continue; }
-                    let e = if let Some(co) = n.constructors.get(name) {
-                        Export::ConstructorsAll(*name, co.iter().copied().collect::<Vec<_>>())
-                    } else {
-                        Export::Just(*name)
-                    };
-                    n.exports.push(e);
-
+                for name @ Name(s, m, _, v) in n.defines.keys() {
+                    if *v != Visibility::Public {
+                        continue;
+                    }
+                    if *m != n.me {
+                        continue;
+                    }
+                    if !matches!(s, Scope::Term | Scope::Type) {
+                        continue;
+                    }
+                    if let Some(co) = n.constructors.get(name) {
+                        n.exports.push(Export::ConstructorsAll(*name, co.iter().copied().collect::<Vec<_>>()))
+                    } else if !cs.contains(name) {
+                        n.exports.push(Export::Just(*name))
+                    }
                 }
             }
 
@@ -1509,44 +1620,94 @@ impl Backend {
         let folders = self.client.workspace_folders().await.ok()??;
         for folder in folders {
             use glob::glob;
-            let deps = glob(&format!("{}/lib/**/*.purs", folder.uri.to_string().strip_prefix("file://")?)).ok()?.filter_map(|path| {
-                error!("Found: {:?}", path);
+            self.client.log_message(MessageType::ERROR, &format!("Scanning: {:?}/lib/**/*.purs", folder.uri.to_string())).await;
+            let mut deps: Vec<(ast::Ud, ast::Fi, BTreeSet<ast::Ud>, ast::Module)> = Vec::new();
+            for path in glob(&format!(
+                "{}/lib/**/*.purs",
+                folder.uri.to_string().strip_prefix("file://")?
+            ))
+            .ok()? {
                 let path = path.as_ref().ok()?;
+                let x = (|| {
                 let source = std::fs::read_to_string(path.clone()).ok()?;
-                let url = Url::parse(&format!("file://{}", &path.clone().into_os_string().into_string().ok()?)).ok()?;
+                let url = Url::parse(&format!(
+                    "file://{}",
+                    &path.clone().into_os_string().into_string().ok()?
+                ))
+                .ok()?;
                 let (m, fi) = self.parse(url, None, &source);
                 let m = m?;
                 let (me, imports) = {
                     let header = m.0.clone()?;
-                    let me = header.0.0.0;
-                    (me, header.2.iter().map(|x| x.from.0.0).collect::<BTreeSet<_>>())
+                    let me = header.0 .0 .0;
+                    (
+                        me,
+                        header
+                            .2
+                            .iter()
+                            .map(|x| x.from.0 .0)
+                            .collect::<BTreeSet<_>>(),
+                    )
                 };
-                self.modules.insert(me, m);
+                self.modules.insert(me, m.clone());
                 self.fi_to_ud.insert(fi, me);
                 self.ud_to_fi.insert(me, fi);
-                error!("Parsed: {:?}", path);
-                Some((me, fi, imports))
-            }).collect::<Vec<_>>();
+                Some((me, fi, imports, m))
+                })();
+                if let Some(x) = x {
+                    self.client.log_message(MessageType::ERROR, &format!("DONE: {:?}", &path.clone().into_os_string().into_string().ok()?)).await;
+                    deps.push(x);
+                } else {
+                    self.client.log_message(MessageType::ERROR, &format!("FAILED: {:?}", &path.clone().into_os_string().into_string().ok()?)).await;
+                }
+            }
+            self.client.log_message(MessageType::ERROR, &format!("========")).await;
 
-            let mut done = BTreeSet::new();
+            // NOTE: Not adding them to the name lookup
+            fn h(s: &'static str) -> ast::Ud {
+                let mut hasher = DefaultHasher::new();
+                s.hash(&mut hasher);
+                ast::Ud(hasher.finish() as usize)
+            }
+
+            let mut done: BTreeSet<_> = [h("Prim.Row"), h("Prim.Ordering"), h("Prim.RowList"), h("Prim.TypeError"), h("Prim.Boolean"), h("Prim.Coerce"), h("Prim.Symbol")].into();
             loop {
-                let todo: BTreeSet<_> = deps.par_iter().filter(|(m, _, deps)| (!done.contains(m)) && deps.is_subset(&done)).collect();
+                let todo: Vec<_> = deps
+                    .iter()
+                    .filter(|(m, _, deps, _)| (!done.contains(m)) && deps.is_subset(&done))
+                    .collect();
                 if todo.is_empty() {
+                    if let Some((m, x)) = deps
+                        .iter()
+                        .map(|(m, _, deps, _)| (m, deps.difference(&done).cloned().collect::<Vec<_>>()))
+                        .min_by_key(|(_, aa)| match aa.len()
+                    {
+                            0 => 9999,
+                            n => n,
+                    }
+                            ) {
+                        self.client.log_message(MessageType::ERROR
+                                , &format!("SMALLEST: {} [{}]", self.names.get(m).unwrap().value().clone()
+                                , x.iter().map(|x| self.names.get(&x).unwrap().value().clone()).collect::<Vec<_>>().join(" ")
+                                )).await;
+                    }
+                    self.client.log_message(MessageType::ERROR, &format!("EXITING!")).await;
                     break;
                 }
-                todo.par_iter().for_each(|(m, fi, _)| { 
-                    if let Some(m) = self.modules.get(m) {
-                        self.resolve_module(&m, *fi);
-                    }
-                });
-                done.append(&mut todo.into_iter().map(|(m, _, _)| *m).collect());
+                for (_, fi, _, m) in todo.iter() {
+                    self.resolve_module(m, *fi);
+                    self.show_errors(*fi).await;
+                };
+                let names = todo.iter().map(|(m, _, _, _)| self.names.get(m).unwrap().value().clone()).collect::<Vec<_>>();
+                self.client.log_message(MessageType::ERROR, &format!("ROUND: {:?}", names)).await;
+                done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
         }
         Some(())
     }
 
     fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> Option<(bool, ast::Ud)> {
-        let me = m.0.as_ref()?.0.0.0;
+        let me = m.0.as_ref()?.0 .0 .0;
         let mut n = name_resolution::N::new(me, &self.builtins, &self.exports);
         name_resolution::resolve_names(&mut n, m);
         let me = n.me;
@@ -1561,16 +1722,18 @@ impl Backend {
 
         self.resolved.insert(me, n.resolved);
 
-        let mut us = self.usages.entry(me).or_insert(BTreeMap::new());
-        for (k, v) in us.iter_mut() {
-            v.retain(|x| x.fi() != Some(fi));
-            v.append(&mut n.usages.get(k).cloned().unwrap_or_default());
-        }
-        for (k, v) in n.usages.into_iter() {
-            if us.contains_key(&k) {
-                continue;
+        {
+            let mut us = self.usages.entry(me).or_insert(BTreeMap::new());
+            for (k, v) in us.iter_mut() {
+                v.retain(|x| x.fi() != Some(fi));
+                v.append(&mut n.usages.get(k).cloned().unwrap_or_default());
             }
-            assert!(us.insert(k, v).is_none());
+            for (k, v) in n.usages.into_iter() {
+                if us.contains_key(&k) {
+                    continue;
+                }
+                assert!(us.insert(k, v).is_none());
+            }
         }
 
         {
@@ -1619,18 +1782,23 @@ impl Backend {
             }
         };
 
-        let new_imports: BTreeSet<_> = n.module_imports.values().flatten().map(|(u, _)| *u).collect();
-        let old_imports = self
-            .imports
-            .insert(me, new_imports.clone())
-            .unwrap_or_else(BTreeSet::new);
-        for x in old_imports.difference(&new_imports) {
-            let mut e = self.importers.entry(*x).or_insert(BTreeSet::new());
-            e.remove(&me);
-        }
-        for x in new_imports.difference(&old_imports) {
-            let mut e = self.importers.entry(*x).or_insert(BTreeSet::new());
-            e.insert(me);
+        {
+            let new_imports: BTreeSet<_> = n
+                .module_imports
+                .values()
+                .flatten()
+                .map(|(u, _)| *u)
+                .collect();
+            let old_imports = self
+                .imports
+                .insert(me, new_imports.clone())
+                .unwrap_or_else(BTreeSet::new);
+            for x in old_imports.difference(&new_imports) {
+                self.importers.entry(*x).or_insert(BTreeSet::new()).remove(&me);
+            }
+            for x in new_imports.difference(&old_imports) {
+                self.importers.entry(*x).or_insert(BTreeSet::new()).insert(me);
+            }
         }
         Some((exports_changed, n.me))
     }
@@ -1641,7 +1809,7 @@ impl Backend {
         // changed.
         let name = Name(Scope::Module, me, me, Visibility::Public);
         let mut checked = BTreeSet::new();
-        let mut to_check: Vec<_> = self
+        let mut to_check: Vec<ast::Ud> = self
             .importers
             .get(&me)
             .iter()
@@ -1656,20 +1824,18 @@ impl Backend {
             if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
                 let _ = self.resolve_module(&m, *fi);
                 self.show_errors(*fi).await;
-                if let Some(ex) = self.exports.get(&x) {
-                    if ex.iter().any(|x| x.contains(name)) {
-                        // It's a re-export which means we need to check everything that imports it as well!
-                        to_check.append(
-                            &mut self
-                                .importers
-                                .get(&x)
-                                .iter()
-                                .flat_map(|x| x.iter())
-                                .copied()
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-                };
+                if self.exports.get(&x).map(|ex|  ex.iter().any(|x| x.contains(name))).unwrap_or(false) {
+                    // It's a re-export which means we need to check everything that imports this as well!
+                    to_check.append(
+                        &mut self
+                        .importers
+                        .get(&x)
+                        .iter()
+                        .flat_map(|x| x.iter())
+                        .copied()
+                        .collect::<Vec<_>>(),
+                    );
+                }
             }
         }
     }
@@ -1704,7 +1870,12 @@ impl Backend {
         }
     }
 
-    fn parse(&self, uri: Url, version: Option<i32>, source: &'_ str) -> (Option<ast::Module>, ast::Fi) {
+    fn parse(
+        &self,
+        uri: Url,
+        version: Option<i32>,
+        source: &'_ str,
+    ) -> (Option<ast::Module>, ast::Fi) {
         // TODO: How to handle two files with the same module name?
         let fi = match self.url_to_fi.entry(uri.clone()) {
             dashmap::Entry::Occupied(v) => *v.get(),
@@ -1750,8 +1921,8 @@ impl Backend {
     }
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
+        self.client.log_message(MessageType::ERROR, &format!("GOT CHANGE!")).await;
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
-        error!("LOADED: {}", self.modules.len());
         //if self.modules.len() < 5 {
         //    self.load_workspace().await;
         //}
@@ -1766,13 +1937,15 @@ impl Backend {
                 self.show_errors(fi).await;
                 if exports_changed {
                     self.resolve_cascading(me).await;
+                    let _ = self.client.workspace_diagnostic_refresh().await;
                 }
             } else {
                 self.show_errors(fi).await;
             }
         } else {
-                self.show_errors(fi).await;
+            self.show_errors(fi).await;
         }
+        self.client.log_message(MessageType::ERROR, &format!("FINISHED CHANGE!")).await;
     }
 }
 
@@ -1787,7 +1960,7 @@ fn pos_from_tup((line, col): (usize, usize)) -> Position {
 }
 
 fn build_builtins() -> (BTreeSet<(Scope, ast::Ud)>, DashMap<ast::Ud, String>) {
-    use Scope::*; 
+    use Scope::*;
     let names = DashMap::new();
     let h = |a: Scope, s: &'static str| -> (Scope, ast::Ud) {
         let mut hasher = DefaultHasher::new();
@@ -1797,16 +1970,20 @@ fn build_builtins() -> (BTreeSet<(Scope, ast::Ud)>, DashMap<ast::Ud, String>) {
         (a, ud)
     };
 
-
-    ([ h(Type, "Int"),
-     h(Type, "Number"),
-     h(Type, "Row"),
-     h(Type, "Record"),
-     h(Type, "Symbol"),
-     h(Type, "Array"),
-     h(Type, "Boolean"),
-     h(Type, "String"),
-     ].into(), names)
+    (
+        [
+            h(Type, "Int"),
+            h(Type, "Number"),
+            h(Type, "Row"),
+            h(Type, "Record"),
+            h(Type, "Symbol"),
+            h(Type, "Array"),
+            h(Type, "Boolean"),
+            h(Type, "String"),
+        ]
+        .into(),
+        names,
+    )
 }
 
 #[tokio::main]
@@ -1815,11 +1992,10 @@ async fn main() {
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    
+
     let (builtins, names) = build_builtins();
 
-    let (service, socket) = LspService::build(|client|  {
-        Backend {
+    let (service, socket) = LspService::build(|client| Backend {
         client,
 
         builtins,
@@ -1845,9 +2021,8 @@ async fn main() {
 
         syntax_errors: DashMap::new(),
         name_resolution_errors: DashMap::new(),
-    }})
+    })
     .finish();
-
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }

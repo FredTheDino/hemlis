@@ -42,7 +42,7 @@ impl Span {
             ) => {
                 assert_eq!(a_fi, b_fi);
                 let lo = a_lo.min(b_lo);
-                let hi = a_hi.min(b_hi);
+                let hi = a_hi.max(b_hi);
                 Known(a_fi, lo, hi)
             }
             (a @ Known(..), Zero) | (Zero, a @ Known( .. )) => a,
