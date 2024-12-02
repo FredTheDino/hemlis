@@ -1033,11 +1033,15 @@ mod name_resolution {
                     self.pop(sf);
                 }
                 ast::Decl::ClassKind(_, _) => (),
-                ast::Decl::Class(cs, _, xs, _, mem) => {
-                    // TODO: Fundeps should also be resolved here
+                ast::Decl::Class(cs, _, xs, deps, mem) => {
                     let sf = self.push();
                     for x in xs.iter() {
                         self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    }
+                    for ast::FunDep(a, b) in deps.iter().flatten() {
+                        for n in a.iter().chain(b.iter()) {
+                            self.def_local(Type, n.0.0, n.0.1);
+                        }
                     }
                     for c in cs.iter().flatten() {
                         self.constraint(c);
