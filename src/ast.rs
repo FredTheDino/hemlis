@@ -521,7 +521,7 @@ impl LetBinding {
     pub fn ud(&self) -> Option<Ud> {
         match self {
             LetBinding::Sig(name, _)
-            | LetBinding::Name(name, _, _) => todo!(),
+            | LetBinding::Name(name, _, _) => Some(name.0.0),
             LetBinding::Pattern(_, _) => None,
         }
     }
