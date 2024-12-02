@@ -618,7 +618,7 @@ mod name_resolution {
             let mut matches = Vec::new();
             matches.append(&mut self.resolve_inner(scope, m, n));
 
-            // TODO: This is technically incorrect, since this is only valid if it is not a
+            // NOTE: This is technically incorrect, since this is only valid if it is not a
             // namespace at all.
             if matches.is_empty() && self.builtins.contains(&(scope, n)) {
                 matches.push(Name(scope, ast::Ud(0), n, Visibility::Public));
@@ -681,18 +681,31 @@ mod name_resolution {
             // TODO: Resolve usages here so I can goto definition on things
             use Export::*;
             let export = match ex {
-                ast::Export::Value(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
-                ast::Export::Symbol(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
-                ast::Export::Typ(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
-                ast::Export::TypSymbol(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Value(v) => {
+                    self.resolve(Term, None, v.0);
+                    Just(Name(Term, self.me, v.0 .0, Visibility::Public))
+                }
+                ast::Export::Symbol(v) => {
+                    self.resolve(Term, None, v.0);
+                    Just(Name(Term, self.me, v.0 .0, Visibility::Public))
+                }
+                ast::Export::Typ(v) => { 
+                    self.resolve(Type, None, v.0);
+                    Just(Name(Type, self.me, v.0 .0, Visibility::Public))
+                }
+                ast::Export::TypSymbol(v) => {
+                    self.resolve(Type, None, v.0);
+                    Just(Name(Type, self.me, v.0 .0, Visibility::Public))
+                }
                 ast::Export::TypDat(v, ds) => {
+                    self.resolve(Type, None, v.0);
                     let x = Name(Type, self.me, v.0 .0, Visibility::Public);
                     let ms = match self.constructors.get(&x) {
                         None => {
                             self.errors.push(NRerrors::NoConstructors(x, v.0 .1));
                             return;
                         }
-                        Some(ms) => ms,
+                        Some(ms) => ms.clone(),
                     };
                     match ds {
                         ast::DataMember::All => ConstructorsAll(x, ms.iter().copied().collect()),
@@ -700,7 +713,10 @@ mod name_resolution {
                             x,
                             ns.iter()
                                 .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
-                                    Some(a) => Some(*a),
+                                    Some(a) => {
+                                        self.resolve(a.0, None, m.0);
+                                        Some(*a)
+                                    }
                                     None => {
                                         self.errors.push(NRerrors::NotAConstructor(x, *m));
                                         None
@@ -710,9 +726,13 @@ mod name_resolution {
                         ),
                     }
                 }
-                ast::Export::Class(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
+                ast::Export::Class(v) => {
+                    self.resolve(Type, None, v.0);
+                    Just(Name(Type, self.me, v.0 .0, Visibility::Public))
+                }
                 ast::Export::Module(v) => {
-                    if let Some((mods, names)) = self.imports.get(&Some(v.0 .0)) {
+                    if let Some((mods, names)) = self.imports.get(&Some(v.0 .0)).cloned() {
+                        self.resolve(Namespace, None, v.0);
                         let xs =  mods.iter().copied().collect::<BTreeSet<_>>();
                         Module(
                             [ xs.iter()
@@ -722,6 +742,8 @@ mod name_resolution {
                             ].concat()
                         )
                     } else {
+                        let name = Name(Scope::Module, v.0.0, v.0.0, Visibility::Public);
+                        self.resolved.insert((v.0.1.lo(), v.0.1.hi()), name);
                         // Module exports export everything that's ever imported from a module -
                         // right?
                         let to_export = self
@@ -736,12 +758,8 @@ mod name_resolution {
                             self.errors.push(NRerrors::Unknown(v.0 .1));
                             return;
                         }
-                            Module(
-                                [ vec![Name(Scope::Module, v.0.0, v.0.0, Visibility::Public)]
                                 // NOTE: I don't think this is how it works
-                                , to_export
-                                ].concat()
-                            )
+                        Module( [ vec![name] , to_export ].concat())
                     }
                 }
             };
@@ -908,7 +926,6 @@ mod name_resolution {
                     self.def_global(Type, d.0, is_redecl);
                 }
                 ast::Decl::Data(d, _, cs) => {
-                    // TODO: Type var bindings
                     self.def_global(Type, d.0, is_redecl);
                     let mut cons = BTreeSet::new();
                     for c in cs {
