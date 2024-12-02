@@ -83,12 +83,19 @@ fn string(p: &mut P<'_>) -> Option<Str> {
     }
 }
 
-fn label(p: &mut P<'_>) -> Option<Label> {
+fn label_no_eat(p: &mut P<'_>) -> Option<Label> {
     Some(match p.peek() {
         (Some(T::Lower(n) | T::String(n) | T::RawString(n)), s) => Label(S(p.intern(n), s)),
         _ => return None,
     })
 }
+
+fn label(p: &mut P<'_>) -> Option<Label> {
+    let out = label_no_eat(p)?;
+    p.skip();
+    Some(out)
+}
+
 
 macro_rules! kw {
     ($name:ident, $kw:pat) => {
@@ -640,7 +647,7 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp> {
             kw_right_imply(p)?;
             Some(TypOp::FatArr)
         }
-        // NOt a type op
+        // Not a type op
         (Some(T::Op("<=")), _) => {
             None
         }
@@ -725,6 +732,22 @@ fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ, prec: usize) -> Option<Typ> {
     Some(lhs)
 }
 
+fn typ_only_call<'t>(p: &mut P<'t>) -> Option<Typ> {
+    let mut lhs = top_typ(p)?;
+    loop {
+        let mut pp = p.fork();
+        let rhs = typ_atom(&mut pp, Some("Expected a type"));
+        if let Some(rhs) = rhs {
+            lhs = Typ::App(b!(lhs), b!(rhs));
+            *p = pp;
+        } else {
+            break
+        }
+    }
+    Some(lhs)
+}
+
+
 fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding> {
     let is_paren = matches!(p.peekt(), Some(T::LeftParen));
     if is_paren {
@@ -769,7 +792,6 @@ fn simple_typ_var_bindings<'t>(p: &mut P<'t>) -> Vec<TypVarBinding> {
 
 fn row_label<'t>(p: &mut P<'t>) -> Option<(Label, Typ)> {
     let l = label(p)?;
-    p.skip();
     kw_coloncolon(p)?;
     let t = typ(p)?;
     Some((l, t))
@@ -1020,8 +1042,12 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr> {
 
     if let Some(labels) = {
         if matches!(p.peekt(), Some(T::Op("."))) {
-            kw_dot(p)?;
-            Some(sep(p, "expr_access", kw_dot, label))
+            let mut out = Vec::new();
+            while matches!(p.peekt(), Some(T::Op("."))) {
+                kw_dot(p)?;
+                out.push(label(p)?);
+            }
+            Some(out)
         } else {
             None
         }
@@ -1215,7 +1241,6 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder> {
 fn record_binder<'t>(p: &mut P<'t>) -> Option<RecordLabelBinder> {
     if matches!(p.peek2t(), (_, Some(T::Op(":")))) {
         let f = label(p)?;
-        p.next();
         kw_colon(p)?;
         let e = binder(p)?;
         Some(RecordLabelBinder::Field(f, e))
@@ -1265,7 +1290,6 @@ fn guard_statement<'t>(p: &mut P<'t>) -> Option<Guard> {
 fn record_label<'t>(p: &mut P<'t>) -> Option<RecordLabelExpr> {
     if matches!(p.peek2t(), (_, Some(T::Op(":")))) {
         let f = label(p)?;
-        p.next();
         kw_colon(p)?;
         let e = expr(p)?;
         Some(RecordLabelExpr::Field(f, e))
@@ -1288,7 +1312,7 @@ fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate>> {
 }
 
 fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate> {
-    let f = label(p)?;
+    let f = label_no_eat(p)?;
     if !matches!(p.peek2t(), (Some(_), Some(T::Equals))) {
         return None;
     }
@@ -1540,6 +1564,10 @@ fn role(p: &mut P<'_>) -> Option<S<Role>> {
 }
 
 fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead> {
+    if next_is!(T::Lower(_))(p) {
+        name(p)?;
+        kw_coloncolon(p)?;
+    }
     let cs = constraints(p, false);
     let n = qproper(p)?;
     let bs = many(p, "instance head", |p| typ_atom(p, None));
@@ -1586,7 +1614,8 @@ fn constraints<'t>(p: &mut P<'t>, l: bool) -> Option<Vec<Constraint>> {
             Some(Some(cs))
         },
         |p: &mut P<'t>| {
-            let t = typ(p)?.cast_to_constraint()?;
+            // NOTE: There's just parsing conflicts everywhere :(
+            let t = typ_only_call(p)?.cast_to_constraint()?;
             if l {
                 kw_left_imply(p)?;
             } else {
