@@ -371,7 +371,7 @@ mod name_resolution {
 
     #[derive(Debug)]
     pub enum NRerrors {
-        Unknown(ast::Span),
+        Unknown(Scope, Option<ast::Ud>, ast::Ud, ast::Span),
         MultipleImports(BTreeSet<Name>, ast::Span),
         MultipleDefinitions(Name, (usize, usize), (usize, usize)),
         NotAConstructor(Name, ast::ProperName),
@@ -389,9 +389,20 @@ mod name_resolution {
             names: &DashMap<ast::Ud, String>,
         ) -> tower_lsp::lsp_types::Diagnostic {
             match self {
-                NRerrors::Unknown(span) => Diagnostic::new_simple(
+                NRerrors::Unknown(scope, ns, n, span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                    "Failed to resolve this name".into(),
+                    format!(
+                        "Failed to resolve this name\n{:?} {}.{}",
+                        scope,
+                        names
+                            .get(&ns.unwrap_or(ast::Ud(0)))
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "_".into()),
+                        names
+                            .get(&n)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into())
+                    ),
                 ),
                 NRerrors::MultipleImports(ns, span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
@@ -614,7 +625,7 @@ mod name_resolution {
             }
 
             match unique_matches.len() {
-                0 => self.errors.push(NRerrors::Unknown(s)),
+                0 => self.errors.push(NRerrors::Unknown(scope, m, n, s)),
                 1 => (),
                 _ => self
                     .errors
@@ -743,7 +754,12 @@ mod name_resolution {
                             .copied()
                             .collect::<Vec<_>>();
                         if to_export.is_empty() {
-                            self.errors.push(NRerrors::Unknown(v.0 .1));
+                            self.errors.push(NRerrors::Unknown(
+                                Scope::Module,
+                                Some(v.0 .0),
+                                v.0 .0,
+                                v.0 .1,
+                            ));
                             return;
                         }
                         // NOTE: I don't think this is how it works
@@ -768,12 +784,12 @@ mod name_resolution {
             let name = Name(Module, from.0 .0, from.0 .0, Visibility::Public);
             self.global_usages.insert((name, from.0 .1));
             self.resolved.insert((from.0 .1.lo(), from.0 .1.hi()), name);
+            self.imports
+                .entry(to.map(|x| x.0 .0))
+                .or_default()
+                .0
+                .push(from.0 .0);
             if let Some(b) = to {
-                self.imports
-                    .entry(to.map(|x| x.0 .0))
-                    .or_default()
-                    .0
-                    .push(b.0 .0);
                 self.def_global(Namespace, b.0, false);
             }
             if from.0 .0 == self.me {
@@ -797,17 +813,61 @@ mod name_resolution {
                     ast::Import::Typ(x) => ii.push((Type, x.0)),
                     ast::Import::TypDat(x, cs) => {
                         ii.push((Type, x.0));
-                        let es = match exports.iter().find(|e| e.contains_(Type, x.0 .0)) {
+                        let es= match self
+                            .global_exports
+                            .get(&from.0 .0)
+                            .unwrap()
+                            .value()
+                            .clone()
+                            .iter()
+                            .find(|e| e.contains_(Type, x.0 .0))
+                        {
                             Some(
                                 Export::ConstructorsSome(_, es) | Export::ConstructorsAll(_, es),
                             ) => es.iter().map(|x| x.2).collect::<BTreeSet<_>>(),
+
+                            Some(Export::Module(es)) => {
+                                if let Some(Name(_, mm, _, _)) =
+                                    es.iter().find(|e| name_is(**e, Type, x.0 .0))
+                                {
+                                    match self
+                                        .global_exports
+                                        .get(mm)
+                                        .unwrap()
+                                        .value()
+                                        .clone()
+                                        .iter()
+                                        .find(|e| e.contains_(Type, x.0 .0))
+                                    {
+                                        Some(
+                                            Export::ConstructorsSome(_, es)
+                                            | Export::ConstructorsAll(_, es),
+                                        ) => es.iter().map(|x| x.2).collect::<BTreeSet<_>>(),
+                                        _ => {
+                                            self.errors.push(
+                                                NRerrors::ConstructorsDoesntExistOrIsntExported(
+                                                    from.0, x.0,
+                                                ),
+                                            );
+                                            BTreeSet::new()
+                                        }
+                                    }
+                                } else {
+                                    self.errors.push(
+                                        NRerrors::ConstructorsDoesntExistOrIsntExported(
+                                            from.0, x.0,
+                                        ),
+                                    );
+                                            BTreeSet::new()
+                                }
+                            }
 
                             _ => {
                                 self.errors
                                     .push(NRerrors::ConstructorsDoesntExistOrIsntExported(
                                         from.0, x.0,
                                     ));
-                                BTreeSet::new()
+                                            BTreeSet::new()
                             }
                         };
                         match cs {
@@ -1574,11 +1634,10 @@ mod name_resolution {
                     is_redecl = true;
                 }
             }
-            for (k, ds) in grouped.iter() {
+            for ds in grouped.values() {
                 let sf = n.push();
-                for (i, d) in ds.iter().enumerate() {
+                for d in ds.iter() {
                     n.decl_body(d);
-                    eprintln!("XX: {:?} {}", k, i);
                 }
                 n.pop(sf);
             }
