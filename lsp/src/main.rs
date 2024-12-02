@@ -664,6 +664,12 @@ mod name_resolution {
                 ]
                 .into_iter()
                 .flatten()
+                .chain(
+                    self.imports
+                        .get(&m)
+                        .iter()
+                        .flat_map(|x| x.1.get(&(ss, n)).cloned().unwrap_or_default())
+                    )
                 .collect()
             } else {
                 self.imports
