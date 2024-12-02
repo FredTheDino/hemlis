@@ -18,7 +18,8 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 struct Backend {
     client: Client,
 
-    builtins: BTreeSet<(Scope, ast::Ud)>,
+    prim: ast::Ud,
+
     names: DashMap<ast::Ud, String>,
 
     fi_to_url: DashMap<ast::Fi, Url>,
@@ -517,8 +518,6 @@ mod name_resolution {
     pub struct N<'s> {
         pub me: ast::Ud,
 
-        builtins: &'s BTreeSet<(Scope, ast::Ud)>,
-
         global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
         pub global_usages: BTreeSet<(Name, ast::Span)>,
 
@@ -541,14 +540,11 @@ mod name_resolution {
     impl<'s> N<'s> {
         pub fn new(
             me: ast::Ud,
-            builtins: &'s BTreeSet<(Scope, ast::Ud)>,
             global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
         ) -> Self {
             Self {
                 me,
                 usages: BTreeMap::new(),
-
-                builtins,
 
                 global_exports,
                 global_usages: BTreeSet::new(),
@@ -602,17 +598,11 @@ mod name_resolution {
             self.def(s, name, false)
         }
 
-        fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) {
+        fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) -> Option<Name> {
             let s = n.1;
             let n = n.0;
             let mut matches = Vec::new();
             matches.append(&mut self.resolve_inner(scope, m, n));
-
-            // NOTE: This is technically incorrect, since this is only valid if it is not a
-            // namespace at all.
-            if matches.is_empty() && self.builtins.contains(&(scope, n)) {
-                matches.push(Name(scope, ast::Ud(0), n, Visibility::Public));
-            }
 
             let unique_matches = matches.into_iter().collect::<BTreeSet<_>>();
             for name in unique_matches.iter().copied() {
@@ -629,16 +619,17 @@ mod name_resolution {
                 1 => (),
                 _ => self
                     .errors
-                    .push(NRerrors::MultipleImports(unique_matches, s)),
+                    .push(NRerrors::MultipleImports(unique_matches.clone(), s)),
             }
+            unique_matches.first().copied()
         }
 
-        fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) {
+        fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) -> Option<Name>{
             let m = m.map(|x| {
                 self.resolve(Namespace, None, x.0);
                 x.0 .0
             });
-            self.resolve(scope, m, n);
+            self.resolve(scope, m, n)
         }
 
         fn find_local(&self, ss: Scope, n: ast::Ud) -> Option<Name> {
@@ -1128,7 +1119,7 @@ mod name_resolution {
                 }
                 ast::Decl::ForeignData(_, _) => {}
                 ast::Decl::Role(d, _) => {
-                    self.resolve(Term, None, d.0);
+                    self.resolve(Type, None, d.0);
                 }
                 ast::Decl::Fixity(_, _, e, _) => {
                     self.expr(e);
@@ -1154,7 +1145,7 @@ mod name_resolution {
             }
         }
 
-        fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> Option<ast::Ud> {
+        fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> Option<Name> {
             for t in ts.iter() {
                 self.typ_define_vars(t);
             }
@@ -1171,18 +1162,23 @@ mod name_resolution {
             for c in cs.iter().flatten() {
                 self.constraint(c);
             }
-            self.resolveq(Type, d.0, d.1 .0);
-            d.0.map(|u| u.0 .0)
+            self.resolveq(Type, d.0, d.1 .0)
         }
 
-        fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<ast::Ud>) {
+        fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<Name>) {
             match b {
                 ast::InstBinding::Sig(l, t) => {
-                    self.resolve(Type, u, l.0);
+                    if let Some(Name(_, m, _, _)) = u {
+                        let span = l.0.1;
+                        self.resolved.insert((span.lo(), span.hi()), Name(Term, m, l.0.0, Visibility::Public));
+                    }
                     self.typ(t);
                 }
                 ast::InstBinding::Def(l, binders, e) => {
-                    self.resolve(Term, u, l.0);
+                    if let Some(Name(_, m, _, _)) = u {
+                        let span = l.0.1;
+                        self.resolved.insert((span.lo(), span.hi()), Name(Term, m, l.0.0, Visibility::Public));
+                    }
                     let sf = self.push();
                     for b in binders.iter() {
                         self.binder(b);
@@ -1617,7 +1613,7 @@ mod name_resolution {
 
     // Build a map of all source positions that have a name connected with them. We can then use
     // that mapping to update the global mapping.
-    pub fn resolve_names(n: &mut N, m: &ast::Module) -> Option<ast::Ud> {
+    pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::Ud> {
         // You still get syntax errors - but without a module-header we can't verify the names in
         // the module. This is annoying and could possibly be fixed.
         if let Some(h) = m.0.as_ref() {
@@ -1629,6 +1625,8 @@ mod name_resolution {
             n.exports
                 .push(Export::Just(Name(Module, name, name, Visibility::Public)));
             n.def_global(Module, h.0 .0, true);
+            // Inject the Prim import
+            n.import(&ast::ImportDecl { from: ast::MName(ast::S(prim, ast::Span::Zero)), hiding: Vec::new(), names: Vec::new(), to: None });
             for i in h.2.iter() {
                 n.import(i);
             }
@@ -1856,8 +1854,8 @@ impl Backend {
 
     fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> Option<(bool, ast::Ud)> {
         let me = m.0.as_ref()?.0 .0 .0;
-        let mut n = name_resolution::N::new(me, &self.builtins, &self.exports);
-        name_resolution::resolve_names(&mut n, m);
+        let mut n = name_resolution::N::new(me, &self.exports);
+        name_resolution::resolve_names(&mut n, self.prim, m);
         let me = n.me;
 
         self.name_resolution_errors.insert(
@@ -2118,38 +2116,86 @@ fn pos_from_tup((line, col): (usize, usize)) -> Position {
     Position::new(line as u32, col as u32)
 }
 
-fn build_builtins() -> (BTreeSet<(Scope, ast::Ud)>, DashMap<ast::Ud, String>) {
+fn build_builtins() -> (DashMap<ast::Ud, Vec<Export>>, ast::Ud, DashMap<ast::Ud, String>) {
     use Scope::*;
     let names = DashMap::new();
-    let h = |a: Scope, s: &'static str| -> (Scope, ast::Ud) {
+
+    let mut hasher = DefaultHasher::new();
+    "Prim".hash(&mut hasher);
+    let prim = ast::Ud(hasher.finish() as usize);
+
+    let h = |a: Scope, n: &'static str, s: &'static str| -> (Scope, ast::Ud, ast::Ud) {
         let mut hasher = DefaultHasher::new();
         s.hash(&mut hasher);
-        let ud = ast::Ud(hasher.finish() as usize);
-        names.insert(ud, s.into());
-        (a, ud)
+        let s_ud = ast::Ud(hasher.finish() as usize);
+        names.insert(s_ud, s.into());
+
+        let mut hasher = DefaultHasher::new();
+        n.hash(&mut hasher);
+        let n_ud = ast::Ud(hasher.finish() as usize);
+        names.insert(n_ud, n.into());
+        (a, n_ud, s_ud)
     };
 
-    (
-        [
+    let compiler_defines = [
             // https://pursuit.purerl.fun/builtins/docs/Prim
-            h(Type, "Int"),
-            h(Type, "Number"),
-            h(Type, "Record"),
-            h(Type, "Symbol"),
-            h(Type, "Array"),
-            h(Type, "Boolean"),
-            h(Type, "String"),
-            h(Type, "Char"),
-            h(Type, "->"),
+            h(Type, "Prim", "Int"),
+            h(Type, "Prim", "Number"),
+            h(Type, "Prim", "Record"),
+            h(Type, "Prim", "Symbol"),
+            h(Type, "Prim", "Array"),
+            h(Type, "Prim", "Boolean"),
+            h(Type, "Prim", "String"),
+            h(Type, "Prim", "Char"),
             //
-            h(Type, "Type"),
-            h(Type, "Constraint"),
-            h(Type, "Symbol"),
-            h(Type, "Row"),
-        ]
-        .into(),
-        names,
-    )
+            h(Type, "Prim", "->"),
+            h(Type, "Prim", "Partial"),
+            h(Type, "Prim", "Type"),
+            h(Type, "Prim", "Constraint"),
+            h(Type, "Prim", "Symbol"),
+            h(Type, "Prim", "Row"),
+            //
+            h(Type, "Prim.Boolean", "True"),
+            h(Type, "Prim.Boolean", "False"),
+            //
+            h(Type, "Prim.Coerce", "Coercible"),
+            //
+            h(Type, "Prim.Ordering", "Ordering"),
+            h(Type, "Prim.Ordering", "LT"),
+            h(Type, "Prim.Ordering", "GT"),
+            h(Type, "Prim.Ordering", "EQ"),
+            //
+            h(Type, "Prim.Row", "Union"),
+            h(Type, "Prim.Row", "Nub"),
+            h(Type, "Prim.Row", "Lacks"),
+            h(Type, "Prim.Row", "Cons"),
+            //
+            h(Type, "Prim.RowList", "RowList"),
+            h(Type, "Prim.RowList", "Cons"),
+            h(Type, "Prim.RowList", "Nil"),
+            h(Type, "Prim.RowList", "RowToList"),
+            //
+            h(Type, "Prim.Symbol", "Append"),
+            h(Type, "Prim.Symbol", "Compare"),
+            h(Type, "Prim.Symbol", "Cons"),
+            //
+            h(Type, "Prim.TypeError", "Warn"),
+            h(Type, "Prim.TypeError", "Fail"),
+            h(Type, "Prim.TypeError", "Doc"),
+            h(Type, "Prim.TypeError", "Text"),
+            h(Type, "Prim.TypeError", "Quote"),
+            h(Type, "Prim.TypeError", "QuoteLabel"),
+            h(Type, "Prim.TypeError", "Beside"),
+            h(Type, "Prim.TypeError", "Above"),
+            //
+        ];
+
+    let exports = DashMap::new();
+    for (s, m, n) in compiler_defines {
+        exports.entry(m).or_insert(Vec::new()).push(Export::Just(Name(s, m, n, Visibility::Public)))
+    }
+
+    ( exports, prim, names)
 }
 
 #[tokio::main]
@@ -2159,12 +2205,12 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (builtins, names) = build_builtins();
+    let (exports, prim, names) = build_builtins();
 
     let (service, socket) = LspService::build(|client| Backend {
         client,
 
-        builtins,
+        prim,
         names,
 
         fi_to_url: DashMap::new(),
@@ -2179,7 +2225,7 @@ async fn main() {
         previouse_defines: DashMap::new(),
         previouse_global_usages: DashMap::new(),
 
-        exports: DashMap::new(),
+        exports,
         modules: DashMap::new(),
         resolved: DashMap::new(),
         defines: DashMap::new(),
