@@ -1,4 +1,4 @@
-#![allow(unused, clippy::needless_lifetimes)]
+#![allow(clippy::needless_lifetimes)]
 
 use std::hash::DefaultHasher;
 use std::hash::Hash as _;
@@ -7,7 +7,6 @@ use std::hash::Hasher as _;
 use dashmap::DashMap;
 
 use crate::ast::*;
-use crate::lexer;
 use crate::lexer::Token as T;
 use crate::lexer::Token;
 
@@ -138,11 +137,6 @@ kw!(kw_phantom, T::Lower("phantom"));
 kw!(kw_newtype, T::Newtype);
 kw!(kw_derive, T::Derive);
 kw!(kw_data, T::Lower("data"));
-kw!(kw_fixityr, T::Infixr);
-kw!(kw_fixityl, T::Infixl);
-kw!(kw_fixity, T::Infix);
-kw!(kw_true, T::Lower("true"));
-kw!(kw_false, T::Lower("false"));
 kw!(kw_forall, T::Lower("forall"));
 kw!(kw_let, T::Let);
 kw!(kw_in, T::Lower("in"));
@@ -307,7 +301,7 @@ macro_rules! next_isnt {
     };
 }
 
-fn many<'t, FE, E>(p: &mut P<'t>, err: &'static str, e: FE) -> Vec<E>
+fn many<'t, FE, E>(p: &mut P<'t>, _: &'static str, e: FE) -> Vec<E>
 where
     FE: Fn(&mut P<'t>) -> Option<E>,
 {
@@ -318,7 +312,7 @@ where
     out
 }
 
-fn many_until<'t, FE, FF, E>(p: &mut P<'t>, err: &'static str, e: FE, f: FF) -> Vec<E>
+fn many_until<'t, FE, FF, E>(p: &mut P<'t>, _: &'static str, e: FE, f: FF) -> Vec<E>
 where
     FE: Fn(&mut P<'t>) -> Option<E>,
     FF: Fn(&mut P<'t>) -> bool,
@@ -330,7 +324,7 @@ where
     out
 }
 
-fn sep<'t, FS, FE, E, S>(p: &mut P<'t>, err: &'static str, s: FS, e: FE) -> Vec<E>
+fn sep<'t, FS, FE, E, S>(p: &mut P<'t>, _: &'static str, s: FS, e: FE) -> Vec<E>
 where
     FS: Fn(&mut P<'t>) -> Option<S>,
     FE: Fn(&mut P<'t>) -> Option<E>,
@@ -351,7 +345,7 @@ where
     out
 }
 
-fn sep_until<'t, FS, FE, FF, E, S>(p: &mut P<'t>, err: &'static str, s: FS, e: FE, f: FF) -> Vec<E>
+fn sep_until<'t, FS, FE, FF, E, S>(p: &mut P<'t>, _: &'static str, s: FS, e: FE, f: FF) -> Vec<E>
 where
     FS: Fn(&mut P<'t>) -> Option<S>,
     FE: Fn(&mut P<'t>) -> Option<E>,
@@ -376,7 +370,7 @@ where
     out
 }
 
-fn sep_until_<'t, FE, E>(p: &mut P<'t>, err: &'static str, e: FE) -> Option<Vec<E>>
+fn sep_until_<'t, FE, E>(p: &mut P<'t>, _: &'static str, e: FE) -> Option<Vec<E>>
 where
     FE: Fn(&mut P<'t>) -> Option<E>,
 {
@@ -446,7 +440,7 @@ fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember> {
     kw_lp(p)?;
     let out = match p.peek().0 {
         Some(T::Op("..")) => {
-            p.skip();
+            kw_dotdot(p);
             DataMember::All
         }
         Some(T::RightParen) => DataMember::Some(Vec::new()),
@@ -550,7 +544,12 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
         (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_))) => Some(Typ::Symbol(qsymbol(p)?)),
 
         (Some(T::Qual(_)), Some(T::Qual(_))) => unreachable!("Illegal double-qual"),
-        (Some(T::String(x) | T::RawString(x)), s) => Some(Typ::Str(string(p)?)),
+        (Some(T::String(_) | T::RawString(_)), _) => Some(Typ::Str(string(p)?)),
+        (Some(T::Number(n)), _) if n.parse::<i32>().is_ok() => {
+            let span = p.span();
+            number(p);
+            Some(Typ::Int(Int(S(n.parse::<i32>().unwrap(), span))))
+        }
         // (Some(T::_), _) => { Some(Typ::Int(int(p)?)) },
         (Some(T::Hole(_)), _) => Some(Typ::Hole(hole(p)?)),
         (Some(T::LeftBrace), _) => {
@@ -719,9 +718,7 @@ fn pratt_typ<'t>(p: &mut P<'t>, mut lhs: Typ, prec: usize) -> Option<Typ> {
             typ_fop(&op).next(typ_fop(&outer_lookahead).prec())
         })(p)
         {
-            let i = p.i;
             rhs = pratt_typ(p, rhs, next)?;
-            // assert_ne!(i, p.i, "STUCK TYP!");
         }
         lhs = typ_mrg(p, outer_lookahead, lhs, rhs);
     }
@@ -814,7 +811,7 @@ fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp> {
             Some(ExprOp::Infix(e))
         }
         _ => {
-            let x = expr_atom(p, None)?;
+            let _ = expr_atom(p, None)?;
             Some(ExprOp::App)
         }
     }
@@ -830,7 +827,7 @@ fn expr_fop(t: &ExprOp) -> Prec {
     }
 }
 
-fn expr_mrg(p: &mut P<'_>, op: ExprOp, lhs: Expr, rhs: Expr) -> Expr {
+fn expr_mrg(op: ExprOp, lhs: Expr, rhs: Expr) -> Expr {
     match op {
         ExprOp::Op(op) => Expr::Op(b!(lhs), op, b!(rhs)),
         ExprOp::Infix(op) => Expr::Infix(b!(lhs), b!(op), b!(rhs)),
@@ -886,7 +883,7 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr, prec: usize) -> Option<Expr> {
             rhs = pratt_expr(p, rhs, next)?;
             assert_ne!(i, p.i, "STUCK EXPR!");
         }
-        lhs = expr_mrg(p, outer_lookahead, lhs, rhs);
+        lhs = expr_mrg(outer_lookahead, lhs, rhs);
     }
     Some(lhs)
 }
@@ -1156,6 +1153,7 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder> {
             kw_underscore(p)?;
             Some(Binder::Wildcard(start))
         }
+        (Some(T::Lower("true" | "false")), _) => Some(Binder::Boolean(boolean(p)?)),
         (Some(T::Lower(_)), _) => {
             let n = name(p)?;
             if matches!(p.peekt(), Some(T::At)) {
@@ -1167,7 +1165,6 @@ fn binder_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Binder> {
             }
         }
         (Some(T::Upper(_)), _) | (Some(T::Qual(_)), _) => Some(Binder::Constructor(qproper(p)?)),
-        (Some(T::Lower("true" | "false")), _) => Some(Binder::Boolean(boolean(p)?)),
         (Some(T::Char(_)), _) => Some(Binder::Char(char(p)?)),
         (Some(T::String(_) | T::RawString(_)), _) => Some(Binder::Str(string(p)?)),
         (Some(T::Op("-")), _) => {
@@ -1410,7 +1407,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl> {
         }
         (Some(T::Lower("class")), _, _) => {
             kw_class(p)?;
-            let cs = constraints(p);
+            let cs = constraints(p, true);
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
             let deps = fundeps(p);
@@ -1543,7 +1540,7 @@ fn role(p: &mut P<'_>) -> Option<S<Role>> {
 }
 
 fn instance_head<'t>(p: &mut P<'t>) -> Option<InstHead> {
-    let cs = constraints(p);
+    let cs = constraints(p, false);
     let n = qproper(p)?;
     let bs = many(p, "instance head", |p| typ_atom(p, None));
     Some(InstHead(cs, n, bs))
@@ -1572,7 +1569,7 @@ fn data_cnstr<'t>(p: &mut P<'t>) -> Option<(ProperName, Vec<Typ>)> {
     Some((n, ts))
 }
 
-fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint>> {
+fn constraints<'t>(p: &mut P<'t>, l: bool) -> Option<Vec<Constraint>> {
     alt!(p: Serror::Info(p.span(), "constraints"),
         |p: &mut P<'t>| {
             kw_lp(p)?;
@@ -1581,15 +1578,23 @@ fn constraints<'t>(p: &mut P<'t>) -> Option<Vec<Constraint>> {
                 .map(|x| x.cast_to_constraint())
                 .collect::<Option<Vec<_>>>()?;
             kw_rp(p)?;
-            kw_left_imply(p)?;
+            if l {
+                kw_left_imply(p)?;
+            } else {
+                kw_right_imply(p)?;
+            }
             Some(Some(cs))
         },
         |p: &mut P<'t>| {
             let t = typ(p)?.cast_to_constraint()?;
-            kw_left_imply(p)?;
+            if l {
+                kw_left_imply(p)?;
+            } else {
+                kw_right_imply(p)?;
+            }
             Some(Some(vec![t]))
         },
-        |p: &mut P<'t>| {
+        |_: &mut P<'t>| {
             Some(None::<Vec<Constraint>>)
         }
     )?
@@ -1765,10 +1770,6 @@ impl<'s> P<'s> {
         }
     }
 
-    fn eof(&self) -> bool {
-        self.i >= self.tokens.len()
-    }
-
     fn next(&mut self) -> (Option<Token<'s>>, Span) {
         if self.panic {
             return (None, self.span());
@@ -1829,20 +1830,6 @@ impl<'s> P<'s> {
         false
     }
 
-    fn iff<F>(&mut self, f: F, err: &'static str) -> Option<()>
-    where
-        F: Fn(Token<'s>) -> bool,
-    {
-        if let (Some(x), _) = self.peek() {
-            if f(x) {
-                self.next();
-                return Some(());
-            }
-        }
-        self.raise(Serror::Unexpected(self.span(), self.peekt(), err));
-        None
-    }
-
     fn expect<F>(&mut self, f: F, err: &'static str) -> Option<()>
     where
         F: Fn(Token<'s>) -> bool,
@@ -1857,20 +1844,6 @@ impl<'s> P<'s> {
         None
     }
 
-    fn expect_<F, A>(&mut self, f: F, err: &'static str) -> Option<A>
-    where
-        F: Fn(Token<'s>) -> Option<A>,
-    {
-        if let (Some(x), _) = self.peek() {
-            if let Some(a) = f(x) {
-                self.next();
-                return Some(a);
-            }
-        }
-        self.raise(Serror::Unexpected(self.span(), self.peekt(), err));
-        None
-    }
-
     fn raise_<A>(&mut self, err: &'static str) -> Option<A> {
         self.raise(Serror::Unexpected(self.span(), self.peekt(), err));
         None
@@ -1878,15 +1851,6 @@ impl<'s> P<'s> {
 
     fn raise(&mut self, err: Serror<'s>) {
         self.errors.push(err)
-    }
-
-    fn panic(&mut self) {
-        self.panic = true;
-    }
-
-    fn raise_and_panic(&mut self, err: Serror<'s>) {
-        self.raise(err);
-        self.panic();
     }
 }
 

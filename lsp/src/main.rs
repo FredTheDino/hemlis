@@ -1,4 +1,5 @@
 #![feature(btree_cursors)]
+#![allow(clippy::type_complexity)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -303,25 +304,6 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name(Scope, ast::Ud, ast::Ud, Visibility);
-
-impl Name {
-    fn show(self, names: &DashMap<ast::Ud, String>) -> String {
-        let Name(s, m, n, v) = self;
-        format!(
-            "{:?} {}.{} ({:?})",
-            s,
-            names
-                .get(&m)
-                .map(|x| x.clone())
-                .unwrap_or_else(|| "?".into()),
-            names
-                .get(&n)
-                .map(|x| x.clone())
-                .unwrap_or_else(|| "?".into()),
-            v
-        )
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
@@ -1345,7 +1327,7 @@ mod name_resolution {
             }
         }
 
-        fn let_binders(&mut self, ls: &Vec<ast::LetBinding>) {
+        fn let_binders(&mut self, ls: &[ast::LetBinding]) {
             let grouped = group_by(ls.iter(), |d: &ast::LetBinding| d.ud());
             for (k, vs) in grouped.iter() {
                 for v in vs {
@@ -1735,7 +1717,7 @@ impl Backend {
                 }
             }
             self.client
-                .log_message(MessageType::ERROR, &format!("========"))
+                .log_message(MessageType::ERROR, &"========".to_string())
                 .await;
 
             // NOTE: Not adding them to the name lookup
@@ -1778,7 +1760,7 @@ impl Backend {
                                     "SMALLEST: {} [{}]",
                                     self.names.get(m).unwrap().value().clone(),
                                     x.iter()
-                                        .map(|x| self.names.get(&x).unwrap().value().clone())
+                                        .map(|x| self.names.get(x).unwrap().value().clone())
                                         .collect::<Vec<_>>()
                                         .join(" ")
                                 ),
@@ -1786,7 +1768,7 @@ impl Backend {
                             .await;
                     }
                     self.client
-                        .log_message(MessageType::ERROR, &format!("EXITING!"))
+                        .log_message(MessageType::ERROR, "EXITING!")
                         .await;
                     break;
                 }
@@ -2030,7 +2012,7 @@ impl Backend {
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         self.client
-            .log_message(MessageType::ERROR, &format!("GOT CHANGE!"))
+            .log_message(MessageType::ERROR, "GOT CHANGE!")
             .await;
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
         //if self.modules.len() < 5 {
@@ -2056,7 +2038,7 @@ impl Backend {
             self.show_errors(fi).await;
         }
         self.client
-            .log_message(MessageType::ERROR, &format!("FINISHED CHANGE!"))
+            .log_message(MessageType::ERROR, "FINISHED CHANGE!")
             .await;
     }
 }
@@ -2092,6 +2074,7 @@ fn build_builtins() -> (BTreeSet<(Scope, ast::Ud)>, DashMap<ast::Ud, String>) {
             h(Type, "Array"),
             h(Type, "Boolean"),
             h(Type, "String"),
+            h(Type, "Char"),
         ]
         .into(),
         names,
