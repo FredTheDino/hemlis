@@ -14,7 +14,7 @@ pub mod symtab;
 
 #[allow(dead_code)]
 fn main() {
-    if env::var("PURRING_GEN").is_ok() {
+    if env::var("HEMLIS_GEN").is_ok() {
         linear_parse_generate_test();
     } else {
         parse_modules();
@@ -88,7 +88,7 @@ fn parse_modules() {
                             .map(|x| { format!("{:?}\n", x) })
                             .collect::<Vec<_>>()
                             .join("\n"),
-                        if env::var("PURRING_TOKENS").is_ok() {
+                        if env::var("HEMLIS_TOKENS").is_ok() {
                             p.tokens
                                 .iter()
                                 .map(|(a, s)| format!("{:?} {:?}", a, s))
@@ -97,7 +97,7 @@ fn parse_modules() {
                         } else {
                             "".to_string()
                         },
-                        if env::var("PURRING_TREE").is_ok() {
+                        if env::var("HEMLIS_TREE").is_ok() {
                             inner
                         } else {
                             "".to_string()
