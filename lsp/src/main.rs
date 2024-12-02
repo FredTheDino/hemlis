@@ -384,7 +384,7 @@ mod name_resolution {
     #[derive(Debug)]
     pub enum NRerrors {
         Unknown(ast::Span),
-        MultipleImports(Vec<(ast::Span, Name)>, ast::Span),
+        MultipleImports(BTreeSet<Name>, ast::Span),
         MultipleDefinitions(Name, (usize, usize), (usize, usize)),
         NotAConstructor(Name, ast::ProperName),
         NoConstructors(Name, ast::Span),
@@ -541,12 +541,11 @@ mod name_resolution {
         pub exports: Vec<Export>,
 
         constructors: BTreeMap<Name, BTreeSet<Name>>,
-        pub module_imports: BTreeMap<Option<ast::Ud>, Vec<(ast::Ud, ast::Span)>>,
-
-        pub imports: BTreeMap<(Scope, ast::Ud, ast::Ud), Name>,
 
         pub defines: BTreeMap<Name, ast::Span>,
         locals: Vec<(Scope, ast::Ud, Name)>,
+        pub imports: BTreeMap<Option<ast::Ud>, (Vec<ast::Ud>, BTreeMap<(Scope, ast::Ud), Vec<Name>>)>,
+
     }
 
     impl<'s> N<'s> {
@@ -568,7 +567,6 @@ mod name_resolution {
                 resolved: BTreeMap::new(),
                 exports: Vec::new(),
                 constructors: BTreeMap::new(),
-                module_imports: [(None, vec![(me, ast::Span::Zero)])].into(),
                 imports: BTreeMap::new(),
                 defines: BTreeMap::new(),
                 locals: Vec::new(),
@@ -614,37 +612,20 @@ mod name_resolution {
             self.def(s, name, false)
         }
 
-        fn resolve(&mut self, scope: Scope, m: ast::Ud, n: ast::S<ast::Ud>) {
+        fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) {
             let s = n.1;
             let n = n.0;
             let mut matches = Vec::new();
-            if m == self.me {
-                if let Some(name) = self.resolve_inner(scope, m, n) {
-                    matches.push((s, name));
-                }
-            }
-            if matches.is_empty() {
-                for (nn, ss) in self
-                    .module_imports
-                    .get(&Some(m))
-                    .iter()
-                    .flat_map(|x| x.iter())
-                {
-                    if let Some(name) = self.resolve_inner(scope, *nn, n) {
-                        matches.push((*ss, name));
-                    }
-                }
-            }
+            matches.append(&mut self.resolve_inner(scope, m, n));
 
             // TODO: This is technically incorrect, since this is only valid if it is not a
             // namespace at all.
-            if matches.is_empty() && m == self.me && self.builtins.contains(&(scope, n)) {
-                matches.push((s, Name(scope, ast::Ud(0), n, Visibility::Public)));
+            if matches.is_empty() && self.builtins.contains(&(scope, n)) {
+                matches.push(Name(scope, ast::Ud(0), n, Visibility::Public));
             }
 
-            let unique_matches = matches.iter().map(|x| x.1).collect::<BTreeSet<_>>();
-            let num_unique_matches = unique_matches.len();
-            for name in unique_matches.into_iter() {
+            let unique_matches = matches.into_iter().collect::<BTreeSet<_>>();
+            for name in unique_matches.iter().copied() {
                 self.resolved.insert((s.lo(), s.hi()), name);
                 if name.1 == self.me {
                     self.usages.entry(name).or_default().insert(s);
@@ -653,19 +634,18 @@ mod name_resolution {
                 }
             }
 
-            match num_unique_matches {
+            match unique_matches.len() {
                 0 => self.errors.push(NRerrors::Unknown(s)),
                 1 => (),
-                _ => self.errors.push(NRerrors::MultipleImports(matches, s)),
+                _ => self.errors.push(NRerrors::MultipleImports(unique_matches, s)),
             }
         }
 
         fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) {
             let m = m.map(|x| {
-                eprintln!("\nresolve: {:?}", x.0);
-                self.resolve(Namespace, self.me, x.0);
+                self.resolve(Namespace, None, x.0);
                 x.0 .0
-            }).unwrap_or(self.me);
+            });
             self.resolve(scope, m, n);
         }
 
@@ -677,27 +657,28 @@ mod name_resolution {
         }
 
         // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
-        fn resolve_inner(&self, ss: Scope, m: ast::Ud, n: ast::Ud) -> Option<Name> {
-            if m == self.me {
-                if let Some(name) = self.find_local(ss, n) {
-                    return Some(name);
-                }
-
-                if self
+        fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> Vec<Name> {
+            if m.is_none() {
+                [ self.find_local(ss, n)
+                , if self
                     .defines
                     .contains_key(&Name(ss, self.me, n, Visibility::Public))
                 {
-                    return Some(Name(ss, self.me, n, Visibility::Public));
+                    Some(Name(ss, self.me, n, Visibility::Public))
+                } else {
+                    None
                 }
+                ].into_iter().flatten().collect()
+            } else {
+                self.imports.get(&m)
+                    .iter()
+                    .flat_map(|x|x.1.get(&(ss, n)).cloned().unwrap_or_default())
+                    .collect()
             }
-            if let Some(name) = self.imports.get(&(ss, m, n)) {
-                return Some(*name);
-            }
-
-            None
         }
 
         fn export(&mut self, ex: &ast::Export) {
+            // TODO: Resolve usages here so I can goto definition on things
             use Export::*;
             let export = match ex {
                 ast::Export::Value(v) => Just(Name(Term, self.me, v.0 .0, Visibility::Public)),
@@ -731,33 +712,40 @@ mod name_resolution {
                 }
                 ast::Export::Class(v) => Just(Name(Type, self.me, v.0 .0, Visibility::Public)),
                 ast::Export::Module(v) => {
-                    if let Some(vs) = self.module_imports.get(&Some(v.0 .0)) {
+                    if let Some((mods, names)) = self.imports.get(&Some(v.0 .0)) {
+                        let xs =  mods.iter().copied().collect::<BTreeSet<_>>();
                         Module(
-                            vs.iter()
-                                .map(|(a, _)| Name(Scope::Module, *a, *a, Visibility::Public))
-                                .collect(),
+                            [ xs.iter()
+                                .map(|a| Name(Scope::Module, *a, *a, Visibility::Public))
+                                .collect::<Vec<_>>()
+                            , names.values().flatten().copied().collect()
+                            ].concat()
                         )
-                    } else if let Some((a, _)) = self
-                        .module_imports
-                        .values()
-                        .flatten()
-                        .find(|(x, _)| *x == v.0 .0)
-                    {
-                        Module(vec![Name(Scope::Module, *a, *a, Visibility::Public)])
                     } else {
-                        self.errors.push(NRerrors::Unknown(v.0 .1));
-                        return;
+                        // Module exports export everything that's ever imported from a module -
+                        // right?
+                        let to_export = self
+                                    .imports
+                                    .values()
+                                    .filter(|(x, _)| x.contains(&v.0 .0))
+                                    .flat_map(|(_, y)| y.values().flatten())
+                                    .filter(|x| x.1 == v.0.0)
+                                    .copied()
+                                    .collect::<Vec<_>>();
+                        if to_export.is_empty() {
+                            self.errors.push(NRerrors::Unknown(v.0 .1));
+                            return;
+                        }
+                            Module(
+                                [ vec![Name(Scope::Module, v.0.0, v.0.0, Visibility::Public)]
+                                // NOTE: I don't think this is how it works
+                                , to_export
+                                ].concat()
+                            )
                     }
                 }
             };
             self.exports.push(export);
-        }
-
-        fn import_resolve(&mut self, h: ast::MName) {
-            // We can't use the normal resolve - because?
-            let name = Name(Module, h.0 .0, h.0 .0, Visibility::Public);
-            self.global_usages.insert((name, h.0 .1));
-            self.resolved.insert((h.0 .1.lo(), h.0 .1.hi()), name);
         }
 
         fn import(
@@ -771,13 +759,11 @@ mod name_resolution {
         ) {
             // NOTE: I've decided the export isn't a usage - it's annoying to see references that
             // aren't really used.
-            self.import_resolve(*from);
-            self.module_imports
-                .entry(to.map(|x| x.0 .0))
-                .or_default()
-                .push((from.0 .0, from.0 .1));
+            let name = Name(Module, from.0 .0, from.0 .0, Visibility::Public);
+            self.global_usages.insert((name, from.0 .1));
+            self.resolved.insert((from.0 .1.lo(), from.0 .1.hi()), name);
             if let Some(b) = to {
-                eprintln!("\nDEFINE: {:?}", b.0);
+                self.imports.entry(to.map(|x|x.0.0)).or_default().0.push(b.0.0);
                 self.def_global(Namespace, b.0, false);
             }
             if from.0 .0 == self.me {
@@ -875,13 +861,13 @@ mod name_resolution {
                 exports.retain(|x| !x.iter().any(|Name(s, _, u, _)| hiding.contains(&(*s, *u))));
             }
 
-            let q = to.map(|x|x.0.0).unwrap_or(self.me);
             if ii.is_empty() {
-                for ((s, k), v) in valid.into_iter() {
-                    self.imports.insert((s, q, k), v);
+                let entry = self.imports.entry(to.map(|x|x.0.0)).or_default();
+                for (k, v) in valid.into_iter() {
+                    entry.1.entry(k).or_default().push(v);
                 }
             } else {
-                for ((s, k), v) in ii
+                let to_insert = ii
                     .iter()
                     .filter_map(|(s, u)| {
                         let span = u.1;
@@ -896,9 +882,11 @@ mod name_resolution {
                         }
                         Some(((*s, u), *out?))
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                let entry = self.imports.entry(to.map(|x|x.0.0)).or_default();
+                for (k, v) in to_insert
                 {
-                    self.imports.insert((s, q, k), v);
+                    entry.1.entry(k).or_default().push(v);
                 }
             }
         }
@@ -1077,7 +1065,7 @@ mod name_resolution {
                 }
                 ast::Decl::ForeignData(_, _) => {}
                 ast::Decl::Role(d, _) => {
-                    self.resolve(Term, self.me, d.0);
+                    self.resolve(Term, None, d.0);
                 }
                 ast::Decl::Fixity(_, _, e, _) => {
                     self.expr(e);
@@ -1097,7 +1085,7 @@ mod name_resolution {
             }
         }
 
-        fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> ast::Ud {
+        fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> Option<ast::Ud> {
             for t in ts.iter() {
                 self.typ_define_vars(t);
             }
@@ -1113,13 +1101,10 @@ mod name_resolution {
                 self.constraint(c);
             }
             self.resolveq(Type, d.0, d.1 .0);
-            match d.0 {
-                Some(u) => u.0 .0,
-                None => self.me,
-            }
+            d.0.map(|u| u.0.0)
         }
 
-        fn inst_binding(&mut self, b: &ast::InstBinding, u: ast::Ud) {
+        fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<ast::Ud>) {
             match b {
                 ast::InstBinding::Sig(l, t) => {
                     self.resolve(Type, u, l.0);
@@ -1195,7 +1180,7 @@ mod name_resolution {
                 }
                 ast::Expr::Do(qual, stmts) => {
                     if let Some(qual) = qual {
-                        self.resolve(Namespace, self.me, qual.0);
+                        self.resolve(Namespace, None, qual.0);
                     }
                     let sf = self.push();
                     for s in stmts.iter() {
@@ -1218,7 +1203,7 @@ mod name_resolution {
                 }
                 ast::Expr::Ado(qual, stmts, ret) => {
                     if let Some(qual) = qual {
-                        self.resolve(Namespace, self.me, qual.0);
+                        self.resolve(Namespace, None, qual.0);
                     }
                     let sf = self.push();
                     // NOTE[et]: We define things from the expression, so the flow of
@@ -1281,7 +1266,7 @@ mod name_resolution {
                     for r in rs {
                         match r {
                             ast::RecordLabelExpr::Pun(l) => {
-                                self.resolve(Term, self.me, l.0);
+                                self.resolve(Term, None, l.0);
                             }
                             ast::RecordLabelExpr::Field(_, e) => {
                                 self.expr(e);
@@ -1407,7 +1392,7 @@ mod name_resolution {
                     for b in bs.iter() {
                         match b {
                             ast::RecordLabelBinder::Pun(l) => {
-                                self.resolve(Term, self.me, l.0);
+                                self.resolve(Term, None, l.0);
                             }
                             ast::RecordLabelBinder::Field(_, b) => {
                                 self.binder(b);
@@ -1439,7 +1424,7 @@ mod name_resolution {
 
                 ast::Typ::Var(v) => {
                     if self.find_local(Type, v.0 .0).is_some() {
-                        self.resolve(Type, self.me, v.0);
+                        self.resolve(Type, None, v.0);
                     } else {
                         self.def_local(Type, v.0 .0, v.0 .1);
                     }
@@ -1487,7 +1472,7 @@ mod name_resolution {
             match t {
                 ast::Typ::Wildcard(_) => (),
                 ast::Typ::Var(v) => {
-                    self.resolve(Type, self.me, v.0);
+                    self.resolve(Type, None, v.0);
                 }
                 ast::Typ::Constructor(v) => {
                     self.resolveq(Type, v.0, v.1 .0);
@@ -1784,10 +1769,10 @@ impl Backend {
 
         {
             let new_imports: BTreeSet<_> = n
-                .module_imports
+                .imports
                 .values()
-                .flatten()
-                .map(|(u, _)| *u)
+                .flat_map(|(x, _)| x)
+                .copied()
                 .collect();
             let old_imports = self
                 .imports
