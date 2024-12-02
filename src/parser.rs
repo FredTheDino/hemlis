@@ -548,6 +548,9 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
         (Some(T::Upper(_)), _) | (Some(T::Qual(_)), Some(T::Upper(_))) => {
             Some(Typ::Constructor(qproper(p)?))
         }
+        (Some(T::Symbol(_)), _) | (Some(T::Qual(_)), Some(T::Symbol(_))) => {
+            Some(Typ::Symbol(qsymbol(p)?))
+        }
         (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_))) => Some(Typ::Symbol(qsymbol(p)?)),
 
         (Some(T::Qual(_)), Some(T::Qual(_))) => unreachable!("Illegal double-qual"),
@@ -1434,7 +1437,7 @@ pub fn decl<'t>(p: &mut P<'t>) -> Option<Decl> {
             let cs = constraints(p, true);
             let name = proper(p)?;
             let vars = simple_typ_var_bindings(p);
-            let deps = fundeps(p);
+            let deps = fundeps(p)?;
             let mem = members(p)?;
             Some(Decl::Class(cs, name, vars, deps, mem))
         }
@@ -1629,31 +1632,38 @@ fn constraints<'t>(p: &mut P<'t>, l: bool) -> Option<Vec<Constraint>> {
     )?
 }
 
-fn fundeps<'t>(p: &mut P<'t>) -> Option<Vec<FunDep>> {
-    alt!(p: Serror::Info(p.span(), "fundeps"),
-        |p: &mut P<'t>| {
+fn fundeps<'t>(p: &mut P<'t>) -> Option<Option<Vec<FunDep>>> {
+    if next_is!(T::Pipe)(p) {
             kw_pipe(p)?;
-            Some(Some(sep(p, "fundeps", kw_comma, fundep)))
-        },
-        |_| {
+            let mut deps = Vec::new();
+            loop {
+                println!("H: {:?}", p.peekt());
+                deps.push(fundep(p)?);
+                println!("NEXT: {:?}", p.peekt());
+                if next_is!(T::Comma)(p) {
+                    kw_comma(p)?;
+                } else {
+                    break;
+                }
+            }
+            Some(Some(deps))
+        } else {
             Some(None::<Vec<FunDep>>)
-        },
-    )?
+        }
 }
 
 fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep> {
-    alt!(p: Serror::Info(p.span(), "fundep"),
-        |p: &mut P<'t>| {
+            eprintln!("DEP!");
+    if next_is!(T::RightArrow)(p) {
             kw_right_arrow(p)?;
             Some(FunDep(Vec::new(), many(p, "fundep A", name)))
-        },
-        |p: &mut P<'t>| {
-            let b = many_until(p, "fundep B", name, next_is!(T::RightArrow));
+        } else {
+            let b = many_until(p, "fundep B", name, next_isnt!(T::Lower(_)));
             kw_right_arrow(p)?;
-            let c = many(p, "fundep C", name);
+            let c = many_until(p, "fundep C", name, next_isnt!(T::Lower(_)));
+            println!("GOT: {} -> {}", b.len(), c.len());
             Some(FunDep(b, c))
-        },
-    )
+        }
 }
 
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember>> {
