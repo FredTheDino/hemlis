@@ -1481,7 +1481,7 @@ mod name_resolution {
                     for b in bs.iter() {
                         match b {
                             ast::RecordLabelBinder::Pun(l) => {
-                                self.resolve(Term, None, l.0);
+                                self.def_local(Term, l.0.0, l.0.1);
                             }
                             ast::RecordLabelBinder::Field(_, b) => {
                                 self.binder(b);
