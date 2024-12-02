@@ -95,9 +95,13 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::ERROR, "Scanning...".to_string()).await;
+        self.client
+            .log_message(MessageType::ERROR, "Scanning...".to_string())
+            .await;
         self.load_workspace().await;
-        self.client.log_message(MessageType::ERROR, "Done scanning!".to_string()).await;
+        self.client
+            .log_message(MessageType::ERROR, "Done scanning!".to_string())
+            .await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -122,11 +126,9 @@ impl LanguageServer for Backend {
         .await
     }
 
-    async fn did_save(&self, _: DidSaveTextDocumentParams) {
-    }
+    async fn did_save(&self, _: DidSaveTextDocumentParams) {}
 
-    async fn did_close(&self, _: DidCloseTextDocumentParams) {
-    }
+    async fn did_close(&self, _: DidCloseTextDocumentParams) {}
 
     async fn goto_definition(
         &self,
@@ -257,14 +259,17 @@ impl LanguageServer for Backend {
     }
     */
 
-    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
-    }
+    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
 
-    async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {
-    }
+    async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {}
 
     async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
-        self.client.log_message(MessageType::ERROR, "Does not handle changed watched files".to_string()).await;
+        self.client
+            .log_message(
+                MessageType::ERROR,
+                "Does not handle changed watched files".to_string(),
+            )
+            .await;
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
@@ -302,16 +307,17 @@ pub struct Name(Scope, ast::Ud, ast::Ud, Visibility);
 impl Name {
     fn show(self, names: &DashMap<ast::Ud, String>) -> String {
         let Name(s, m, n, v) = self;
-        format!("{:?} {}.{} ({:?})",
+        format!(
+            "{:?} {}.{} ({:?})",
             s,
-                        names
-                            .get(&m)
-                            .map(|x| x.clone())
-                            .unwrap_or_else(|| "?".into()),
-                        names
-                            .get(&n)
-                            .map(|x| x.clone())
-                            .unwrap_or_else(|| "?".into()),
+            names
+                .get(&m)
+                .map(|x| x.clone())
+                .unwrap_or_else(|| "?".into()),
+            names
+                .get(&n)
+                .map(|x| x.clone())
+                .unwrap_or_else(|| "?".into()),
             v
         )
     }
@@ -409,21 +415,19 @@ mod name_resolution {
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
                     format!("This name is imported from {} different modules", ns.len()),
                 ),
-                NRerrors::MultipleDefinitions(
-                    Name(scope, _m, i, _),
-                    _first,
-                    second,
-                ) => Diagnostic::new_simple(
-                    Range::new(pos_from_tup(second), pos_from_tup(second)),
-                    format!(
-                        "{:?} {:?} is defined multiple times",
-                        scope,
-                        names
-                            .get(&i)
-                            .map(|x| x.clone())
-                            .unwrap_or_else(|| "?".into())
-                    ),
-                ),
+                NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => {
+                    Diagnostic::new_simple(
+                        Range::new(pos_from_tup(second), pos_from_tup(second)),
+                        format!(
+                            "{:?} {:?} is defined multiple times",
+                            scope,
+                            names
+                                .get(&i)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into())
+                        ),
+                    )
+                }
                 NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
                     format!(
@@ -448,77 +452,70 @@ mod name_resolution {
                             .unwrap_or_else(|| "?".into()),
                     ),
                 ),
-                NRerrors::ConstructorsDoesntExistOrIsntExported(
-                    m,
-                    ast::S(u, s),
-                ) => Diagnostic::new_simple(
+                NRerrors::ConstructorsDoesntExistOrIsntExported(m, ast::S(u, s)) => {
+                    Diagnostic::new_simple(
+                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                        format!(
+                            "{}.{} does not exist or has no constructors exported",
+                            names
+                                .get(&m.0)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            names
+                                .get(&u)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                        ),
+                    )
+                }
+
+                NRerrors::NoConstructorOfThatName(m, a, b, s) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
                     format!(
-                        "{}.{} does not exist or has no constructors exported",
+                        "{} is not an exported constructor for the type {}.{}",
+                        names
+                            .get(&b)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
                         names
                             .get(&m.0)
                             .map(|x| x.clone())
                             .unwrap_or_else(|| "?".into()),
                         names
-                            .get(&u)
+                            .get(&a)
                             .map(|x| x.clone())
                             .unwrap_or_else(|| "?".into()),
                     ),
                 ),
-
-                NRerrors::NoConstructorOfThatName(m, a, b, s) => {
-                    Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "{} is not an exported constructor for the type {}.{}",
-                            names
-                                .get(&b)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            names
-                                .get(&m.0)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            names
-                                .get(&a)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    )
-                }
-                NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => {
-                    Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "{:?} {}.{} is not exported or does not exist",
-                            scope,
-                            names
-                                .get(&m.0)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            names
-                                .get(&ud)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    )
-                }
+                NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                    format!(
+                        "{:?} {}.{} is not exported or does not exist",
+                        scope,
+                        names
+                            .get(&m.0)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                        names
+                            .get(&ud)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                    ),
+                ),
                 NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
                     "A module cannot import itself".to_string(),
                 ),
-                NRerrors::CouldNotFindImport(n, s) => {
-                    Diagnostic::new_simple(
-                        Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                        format!(
-                            "Could not find this import {}",
-                            names
-                                .get(&n)
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                        ),
-                    )
-                }
+                NRerrors::CouldNotFindImport(n, s) => Diagnostic::new_simple(
+                    Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+                    format!(
+                        "Could not find this import {}",
+                        names
+                            .get(&n)
+                            .map(|x| x.clone())
+                            .unwrap_or_else(|| "?".into()),
+                    ),
+                ),
             }
         }
     }
@@ -544,8 +541,8 @@ mod name_resolution {
 
         pub defines: BTreeMap<Name, ast::Span>,
         locals: Vec<(Scope, ast::Ud, Name)>,
-        pub imports: BTreeMap<Option<ast::Ud>, (Vec<ast::Ud>, BTreeMap<(Scope, ast::Ud), Vec<Name>>)>,
-
+        pub imports:
+            BTreeMap<Option<ast::Ud>, (Vec<ast::Ud>, BTreeMap<(Scope, ast::Ud), Vec<Name>>)>,
     }
 
     impl<'s> N<'s> {
@@ -637,7 +634,9 @@ mod name_resolution {
             match unique_matches.len() {
                 0 => self.errors.push(NRerrors::Unknown(s)),
                 1 => (),
-                _ => self.errors.push(NRerrors::MultipleImports(unique_matches, s)),
+                _ => self
+                    .errors
+                    .push(NRerrors::MultipleImports(unique_matches, s)),
             }
         }
 
@@ -659,20 +658,25 @@ mod name_resolution {
         // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
         fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> Vec<Name> {
             if m.is_none() {
-                [ self.find_local(ss, n)
-                , if self
-                    .defines
-                    .contains_key(&Name(ss, self.me, n, Visibility::Public))
-                {
-                    Some(Name(ss, self.me, n, Visibility::Public))
-                } else {
-                    None
-                }
-                ].into_iter().flatten().collect()
+                [
+                    self.find_local(ss, n),
+                    if self
+                        .defines
+                        .contains_key(&Name(ss, self.me, n, Visibility::Public))
+                    {
+                        Some(Name(ss, self.me, n, Visibility::Public))
+                    } else {
+                        None
+                    },
+                ]
+                .into_iter()
+                .flatten()
+                .collect()
             } else {
-                self.imports.get(&m)
+                self.imports
+                    .get(&m)
                     .iter()
-                    .flat_map(|x|x.1.get(&(ss, n)).cloned().unwrap_or_default())
+                    .flat_map(|x| x.1.get(&(ss, n)).cloned().unwrap_or_default())
                     .collect()
             }
         }
@@ -689,7 +693,7 @@ mod name_resolution {
                     self.resolve(Term, None, v.0);
                     Just(Name(Term, self.me, v.0 .0, Visibility::Public))
                 }
-                ast::Export::Typ(v) => { 
+                ast::Export::Typ(v) => {
                     self.resolve(Type, None, v.0);
                     Just(Name(Type, self.me, v.0 .0, Visibility::Public))
                 }
@@ -733,33 +737,35 @@ mod name_resolution {
                 ast::Export::Module(v) => {
                     if let Some((mods, names)) = self.imports.get(&Some(v.0 .0)).cloned() {
                         self.resolve(Namespace, None, v.0);
-                        let xs =  mods.iter().copied().collect::<BTreeSet<_>>();
+                        let xs = mods.iter().copied().collect::<BTreeSet<_>>();
                         Module(
-                            [ xs.iter()
-                                .map(|a| Name(Scope::Module, *a, *a, Visibility::Public))
-                                .collect::<Vec<_>>()
-                            , names.values().flatten().copied().collect()
-                            ].concat()
+                            [
+                                xs.iter()
+                                    .map(|a| Name(Scope::Module, *a, *a, Visibility::Public))
+                                    .collect::<Vec<_>>(),
+                                names.values().flatten().copied().collect(),
+                            ]
+                            .concat(),
                         )
                     } else {
-                        let name = Name(Scope::Module, v.0.0, v.0.0, Visibility::Public);
-                        self.resolved.insert((v.0.1.lo(), v.0.1.hi()), name);
+                        let name = Name(Scope::Module, v.0 .0, v.0 .0, Visibility::Public);
+                        self.resolved.insert((v.0 .1.lo(), v.0 .1.hi()), name);
                         // Module exports export everything that's ever imported from a module -
                         // right?
                         let to_export = self
-                                    .imports
-                                    .values()
-                                    .filter(|(x, _)| x.contains(&v.0 .0))
-                                    .flat_map(|(_, y)| y.values().flatten())
-                                    .filter(|x| x.1 == v.0.0)
-                                    .copied()
-                                    .collect::<Vec<_>>();
+                            .imports
+                            .values()
+                            .filter(|(x, _)| x.contains(&v.0 .0))
+                            .flat_map(|(_, y)| y.values().flatten())
+                            .filter(|x| x.1 == v.0 .0)
+                            .copied()
+                            .collect::<Vec<_>>();
                         if to_export.is_empty() {
                             self.errors.push(NRerrors::Unknown(v.0 .1));
                             return;
                         }
-                                // NOTE: I don't think this is how it works
-                        Module( [ vec![name] , to_export ].concat())
+                        // NOTE: I don't think this is how it works
+                        Module([vec![name], to_export].concat())
                     }
                 }
             };
@@ -781,7 +787,11 @@ mod name_resolution {
             self.global_usages.insert((name, from.0 .1));
             self.resolved.insert((from.0 .1.lo(), from.0 .1.hi()), name);
             if let Some(b) = to {
-                self.imports.entry(to.map(|x|x.0.0)).or_default().0.push(b.0.0);
+                self.imports
+                    .entry(to.map(|x| x.0 .0))
+                    .or_default()
+                    .0
+                    .push(b.0 .0);
                 self.def_global(Namespace, b.0, false);
             }
             if from.0 .0 == self.me {
@@ -789,7 +799,8 @@ mod name_resolution {
                 return;
             }
             if !self.global_exports.contains_key(&from.0 .0) {
-                self.errors.push(NRerrors::CouldNotFindImport(from.0.0, from.0 .1));
+                self.errors
+                    .push(NRerrors::CouldNotFindImport(from.0 .0, from.0 .1));
                 return;
             }
             let exports: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
@@ -880,7 +891,7 @@ mod name_resolution {
             }
 
             if ii.is_empty() {
-                let entry = self.imports.entry(to.map(|x|x.0.0)).or_default();
+                let entry = self.imports.entry(to.map(|x| x.0 .0)).or_default();
                 for (k, v) in valid.into_iter() {
                     entry.1.entry(k).or_default().push(v);
                 }
@@ -901,9 +912,8 @@ mod name_resolution {
                         Some(((*s, u), *out?))
                     })
                     .collect::<Vec<_>>();
-                let entry = self.imports.entry(to.map(|x|x.0.0)).or_default();
-                for (k, v) in to_insert
-                {
+                let entry = self.imports.entry(to.map(|x| x.0 .0)).or_default();
+                for (k, v) in to_insert {
                     entry.1.entry(k).or_default().push(v);
                 }
             }
@@ -1032,7 +1042,7 @@ mod name_resolution {
                     }
                     for ast::FunDep(a, b) in deps.iter().flatten() {
                         for n in a.iter().chain(b.iter()) {
-                            self.def_local(Type, n.0.0, n.0.1);
+                            self.def_local(Type, n.0 .0, n.0 .1);
                         }
                     }
                     for c in cs.iter().flatten() {
@@ -1114,7 +1124,7 @@ mod name_resolution {
                 self.constraint(c);
             }
             self.resolveq(Type, d.0, d.1 .0);
-            d.0.map(|u| u.0.0)
+            d.0.map(|u| u.0 .0)
         }
 
         fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<ast::Ud>) {
@@ -1608,7 +1618,10 @@ mod name_resolution {
                         continue;
                     }
                     if let Some(co) = n.constructors.get(name) {
-                        n.exports.push(Export::ConstructorsAll(*name, co.iter().copied().collect::<Vec<_>>()))
+                        n.exports.push(Export::ConstructorsAll(
+                            *name,
+                            co.iter().copied().collect::<Vec<_>>(),
+                        ))
                     } else if !cs.contains(name) {
                         n.exports.push(Export::Just(*name))
                     }
@@ -1621,8 +1634,12 @@ mod name_resolution {
         }
     }
 
-    fn group_by<'s, K, V>(iter: std::slice::Iter<'s, V>, key: impl Fn(&'s V) -> K) -> BTreeMap<K, Vec<&'s V>> 
-        where K: Ord
+    fn group_by<'s, K, V>(
+        iter: std::slice::Iter<'s, V>,
+        key: impl Fn(&'s V) -> K,
+    ) -> BTreeMap<K, Vec<&'s V>>
+    where
+        K: Ord,
     {
         let mut out = BTreeMap::new();
         for i in iter {
@@ -1654,48 +1671,72 @@ impl Backend {
         let folders = self.client.workspace_folders().await.ok()??;
         for folder in folders {
             use glob::glob;
-            self.client.log_message(MessageType::ERROR, &format!("Scanning: {:?}/lib/**/*.purs", folder.uri.to_string())).await;
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    &format!("Scanning: {:?}/lib/**/*.purs", folder.uri.to_string()),
+                )
+                .await;
             let mut deps: Vec<(ast::Ud, ast::Fi, BTreeSet<ast::Ud>, ast::Module)> = Vec::new();
             for path in glob(&format!(
                 "{}/lib/**/*.purs",
                 folder.uri.to_string().strip_prefix("file://")?
             ))
-            .ok()? {
+            .ok()?
+            {
                 let path = path.as_ref().ok()?;
                 let x = (|| {
-                let source = std::fs::read_to_string(path.clone()).ok()?;
-                let url = Url::parse(&format!(
-                    "file://{}",
-                    &path.clone().into_os_string().into_string().ok()?
-                ))
-                .ok()?;
-                let (m, fi) = self.parse(url, None, &source);
-                let m = m?;
-                let (me, imports) = {
-                    let header = m.0.clone()?;
-                    let me = header.0 .0 .0;
-                    (
-                        me,
-                        header
-                            .2
-                            .iter()
-                            .map(|x| x.from.0 .0)
-                            .collect::<BTreeSet<_>>(),
-                    )
-                };
-                self.modules.insert(me, m.clone());
-                self.fi_to_ud.insert(fi, me);
-                self.ud_to_fi.insert(me, fi);
-                Some((me, fi, imports, m))
+                    let source = std::fs::read_to_string(path.clone()).ok()?;
+                    let url = Url::parse(&format!(
+                        "file://{}",
+                        &path.clone().into_os_string().into_string().ok()?
+                    ))
+                    .ok()?;
+                    let (m, fi) = self.parse(url, None, &source);
+                    let m = m?;
+                    let (me, imports) = {
+                        let header = m.0.clone()?;
+                        let me = header.0 .0 .0;
+                        (
+                            me,
+                            header
+                                .2
+                                .iter()
+                                .map(|x| x.from.0 .0)
+                                .collect::<BTreeSet<_>>(),
+                        )
+                    };
+                    self.modules.insert(me, m.clone());
+                    self.fi_to_ud.insert(fi, me);
+                    self.ud_to_fi.insert(me, fi);
+                    Some((me, fi, imports, m))
                 })();
                 if let Some(x) = x {
-                    self.client.log_message(MessageType::ERROR, &format!("DONE: {:?}", &path.clone().into_os_string().into_string().ok()?)).await;
+                    self.client
+                        .log_message(
+                            MessageType::ERROR,
+                            &format!(
+                                "DONE: {:?}",
+                                &path.clone().into_os_string().into_string().ok()?
+                            ),
+                        )
+                        .await;
                     deps.push(x);
                 } else {
-                    self.client.log_message(MessageType::ERROR, &format!("FAILED: {:?}", &path.clone().into_os_string().into_string().ok()?)).await;
+                    self.client
+                        .log_message(
+                            MessageType::ERROR,
+                            &format!(
+                                "FAILED: {:?}",
+                                &path.clone().into_os_string().into_string().ok()?
+                            ),
+                        )
+                        .await;
                 }
             }
-            self.client.log_message(MessageType::ERROR, &format!("========")).await;
+            self.client
+                .log_message(MessageType::ERROR, &format!("========"))
+                .await;
 
             // NOTE: Not adding them to the name lookup
             fn h(s: &'static str) -> ast::Ud {
@@ -1704,7 +1745,16 @@ impl Backend {
                 ast::Ud(hasher.finish() as usize)
             }
 
-            let mut done: BTreeSet<_> = [h("Prim.Row"), h("Prim.Ordering"), h("Prim.RowList"), h("Prim.TypeError"), h("Prim.Boolean"), h("Prim.Coerce"), h("Prim.Symbol")].into();
+            let mut done: BTreeSet<_> = [
+                h("Prim.Row"),
+                h("Prim.Ordering"),
+                h("Prim.RowList"),
+                h("Prim.TypeError"),
+                h("Prim.Boolean"),
+                h("Prim.Coerce"),
+                h("Prim.Symbol"),
+            ]
+            .into();
             loop {
                 let todo: Vec<_> = deps
                     .iter()
@@ -1713,27 +1763,44 @@ impl Backend {
                 if todo.is_empty() {
                     if let Some((m, x)) = deps
                         .iter()
-                        .map(|(m, _, deps, _)| (m, deps.difference(&done).cloned().collect::<Vec<_>>()))
-                        .min_by_key(|(_, aa)| match aa.len()
-                    {
+                        .map(|(m, _, deps, _)| {
+                            (m, deps.difference(&done).cloned().collect::<Vec<_>>())
+                        })
+                        .min_by_key(|(_, aa)| match aa.len() {
                             0 => 9999,
                             n => n,
+                        })
+                    {
+                        self.client
+                            .log_message(
+                                MessageType::ERROR,
+                                &format!(
+                                    "SMALLEST: {} [{}]",
+                                    self.names.get(m).unwrap().value().clone(),
+                                    x.iter()
+                                        .map(|x| self.names.get(&x).unwrap().value().clone())
+                                        .collect::<Vec<_>>()
+                                        .join(" ")
+                                ),
+                            )
+                            .await;
                     }
-                            ) {
-                        self.client.log_message(MessageType::ERROR
-                                , &format!("SMALLEST: {} [{}]", self.names.get(m).unwrap().value().clone()
-                                , x.iter().map(|x| self.names.get(&x).unwrap().value().clone()).collect::<Vec<_>>().join(" ")
-                                )).await;
-                    }
-                    self.client.log_message(MessageType::ERROR, &format!("EXITING!")).await;
+                    self.client
+                        .log_message(MessageType::ERROR, &format!("EXITING!"))
+                        .await;
                     break;
                 }
                 for (_, fi, _, m) in todo.iter() {
                     self.resolve_module(m, *fi);
                     self.show_errors(*fi).await;
-                };
-                let names = todo.iter().map(|(m, _, _, _)| self.names.get(m).unwrap().value().clone()).collect::<Vec<_>>();
-                self.client.log_message(MessageType::ERROR, &format!("ROUND: {:?}", names)).await;
+                }
+                let names = todo
+                    .iter()
+                    .map(|(m, _, _, _)| self.names.get(m).unwrap().value().clone())
+                    .collect::<Vec<_>>();
+                self.client
+                    .log_message(MessageType::ERROR, &format!("ROUND: {:?}", names))
+                    .await;
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
         }
@@ -1817,21 +1884,23 @@ impl Backend {
         };
 
         {
-            let new_imports: BTreeSet<_> = n
-                .imports
-                .values()
-                .flat_map(|(x, _)| x)
-                .copied()
-                .collect();
+            let new_imports: BTreeSet<_> =
+                n.imports.values().flat_map(|(x, _)| x).copied().collect();
             let old_imports = self
                 .imports
                 .insert(me, new_imports.clone())
                 .unwrap_or_else(BTreeSet::new);
             for x in old_imports.difference(&new_imports) {
-                self.importers.entry(*x).or_insert(BTreeSet::new()).remove(&me);
+                self.importers
+                    .entry(*x)
+                    .or_insert(BTreeSet::new())
+                    .remove(&me);
             }
             for x in new_imports.difference(&old_imports) {
-                self.importers.entry(*x).or_insert(BTreeSet::new()).insert(me);
+                self.importers
+                    .entry(*x)
+                    .or_insert(BTreeSet::new())
+                    .insert(me);
             }
         }
         Some((exports_changed, n.me))
@@ -1858,16 +1927,21 @@ impl Backend {
             if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
                 let _ = self.resolve_module(&m, *fi);
                 self.show_errors(*fi).await;
-                if self.exports.get(&x).map(|ex|  ex.iter().any(|x| x.contains(name))).unwrap_or(false) {
+                if self
+                    .exports
+                    .get(&x)
+                    .map(|ex| ex.iter().any(|x| x.contains(name)))
+                    .unwrap_or(false)
+                {
                     // It's a re-export which means we need to check everything that imports this as well!
                     to_check.append(
                         &mut self
-                        .importers
-                        .get(&x)
-                        .iter()
-                        .flat_map(|x| x.iter())
-                        .copied()
-                        .collect::<Vec<_>>(),
+                            .importers
+                            .get(&x)
+                            .iter()
+                            .flat_map(|x| x.iter())
+                            .copied()
+                            .collect::<Vec<_>>(),
                     );
                 }
             }
@@ -1955,7 +2029,9 @@ impl Backend {
     }
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
-        self.client.log_message(MessageType::ERROR, &format!("GOT CHANGE!")).await;
+        self.client
+            .log_message(MessageType::ERROR, &format!("GOT CHANGE!"))
+            .await;
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
         //if self.modules.len() < 5 {
         //    self.load_workspace().await;
@@ -1979,7 +2055,9 @@ impl Backend {
         } else {
             self.show_errors(fi).await;
         }
-        self.client.log_message(MessageType::ERROR, &format!("FINISHED CHANGE!")).await;
+        self.client
+            .log_message(MessageType::ERROR, &format!("FINISHED CHANGE!"))
+            .await;
     }
 }
 
