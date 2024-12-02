@@ -2131,15 +2131,21 @@ fn build_builtins() -> (BTreeSet<(Scope, ast::Ud)>, DashMap<ast::Ud, String>) {
 
     (
         [
+            // https://pursuit.purerl.fun/builtins/docs/Prim
             h(Type, "Int"),
             h(Type, "Number"),
-            h(Type, "Row"),
             h(Type, "Record"),
             h(Type, "Symbol"),
             h(Type, "Array"),
             h(Type, "Boolean"),
             h(Type, "String"),
             h(Type, "Char"),
+            h(Type, "->"),
+            //
+            h(Type, "Type"),
+            h(Type, "Constraint"),
+            h(Type, "Symbol"),
+            h(Type, "Row"),
         ]
         .into(),
         names,
