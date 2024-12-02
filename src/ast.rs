@@ -36,16 +36,13 @@ impl Span {
     pub fn merge(self, other: Self) -> Self {
         use Span::*;
         match (self, other) {
-            (
-                Known(a_fi, a_lo, a_hi),
-                Known(b_fi, b_lo, b_hi),
-            ) => {
+            (Known(a_fi, a_lo, a_hi), Known(b_fi, b_lo, b_hi)) => {
                 assert_eq!(a_fi, b_fi);
                 let lo = a_lo.min(b_lo);
                 let hi = a_hi.max(b_hi);
                 Known(a_fi, lo, hi)
             }
-            (a @ Known(..), Zero) | (Zero, a @ Known( .. )) => a,
+            (a @ Known(..), Zero) | (Zero, a @ Known(..)) => a,
             _ => self,
         }
     }
@@ -53,7 +50,7 @@ impl Span {
     pub fn fi(&self) -> Option<Fi> {
         match self {
             Span::Known(fi, ..) => Some(*fi),
-            Span::Zero => None
+            Span::Zero => None,
         }
     }
 
@@ -266,11 +263,7 @@ pub struct Label(pub S<Ud>);
 pub struct MName(pub S<Ud>);
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Header(
-    pub MName,
-    pub Option<Vec<Export>>,
-    pub Vec<ImportDecl>,
-);
+pub struct Header(pub MName, pub Option<Vec<Export>>, pub Vec<ImportDecl>);
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Module(pub Option<Header>, pub Vec<Decl>);
@@ -313,22 +306,13 @@ pub struct ImportDecl {
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Decl {
     DataKind(ProperName, Typ),
-    Data(
-        ProperName,
-        Vec<TypVarBinding>,
-        Vec<(ProperName, Vec<Typ>)>,
-    ),
+    Data(ProperName, Vec<TypVarBinding>, Vec<(ProperName, Vec<Typ>)>),
 
     TypeKind(ProperName, Typ),
     Type(ProperName, Vec<TypVarBinding>, Typ),
 
     NewTypeKind(ProperName, Typ),
-    NewType(
-        ProperName,
-        Vec<TypVarBinding>,
-        ProperName,
-        Typ,
-    ),
+    NewType(ProperName, Vec<TypVarBinding>, ProperName, Typ),
 
     ClassKind(ProperName, Typ),
     Class(
@@ -353,6 +337,32 @@ pub enum Decl {
     Sig(Name, Typ),
     Def(Name, Vec<Binder>, GuardedExpr),
 }
+impl Decl {
+    pub fn ud(&self) -> (Option<Ud>, Ud) {
+        match self {
+            Decl::ForeignData(proper_name, _)
+            | Decl::Role(proper_name, _)
+            | Decl::DataKind(proper_name, _)
+            | Decl::Data(proper_name, _, _)
+            | Decl::TypeKind(proper_name, _)
+            | Decl::Type(proper_name, _, _)
+            | Decl::NewTypeKind(proper_name, _)
+            | Decl::NewType(proper_name, _, _, _)
+            | Decl::ClassKind(proper_name, _)
+            | Decl::Class(_, proper_name, _, _, _) => (None, proper_name.0 .0),
+
+            Decl::Instance(_, inst_head, _) | Decl::Derive(_, inst_head) => {
+                (inst_head.1 .0.map(|x| x.0 .0), inst_head.1 .1 .0 .0)
+            }
+
+            Decl::Foreign(name, _) | Decl::Sig(name, _) | Decl::Def(name, _, _) => {
+                (None, name.0 .0)
+            }
+
+            Decl::Fixity(_, _, _, op) | Decl::FixityTyp(_, _, _, op) => (None, op.0 .0),
+        }
+    }
+}
 
 #[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FixitySide {
@@ -373,13 +383,18 @@ pub enum InstBinding {
     Sig(Name, Typ),
     Def(Name, Vec<Binder>, GuardedExpr),
 }
+impl InstBinding {
+    pub fn ud(&self) -> Ud {
+        match self {
+            InstBinding::Sig(name, _)
+            | InstBinding::Def(name, _, _) => name.0.0,
+        }
+        
+    }
+}
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct InstHead(
-    pub Option<Vec<Constraint>>,
-    pub QProperName,
-    pub Vec<Typ>,
-);
+pub struct InstHead(pub Option<Vec<Constraint>>, pub QProperName, pub Vec<Typ>);
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ClassMember(pub Name, pub Typ);
@@ -501,6 +516,15 @@ pub enum LetBinding {
     Sig(Name, Typ),
     Name(Name, Vec<Binder>, GuardedExpr),
     Pattern(Binder, Expr),
+}
+impl LetBinding {
+    pub fn ud(&self) -> Option<Ud> {
+        match self {
+            LetBinding::Sig(name, _)
+            | LetBinding::Name(name, _, _) => todo!(),
+            LetBinding::Pattern(_, _) => None,
+        }
+    }
 }
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]

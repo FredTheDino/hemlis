@@ -895,7 +895,7 @@ mod name_resolution {
         // one for inner declarations - since there is no order here. One could also push these
         // references first and check them later - saying where the same declaration is used in e.g
         // error messages.
-        fn decl_first(&mut self, d: &ast::Decl, prev: Option<ast::Ud>) -> Option<ast::Ud> {
+        fn decl_first(&mut self, d: &ast::Decl, is_redecl: bool) {
             // I skipped references in Kinds for now - not because it's hard but because I
             // want a demo ASAP and it has little value.
             //
@@ -905,14 +905,11 @@ mod name_resolution {
             // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
             match d {
                 ast::Decl::DataKind(d, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
-                    q
+                    self.def_global(Type, d.0, is_redecl);
                 }
                 ast::Decl::Data(d, _, cs) => {
                     // TODO: Type var bindings
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
+                    self.def_global(Type, d.0, is_redecl);
                     let mut cons = BTreeSet::new();
                     for c in cs {
                         self.def_global(Term, c.0 .0, false);
@@ -920,86 +917,64 @@ mod name_resolution {
                     }
                     self.constructors
                         .insert(Name(Type, self.me, d.0 .0, Visibility::Public), cons);
-                    None
                 }
                 ast::Decl::TypeKind(d, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
-                    q
+                    self.def_global(Type, d.0, is_redecl);
                 }
                 ast::Decl::Type(d, _, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
+                    self.def_global(Type, d.0, is_redecl);
                     // Bug compatible with the Purs-compiler
                     self.constructors.insert(
                         Name(Type, self.me, d.0 .0, Visibility::Public),
                         BTreeSet::new(),
                     );
-                    None
                 }
                 ast::Decl::NewTypeKind(d, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
-                    q
+                    self.def_global(Type, d.0, is_redecl);
                 }
                 ast::Decl::NewType(d, _, c, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
+                    self.def_global(Type, d.0, is_redecl);
                     self.def_global(Term, c.0, false);
                     self.constructors.insert(
                         Name(Type, self.me, d.0 .0, Visibility::Public),
                         [Name(Term, self.me, c.0 .0, Visibility::Public)].into(),
                     );
-                    None
                 }
                 ast::Decl::ClassKind(d, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Type, d.0, prev == q);
-                    q
+                    self.def_global(Type, d.0, is_redecl);
                 }
                 ast::Decl::Class(_, d, _, _, mem) => {
-                    let q = Some(d.0 .0);
-
-                    self.def_global(Type, d.0, prev == q);
+                    self.def_global(Type, d.0, is_redecl);
                     for ast::ClassMember(name, _) in mem.iter() {
                         self.def_global(Term, name.0, false);
                     }
-                    q
                 }
                 ast::Decl::Foreign(d, _) => {
                     self.def_global(Term, d.0, false);
-                    None
                 }
                 ast::Decl::ForeignData(d, _) => {
                     self.def_global(Type, d.0, false);
-                    None
                 }
                 ast::Decl::Fixity(_, _, _, o) => {
                     self.def_global(Term, o.0, false);
-                    None
                 }
                 ast::Decl::FixityTyp(_, _, _, o) => {
                     self.def_global(Type, o.0, false);
-                    None
                 }
                 ast::Decl::Sig(d, _) => {
-                    self.def_global(Type, d.0, false);
-                    Some(d.0 .0)
+                    self.def_global(Term, d.0, false);
                 }
                 ast::Decl::Def(d, _, _) => {
-                    let q = Some(d.0 .0);
-                    self.def_global(Term, d.0, prev == q);
-                    q
+                    self.def_global(Term, d.0, is_redecl);
                 }
-                ast::Decl::Instance(_, _, _) => None,
-                ast::Decl::Derive(_, _) => None,
-                ast::Decl::Role(_, _) => None,
+                ast::Decl::Instance(_, _, _) => (),
+                ast::Decl::Derive(_, _) => (),
+                ast::Decl::Role(_, _) => (),
             }
         }
 
         fn decl_body(&mut self, d: &ast::Decl) {
-            // I skipped references in Kinds for now - not because it's hard but because I
-            // want a demo ASAP and it has little value.
+            // TODO: Kind signatures
             match d {
                 ast::Decl::DataKind(_, _) => (),
                 ast::Decl::Data(_, xs, cs) => {
@@ -1047,15 +1022,22 @@ mod name_resolution {
                         self.constraint(c);
                     }
                     for ast::ClassMember(_, typ) in mem.iter() {
+                        let sf = self.push();
                         self.typ(typ);
+                        self.pop(sf);
                     }
                     self.pop(sf);
                 }
                 ast::Decl::Instance(_, head, bindings) => {
                     let sf = self.push();
                     let u = self.inst_head(head);
-                    for b in bindings.iter() {
-                        self.inst_binding(b, u);
+                    let grouped = group_by(bindings.iter(), |d: &ast::InstBinding| d.ud());
+                    for bs in grouped.values() {
+                        let sf = self.push();
+                        for b in bs.iter() {
+                            self.inst_binding(b, u);
+                        }
+                        self.pop(sf);
                     }
                     self.pop(sf);
                 }
@@ -1065,7 +1047,9 @@ mod name_resolution {
                     self.pop(sf);
                 }
                 ast::Decl::Foreign(_, t) => {
+                    let sf = self.push();
                     self.typ(t);
+                    self.pop(sf);
                 }
                 ast::Decl::ForeignData(_, _) => {}
                 ast::Decl::Role(d, _) => {
@@ -1075,10 +1059,16 @@ mod name_resolution {
                     self.expr(e);
                 }
                 ast::Decl::FixityTyp(_, _, t, _) => {
+                    let sf = self.push();
                     self.typ(t);
+                    self.pop(sf);
                 }
                 ast::Decl::Sig(_, t) => {
+                    // This is handled accross definitions since signatures need to have their
+                    // types available in the expression body.
+                    // let sf = self.push();
                     self.typ(t);
+                    // self.pop(sf);
                 }
                 ast::Decl::Def(_, bs, e) => {
                     for b in bs.iter() {
@@ -1098,9 +1088,11 @@ mod name_resolution {
                     self.typ_define_vars(t);
                 }
             }
+            let sf = self.push();
             for t in ts.iter() {
                 self.typ(t);
             }
+            self.pop(sf);
             for c in cs.iter().flatten() {
                 self.constraint(c);
             }
@@ -1154,7 +1146,9 @@ mod name_resolution {
             match e {
                 ast::Expr::Typed(e, t) => {
                     self.expr(e);
+                    let sf = self.push();
                     self.typ(t);
+                    self.pop(sf);
                 }
                 ast::Expr::Op(a, o, b) => {
                     self.expr(a);
@@ -1175,7 +1169,9 @@ mod name_resolution {
                 }
                 ast::Expr::Vta(e, t) => {
                     self.expr(e);
+                    let sf = self.push();
                     self.typ(t);
+                    self.pop(sf);
                 }
                 ast::Expr::IfThenElse(_, a, tru, fal) => {
                     self.expr(a);
@@ -1323,37 +1319,49 @@ mod name_resolution {
         }
 
         fn let_binders(&mut self, ls: &Vec<ast::LetBinding>) {
-            for l in ls {
-                match l {
-                    ast::LetBinding::Sig(l, _) => {
-                        self.def_local(Term, l.0 .0, l.0 .1);
+            let grouped = group_by(ls.iter(), |d: &ast::LetBinding| d.ud());
+            for (k, vs) in grouped.iter() {
+                for v in vs {
+                    match v {
+                        ast::LetBinding::Sig(l, _) => {
+                            self.def_local(Term, l.0 .0, l.0 .1);
+                        }
+                        ast::LetBinding::Name(l, _, _) => {
+                            self.def_local(Term, l.0 .0, l.0 .1);
+                        }
+                        ast::LetBinding::Pattern(b, _) => {
+                            self.binder(b);
+                        }
                     }
-                    ast::LetBinding::Name(l, _, _) => {
-                        self.def_local(Term, l.0 .0, l.0 .1);
-                    }
-                    ast::LetBinding::Pattern(b, _) => {
-                        self.binder(b);
+                    // Only define the first name for defs
+                    if k.is_some() {
+                        break;
                     }
                 }
             }
-            for l in ls {
-                match l {
-                    ast::LetBinding::Sig(_, t) => {
-                        self.typ(t);
-                    }
-                    ast::LetBinding::Name(_, bs, e) => {
-                        let sf = self.push();
-                        for b in bs.iter() {
-                            self.binder(b);
+            for vs in grouped.values() {
+                let sf = self.push();
+                for v in vs {
+                    match v {
+                        ast::LetBinding::Sig(name, t) => {
+                            self.resolve(Term, None, name.0);
+                            self.typ(t);
                         }
-                        self.guarded_expr(e);
-                        self.pop(sf);
-                    }
-                    ast::LetBinding::Pattern(b, e) => {
-                        self.expr(e);
-                        self.binder(b);
+                        ast::LetBinding::Name(name, bs, e) => {
+                            self.resolve(Term, None, name.0);
+                            let sf = self.push();
+                            for b in bs.iter() {
+                                self.binder(b);
+                            }
+                            self.guarded_expr(e);
+                            self.pop(sf);
+                        }
+                        ast::LetBinding::Pattern(_, e) => {
+                            self.expr(e);
+                        }
                     }
                 }
+                self.pop(sf);
             }
         }
 
@@ -1361,7 +1369,9 @@ mod name_resolution {
             match b {
                 ast::Binder::Typed(b, t) => {
                     self.binder(b);
+                    let sf = self.push();
                     self.typ(t);
+                    self.pop(sf);
                 }
                 ast::Binder::App(a, b) => {
                     self.binder(a);
@@ -1497,12 +1507,13 @@ mod name_resolution {
                     }
                 }
                 ast::Typ::Forall(xs, t) => {
-                    let sf = self.push();
+                    // Has to be handled by caller
+                    // let sf = self.push();
                     for x in xs.iter() {
                         self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
                     }
                     self.typ(t);
-                    self.pop(sf);
+                    // self.pop(sf);
                 }
                 ast::Typ::Kinded(t, _t) => {
                     // Not doing Kinds for now
@@ -1546,13 +1557,20 @@ mod name_resolution {
             for i in h.2.iter() {
                 n.import(i);
             }
-            let mut prev = None;
-            for d in m.1.iter() {
-                prev = n.decl_first(d, prev);
+            let grouped = group_by(m.1.iter(), |d: &ast::Decl| d.ud());
+            for ds in grouped.values() {
+                let mut is_redecl = false;
+                for d in ds.iter() {
+                    n.decl_first(d, is_redecl);
+                    is_redecl = true;
+                }
             }
-            for d in m.1.iter() {
+            for (k, ds) in grouped.iter() {
                 let sf = n.push();
-                n.decl_body(d);
+                for (i, d) in ds.iter().enumerate() {
+                    n.decl_body(d);
+                    eprintln!("XX: {:?} {}", k, i);
+                }
                 n.pop(sf);
             }
 
@@ -1584,6 +1602,16 @@ mod name_resolution {
         } else {
             None
         }
+    }
+
+    fn group_by<'s, K, V>(iter: std::slice::Iter<'s, V>, key: impl Fn(&'s V) -> K) -> BTreeMap<K, Vec<&'s V>> 
+        where K: Ord
+    {
+        let mut out = BTreeMap::new();
+        for i in iter {
+            out.entry(key(i)).or_insert(Vec::new()).push(i);
+        }
+        out
     }
 }
 
