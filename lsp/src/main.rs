@@ -322,7 +322,8 @@ impl LanguageServer for Backend {
             NRerrors::MultipleImports(ns, span) => Diagnostic::new_simple(
                 Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
                 format!(
-                    "This name is imported from {} different modules\n",
+                    "This name is imported from {} different modules\n{}",
+                    ns.len(),
                     ns.iter()
                         .map(|Name(s, m, n, _)| {
                             format!(

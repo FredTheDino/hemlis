@@ -111,7 +111,7 @@ pub struct N<'s> {
     constructors: BTreeMap<Name, BTreeSet<Name>>,
 
     pub defines: BTreeMap<Name, ast::Span>,
-    locals: Vec<(Scope, ast::Ud, Name)>,
+    locals: Vec<Name>,
     pub imports: BTreeMap<Option<ast::Ud>, BTreeMap<ast::Ud, Vec<Export>>>,
 }
 
@@ -168,7 +168,7 @@ impl<'s> N<'s> {
 
     fn def_local(&mut self, scope: Scope, u: ast::Ud, s: ast::Span) {
         let name = Name(scope, self.me, u, Visibility::Private(s.lo()));
-        self.locals.push((scope, u, name));
+        self.locals.push(name);
 
         self.def(s, name, false)
     }
@@ -220,14 +220,14 @@ impl<'s> N<'s> {
     fn find_local(&self, ss: Scope, n: ast::Ud) -> Option<Name> {
         self.locals
             .iter()
-            .rfind(|(s, u, _)| *u == n && *s == ss)
-            .map(|(_, _, name)| *name)
+            .rfind(|x| x.module() == n && x.scope() == ss)
+            .copied()
     }
 
     // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
     fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> Vec<Name> {
         if m.is_none() {
-            [
+            let ee: Vec<_> = [
                 self.find_local(ss, n),
                 if self
                     .defines
@@ -240,7 +240,8 @@ impl<'s> N<'s> {
             ]
             .into_iter()
             .flatten()
-            .chain(
+            .collect();
+            if ee.is_empty() {
                 self.imports
                     .get(&m)
                     .iter()
@@ -250,8 +251,10 @@ impl<'s> N<'s> {
                             .flat_map(|i| i.to_names())
                             .find(|p| p.is(ss, n))
                     })
-            )
-            .collect()
+                    .collect()
+            } else {
+                ee
+            }
         } else {
             self.imports
                 .get(&m)
@@ -1021,7 +1024,6 @@ impl<'s> N<'s> {
             }
         }
         for vs in grouped.values() {
-            let sf = self.push();
             for v in vs {
                 match v {
                     ast::LetBinding::Sig(name, t) => {
@@ -1042,17 +1044,17 @@ impl<'s> N<'s> {
                     }
                 }
             }
-            self.pop(sf);
         }
     }
 
     fn binder(&mut self, b: &ast::Binder) {
         match b {
             ast::Binder::Typed(b, t) => {
-                self.binder(b);
-                let sf = self.push();
+                // let sf = self.push();
                 self.typ(t);
-                self.pop(sf);
+                self.binder(b);
+                // TODO: This is incorrect - it should only pop the pushed types.
+                // self.pop(sf);
             }
             ast::Binder::App(a, b) => {
                 self.binder(a);
@@ -1114,7 +1116,7 @@ impl<'s> N<'s> {
             | ast::Typ::Constructor(_)
             | ast::Typ::Symbol(_)
             | ast::Typ::Str(_)
-            | ast::Typ::Int(_)
+            | ast::Typ::Int(_, _)
             | ast::Typ::Hole(_) => (),
 
             ast::Typ::Var(v) => {
@@ -1176,7 +1178,7 @@ impl<'s> N<'s> {
                 self.resolveq(Type, v.0, v.1 .0);
             }
             ast::Typ::Str(_) => (),
-            ast::Typ::Int(_) => (),
+            ast::Typ::Int(_, _) => (),
             ast::Typ::Hole(_) => (),
             ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
                 let rs = &rs.0;

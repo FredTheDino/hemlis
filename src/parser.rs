@@ -551,14 +551,13 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
         (Some(T::Symbol(_)), _) | (Some(T::Qual(_)), Some(T::Symbol(_))) => {
             Some(Typ::Symbol(qsymbol(p)?))
         }
-        (Some(T::Op(_)), _) | (Some(T::Qual(_)), Some(T::Op(_))) => Some(Typ::Symbol(qsymbol(p)?)),
 
         (Some(T::Qual(_)), Some(T::Qual(_))) => unreachable!("Illegal double-qual"),
         (Some(T::String(_) | T::RawString(_)), _) => Some(Typ::Str(string(p)?)),
         (Some(T::Number(n)), _) if n.parse::<i32>().is_ok() => {
             let span = p.span();
             number(p);
-            Some(Typ::Int(Int(S(n.parse::<i32>().unwrap(), span))))
+            Some(Typ::Int(false, Int(S(n.parse::<i32>().unwrap(), span))))
         }
         // (Some(T::_), _) => { Some(Typ::Int(int(p)?)) },
         (Some(T::Hole(_)), _) => Some(Typ::Hole(hole(p)?)),
@@ -1159,11 +1158,10 @@ fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder> {
 fn binder_call<'t>(p: &mut P<'t>) -> Option<Binder> {
     let head = binder_atom(p, Some("Expected a binder"))?;
     if matches!(head, Binder::Constructor(_)) {
-        let bs = many_until(
+        let bs = many(
             p,
             "binder_no_type",
             |x| binder_atom(x, None),
-            next_is!(T::RightArrow),
         );
         let bs = [vec![head], bs].concat();
         match Binder::to_constructor(bs) {
@@ -1316,11 +1314,13 @@ fn record_updates<'t>(p: &mut P<'t>) -> Option<Vec<RecordUpdate>> {
 
 fn record_update<'t>(p: &mut P<'t>) -> Option<RecordUpdate> {
     let f = label_no_eat(p)?;
-    if !matches!(p.peek2t(), (Some(_), Some(T::Equals))) {
+    if !matches!(p.peek2t(), (Some(_), Some(T::Equals | T::LeftBrace))) {
         return None;
     }
     p.next();
-    kw_eq(p)?;
+    if next_is!(T::Equals)(p) {
+        kw_eq(p)?;
+    }
 
     alt!(p: Serror::Info(p.span(), "record_label"),
         |p: &mut P<'t>| {

@@ -413,7 +413,7 @@ pub enum Typ {
     Constructor(QProperName),
     Symbol(QSymbol),
     Str(Str),
-    Int(Int),
+    Int(bool, Int),
     Hole(Hole),
     Record(S<Row>),
     Row(S<Row>),
@@ -433,7 +433,7 @@ impl Typ {
             match a {
                 Typ::Symbol(_)
                 | Typ::Str(_)
-                | Typ::Int(_)
+                | Typ::Int(_, _)
                 | Typ::Hole(_)
                 | Typ::Record(_)
                 | Typ::Var(_)
