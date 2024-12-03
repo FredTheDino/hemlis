@@ -325,9 +325,9 @@ impl LanguageServer for Backend {
                     "This name is imported from {} different modules\n{}",
                     ns.len(),
                     ns.iter()
-                        .map(|Name(s, m, n, _)| {
+                        .map(|Name(s, m, n, x)| {
                             format!(
-                                "{:?} {}.{}",
+                                "{:?} {}.{} {:?}",
                                 s,
                                 names
                                     .get(m)
@@ -337,6 +337,7 @@ impl LanguageServer for Backend {
                                     .get(n)
                                     .map(|x| x.clone())
                                     .unwrap_or_else(|| "?".into()),
+                                x,
                             )
                         })
                         .collect::<Vec<_>>()

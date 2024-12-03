@@ -1,6 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
 use crate::ast;
 use dashmap::DashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Visibility {
@@ -26,9 +26,13 @@ impl Name {
         self.0
     }
 
-    pub fn module(&self) -> ast::Ud { self.1 }
+    pub fn module(&self) -> ast::Ud {
+        self.1
+    }
 
-    pub fn name(&self) -> ast::Ud { self.2 }
+    pub fn name(&self) -> ast::Ud {
+        self.2
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,7 +47,6 @@ pub enum Scope {
 
 use Scope::*;
 
-
 #[derive(Debug, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Export {
     ConstructorsSome(Name, Vec<Name>),
@@ -54,10 +57,16 @@ pub enum Export {
 impl Export {
     pub fn show<'a>(&'a self, f: &'a impl Fn(&'a ast::Ud) -> String) -> String {
         match self {
-            Export::ConstructorsSome(name, vec) => 
-                format!("ConstructorsSome {} {:?}", name.show::<'a>(f), vec.iter().map(|n| n.show::<'a>(f)).collect::<Vec<_>>()),
-            Export::ConstructorsAll(name, vec) => 
-                format!("ConstructorsAll {} {:?}", name.show(f), vec.iter().map(|n| n.show(f)).collect::<Vec<_>>()),
+            Export::ConstructorsSome(name, vec) => format!(
+                "ConstructorsSome {} {:?}",
+                name.show::<'a>(f),
+                vec.iter().map(|n| n.show::<'a>(f)).collect::<Vec<_>>()
+            ),
+            Export::ConstructorsAll(name, vec) => format!(
+                "ConstructorsAll {} {:?}",
+                name.show(f),
+                vec.iter().map(|n| n.show(f)).collect::<Vec<_>>()
+            ),
             Export::Just(name) => format!("Just {}", name.show(f)),
         }
     }
@@ -80,7 +89,6 @@ impl Export {
         }
     }
 }
-
 
 // Deliberately not `Copy` so you always use it right
 #[derive(Debug)]
@@ -179,18 +187,11 @@ impl<'s> N<'s> {
         self.def(s, name, false)
     }
 
-    fn resolve(
-        &mut self,
-        scope: Scope,
-        m: Option<ast::Ud>,
-        n: ast::S<ast::Ud>,
-    ) -> Option<Name> {
+    fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) -> Option<Name> {
         let s = n.1;
         let n = n.0;
-        let mut matches = Vec::new();
-        matches.append(&mut self.resolve_inner(scope, m, n));
+        let unique_matches = self.resolve_inner(scope, m, n);
 
-        let unique_matches = matches.into_iter().collect::<BTreeSet<_>>();
         for name in unique_matches.iter().copied() {
             self.resolved.insert((s.lo(), s.hi()), name);
             if name.1 == self.me {
@@ -210,12 +211,7 @@ impl<'s> N<'s> {
         unique_matches.first().copied()
     }
 
-    fn resolveq(
-        &mut self,
-        scope: Scope,
-        m: Option<ast::Qual>,
-        n: ast::S<ast::Ud>,
-    ) -> Option<Name> {
+    fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) -> Option<Name> {
         let m = m.map(|x| {
             self.resolve(Namespace, None, x.0);
             x.0 .0
@@ -231,9 +227,9 @@ impl<'s> N<'s> {
     }
 
     // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
-    fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> Vec<Name> {
+    fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> BTreeSet<Name> {
         if m.is_none() {
-            let ee: Vec<_> = [
+            let ee: BTreeSet<_> = [
                 self.find_local(ss, n),
                 if self
                     .defines
@@ -289,7 +285,7 @@ impl<'s> N<'s> {
                     self.exports.push(Just(n))
                 }
             }
-            ast::Export::Typ(v)  => {
+            ast::Export::Typ(v) => {
                 if let Some(n) = self.resolve(Type, None, v.0) {
                     self.exports.push(Just(n))
                 }
@@ -335,7 +331,7 @@ impl<'s> N<'s> {
                 self.exports.push(out);
             }
 
-            ast::Export::Module(v) if v.0.0 == self.me => {
+            ast::Export::Module(v) if v.0 .0 == self.me => {
                 self.export_self();
             }
             ast::Export::Module(v) => {
@@ -348,7 +344,12 @@ impl<'s> N<'s> {
                     self.resolved.insert((v.0 .1.lo(), v.0 .1.hi()), name);
                     // Module exports export everything that's ever imported from a module -
                     // right?
-                    let imports = self.imports.values().flatten().filter(|(x, _)| **x == v.0 .0).collect::<Vec<_>>();
+                    let imports = self
+                        .imports
+                        .values()
+                        .flatten()
+                        .filter(|(x, _)| **x == v.0 .0)
+                        .collect::<Vec<_>>();
                     if imports.is_empty() {
                         self.errors.push(NRerrors::Unknown(
                             Scope::Module,
@@ -367,26 +368,26 @@ impl<'s> N<'s> {
     }
 
     fn export_self(&mut self) {
-            let cs: BTreeSet<_> = self.constructors.values().flatten().collect();
-            for name @ Name(s, m, _, v) in self.defines.keys() {
-                if *v != Visibility::Public {
-                    continue;
-                }
-                if *m != self.me {
-                    continue;
-                }
-                if !matches!(s, Scope::Class | Scope::Term | Scope::Type) {
-                    continue;
-                }
-                if let Some(co) = self.constructors.get(name) {
-                    self.exports.push(Export::ConstructorsAll(
-                        *name,
-                        co.iter().copied().collect::<Vec<_>>(),
-                    ))
-                } else if !cs.contains(name) {
-                    self.exports.push(Export::Just(*name))
-                }
+        let cs: BTreeSet<_> = self.constructors.values().flatten().collect();
+        for name @ Name(s, m, _, v) in self.defines.keys() {
+            if *v != Visibility::Public {
+                continue;
             }
+            if *m != self.me {
+                continue;
+            }
+            if !matches!(s, Scope::Class | Scope::Term | Scope::Type) {
+                continue;
+            }
+            if let Some(co) = self.constructors.get(name) {
+                self.exports.push(Export::ConstructorsAll(
+                    *name,
+                    co.iter().copied().collect::<Vec<_>>(),
+                ))
+            } else if !cs.contains(name) {
+                self.exports.push(Export::Just(*name))
+            }
+        }
     }
 
     fn import(
@@ -479,7 +480,7 @@ impl<'s> N<'s> {
             // TODO: I'm gonna need a test-suite for this
             let mut to_export = names
                 .iter()
-                .filter_map(|i| self.import_part(i, from.0.0, &exports))
+                .filter_map(|i| self.import_part(i, from.0 .0, &exports))
                 .collect();
             self.imports
                 .get_mut(&import_name)
@@ -490,16 +491,15 @@ impl<'s> N<'s> {
         }
     }
 
-    fn import_part(
-        &mut self,
-        i: &ast::Import,
-        from: ast::Ud,
-        valid: &[Export],
-    ) -> Option<Export> {
+    fn import_part(&mut self, i: &ast::Import, from: ast::Ud, valid: &[Export]) -> Option<Export> {
         let mut export_as = |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
             if let out @ Some(_) = valid.iter().find_map(|n| match n {
                 out @ Export::Just(name) if name.is(scope, x) => Some(out.clone()),
-                Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _) if name.is(scope, x) => Some(Export::Just(*name)),
+                Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _)
+                    if name.is(scope, x) =>
+                {
+                    Some(Export::Just(*name))
+                }
                 _ => None,
             }) {
                 out
@@ -518,8 +518,8 @@ impl<'s> N<'s> {
             ast::Import::Class(ast::ProperName(ast::S(x, s))) => export_as(Class, *x, *s)?,
             ast::Import::TypDat(x, ast::DataMember::All) => {
                 if let Some(out) = valid.iter().find_map(|n| match n {
-                    out @ (Export::ConstructorsSome(name, _)
-                    | Export::ConstructorsAll(name, _))
+                    out
+                    @ (Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _))
                         if name.is(Type, x.0 .0) =>
                     {
                         Some(out)
@@ -547,18 +547,19 @@ impl<'s> N<'s> {
                         .iter()
                         .map(|n @ Name(_, _, x, _)| (x, n))
                         .collect::<BTreeMap<_, _>>();
-                    let cs = cs.iter()
-                            .filter_map(|n| {
-                                if let Some(xx) = es.get(&n.0 .0) {
-                                    Some(**xx)
-                                } else {
-                                    self.errors.push(NRerrors::NotExportedOrDoesNotExist(
-                                        from, Term, n.0 .0, n.0 .1,
-                                    ));
-                                    None
-                                }
-                            })
-                            .collect();
+                    let cs = cs
+                        .iter()
+                        .filter_map(|n| {
+                            if let Some(xx) = es.get(&n.0 .0) {
+                                Some(**xx)
+                            } else {
+                                self.errors.push(NRerrors::NotExportedOrDoesNotExist(
+                                    from, Term, n.0 .0, n.0 .1,
+                                ));
+                                None
+                            }
+                        })
+                        .collect();
                     Export::ConstructorsSome(*name, cs)
                 } else {
                     self.errors.push(NRerrors::NotExportedOrDoesNotExist(
@@ -779,32 +780,34 @@ impl<'s> N<'s> {
 
     fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<Name>) {
         // TODO: Check if these names actually are exported from whence they came
-        match b {
+        let l = match b {
             ast::InstBinding::Sig(l, t) => {
-                if let Some(Name(_, m, _, _)) = u {
+                if let Some(n) = u {
                     let span = l.0 .1;
                     self.resolved.insert(
                         (span.lo(), span.hi()),
-                        Name(Term, m, l.0 .0, Visibility::Public),
+                        Name(Term, n.module(), l.0 .0, Visibility::Public),
                     );
                 }
                 self.typ(t);
+                l
             }
             ast::InstBinding::Def(l, binders, e) => {
-                if let Some(Name(_, m, _, _)) = u {
-                    let span = l.0 .1;
-                    self.resolved.insert(
-                        (span.lo(), span.hi()),
-                        Name(Term, m, l.0 .0, Visibility::Public),
-                    );
-                }
                 let sf = self.push();
                 for b in binders.iter() {
                     self.binder(b);
                 }
                 self.guarded_expr(e);
                 self.pop(sf);
+                l
             }
+        };
+        if let Some(n) = u {
+            let span = l.0 .1;
+            self.resolved.insert(
+                (span.lo(), span.hi()),
+                Name(Term, n.module(), l.0 .0, Visibility::Public),
+            );
         }
     }
 
@@ -1227,7 +1230,6 @@ impl<'s> N<'s> {
             }
         }
     }
-
 }
 
 // Build a map of all source positions that have a name connected with them. We can then use

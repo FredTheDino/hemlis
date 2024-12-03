@@ -428,7 +428,6 @@ pub enum Typ {
 
 impl Typ {
     pub fn cast_to_constraint(self) -> Option<Constraint> {
-        println!("{:?}", self);
         fn inner(a: Typ, mut args: Vec<Typ>) -> Option<Constraint> {
             match a {
                 Typ::Symbol(_)

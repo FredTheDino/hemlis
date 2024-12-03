@@ -1637,9 +1637,7 @@ fn fundeps<'t>(p: &mut P<'t>) -> Option<Option<Vec<FunDep>>> {
             kw_pipe(p)?;
             let mut deps = Vec::new();
             loop {
-                println!("H: {:?}", p.peekt());
                 deps.push(fundep(p)?);
-                println!("NEXT: {:?}", p.peekt());
                 if next_is!(T::Comma)(p) {
                     kw_comma(p)?;
                 } else {
@@ -1653,7 +1651,6 @@ fn fundeps<'t>(p: &mut P<'t>) -> Option<Option<Vec<FunDep>>> {
 }
 
 fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep> {
-            eprintln!("DEP!");
     if next_is!(T::RightArrow)(p) {
             kw_right_arrow(p)?;
             Some(FunDep(Vec::new(), many(p, "fundep A", name)))
@@ -1661,13 +1658,11 @@ fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep> {
             let b = many_until(p, "fundep B", name, next_isnt!(T::Lower(_)));
             kw_right_arrow(p)?;
             let c = many_until(p, "fundep C", name, next_isnt!(T::Lower(_)));
-            println!("GOT: {} -> {}", b.len(), c.len());
             Some(FunDep(b, c))
         }
 }
 
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember>> {
-    println!("{:?}", p.peek2t());
     if matches!(p.peekt(), Some(T::Where)) {
         kw_where(p)?;
         sep_until_(p, "members", member)
