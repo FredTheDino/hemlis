@@ -325,6 +325,10 @@ impl<'s> N<'s> {
                 };
                 self.exports.push(out);
             }
+
+            ast::Export::Module(v) if v.0.0 == self.me => {
+                self.export_self();
+            }
             ast::Export::Module(v) => {
                 if let Some(ns) = self.imports.get(&Some(v.0 .0)).cloned() {
                     self.resolve(Namespace, None, v.0);
@@ -351,6 +355,29 @@ impl<'s> N<'s> {
                 }
             }
         }
+    }
+
+    fn export_self(&mut self) {
+            let cs: BTreeSet<_> = self.constructors.values().flatten().collect();
+            for name @ Name(s, m, _, v) in self.defines.keys() {
+                if *v != Visibility::Public {
+                    continue;
+                }
+                if *m != self.me {
+                    continue;
+                }
+                if !matches!(s, Scope::Class | Scope::Term | Scope::Type) {
+                    continue;
+                }
+                if let Some(co) = self.constructors.get(name) {
+                    self.exports.push(Export::ConstructorsAll(
+                        *name,
+                        co.iter().copied().collect::<Vec<_>>(),
+                    ))
+                } else if !cs.contains(name) {
+                    self.exports.push(Export::Just(*name))
+                }
+            }
     }
 
     fn import(
@@ -462,10 +489,11 @@ impl<'s> N<'s> {
     ) -> Option<Export> {
         let mut export_as = |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
             if let out @ Some(_) = valid.iter().find_map(|n| match n {
-                out @ Export::Just(name) if name.is(scope, x) => Some(out),
+                out @ Export::Just(name) if name.is(scope, x) => Some(out.clone()),
+                Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _) if name.is(scope, x) => Some(Export::Just(*name)),
                 _ => None,
             }) {
-                out.cloned()
+                out
             } else {
                 self.errors
                     .push(NRerrors::NotExportedOrDoesNotExist(from, scope, x, s));
@@ -798,9 +826,9 @@ impl<'s> N<'s> {
     fn expr(&mut self, e: &ast::Expr) {
         match e {
             ast::Expr::Typed(e, t) => {
-                self.expr(e);
                 let sf = self.push();
                 self.typ(t);
+                self.expr(e);
                 self.pop(sf);
             }
             ast::Expr::Op(a, o, b) => {
@@ -1191,6 +1219,7 @@ impl<'s> N<'s> {
             }
         }
     }
+
 }
 
 // Build a map of all source positions that have a name connected with them. We can then use
@@ -1235,26 +1264,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
                 n.export(ex);
             }
         } else {
-            let cs: BTreeSet<_> = n.constructors.values().flatten().collect();
-            for name @ Name(s, m, _, v) in n.defines.keys() {
-                if *v != Visibility::Public {
-                    continue;
-                }
-                if *m != n.me {
-                    continue;
-                }
-                if !matches!(s, Scope::Class | Scope::Term | Scope::Type) {
-                    continue;
-                }
-                if let Some(co) = n.constructors.get(name) {
-                    n.exports.push(Export::ConstructorsAll(
-                        *name,
-                        co.iter().copied().collect::<Vec<_>>(),
-                    ))
-                } else if !cs.contains(name) {
-                    n.exports.push(Export::Just(*name))
-                }
-            }
+            n.export_self();
         }
 
         Some(h.0 .0 .0)
