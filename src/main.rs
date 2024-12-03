@@ -9,7 +9,6 @@ use rayon::prelude::*;
 pub mod ast;
 pub mod lexer;
 pub mod parser;
-pub mod symtab;
 pub mod nr;
 
 #[allow(dead_code)]
@@ -160,24 +159,23 @@ fn parse_and_resolve_names() {
     let names_: BTreeMap<_, _> = names.iter().map(|k| (*k.key(), k.value().clone())).collect();
     let mut done: BTreeSet<_> = exports.iter().map(|k| *k.key()).collect();
 
+
     let mut errors = Vec::new();
     loop {
         let todo: Vec<_> = deps
             .iter()
             .filter(|(_, me, deps)| (!done.contains(me)) && deps.is_subset(&done))
             .collect();
+        println!("DOING: {:?}", todo.iter().map(|(_, me, _)| names_.get(me).unwrap()).collect::<Vec<_>>());
         if todo.is_empty() {
             if let Some((m, x)) = deps
                 .iter()
                 .map(|(_, me, deps)| {
                     (me, deps.difference(&done).cloned().collect::<Vec<_>>())
                 })
-                .min_by_key(|(_, aa)| match aa.len() {
-                    0 => 9999,
-                    n => n,
-                })
+                .find(|(_, aa)| !aa.is_empty())
             {
-                println!("DEADLOCKED! {:?} {:?}", m, x);
+                println!("DEADLOCKED! {:?} {:?}", names_.get(m).unwrap(), x.iter().map(|x| names_.get(x).unwrap()).collect::<Vec<_>>());
             }
             break;
         }
@@ -188,6 +186,9 @@ fn parse_and_resolve_names() {
             exports.insert(*me, n.exports);
         }
         done.append(&mut todo.into_iter().map(|(_, me, _)| *me).collect());
+    }
+    for e in errors.iter() {
+        println!("{:?}", e);
     }
 }
 
