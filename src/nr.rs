@@ -435,7 +435,7 @@ impl<'s> N<'s> {
                     .filter(|x| {
                         x.to_names()
                             .iter()
-                            .any(|Name(s, _, n, _)| hiding.contains(&(*s, *n)))
+                            .all(|Name(s, _, n, _)| !hiding.contains(&(*s, *n)))
                     })
                     .collect(),
             );
@@ -1199,9 +1199,6 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
     // You still get syntax errors - but without a module-header we can't verify the names in
     // the module. This is annoying and could possibly be fixed.
     if let Some(h) = m.0.as_ref() {
-        // NOTE[et]: This is very finicky code. :(
-        // NOTE[et]: I don't want this to be done here - but it's way easier to place it here
-        // than in some requirement for `N`.
         let name = h.0 .0 .0;
         n.me = name;
         n.exports
