@@ -158,6 +158,7 @@ fn parse_and_resolve_names() {
 
     let names_: BTreeMap<_, _> = names.iter().map(|k| (*k.key(), k.value().clone())).collect();
     let mut done: BTreeSet<_> = exports.iter().map(|k| *k.key()).collect();
+    let mut imports = BTreeMap::new();
 
 
     let mut errors = Vec::new();
@@ -166,7 +167,7 @@ fn parse_and_resolve_names() {
             .iter()
             .filter(|(_, me, deps)| (!done.contains(me)) && deps.is_subset(&done))
             .collect();
-        println!("DOING: {:?}", todo.iter().map(|(_, me, _)| names_.get(me).unwrap()).collect::<Vec<_>>());
+        // println!("DOING: {:?}", todo.iter().map(|(_, me, _)| names_.get(me).unwrap()).collect::<Vec<_>>());
         if todo.is_empty() {
             if let Some((m, x)) = deps
                 .iter()
@@ -184,11 +185,38 @@ fn parse_and_resolve_names() {
             nr::resolve_names(&mut n, prim, m);
             errors.append(&mut n.errors);
             exports.insert(*me, n.exports);
+            imports.insert(*me, n.imports);
         }
         done.append(&mut todo.into_iter().map(|(_, me, _)| *me).collect());
     }
     for e in errors.iter() {
         println!("{:?}", e);
+    }
+
+    println!("EXPORTS");
+    for e in exports.iter() {
+        let name = names_.get(e.key()).unwrap();
+        if name.starts_with("Prim") { continue; }
+        println!("> {}", name);
+        for v in e.value().iter() {
+            println!("   {}", v.show(&|u| names_.get(u).unwrap().clone()));
+        }
+    }
+
+    println!("IMPORTS");
+    for (k, v) in imports.iter() {
+        let name = names_.get(k).unwrap();
+        if name.starts_with("Prim") { continue; }
+        println!("> {}", name);
+        for (k, v) in v.iter() {
+            println!(" ! namespace: {}", k.map(|u| names_.get(&u).unwrap().clone()).unwrap_or("ME".into()));
+            for (k, v) in v.iter() {
+                println!("   import: {}", names_.get(k).unwrap().clone());
+                for v in v.iter() {
+                    println!("     * {}", v.show(&|u| names_.get(u).unwrap().clone()));
+                }
+            }
+        }
     }
 }
 

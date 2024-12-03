@@ -18,6 +18,11 @@ impl Name {
         let Name(ss, _, uu, _) = self;
         ss == s && uu == u
     }
+
+    pub fn show<'a>(&'a self, f: &'a impl Fn(&'a ast::Ud) -> String) -> String {
+        let Name(ss, mm, uu, _) = self;
+        format!("{:?} {}.{}", ss, f(mm), f(uu))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,6 +46,16 @@ pub enum Export {
 }
 
 impl Export {
+    pub fn show<'a>(&'a self, f: &'a impl Fn(&'a ast::Ud) -> String) -> String {
+        match self {
+            Export::ConstructorsSome(name, vec) => 
+                format!("ConstructorsSome {} {:?}", name.show::<'a>(f), vec.iter().map(|n| n.show::<'a>(f)).collect::<Vec<_>>()),
+            Export::ConstructorsAll(name, vec) => 
+                format!("ConstructorsAll {} {:?}", name.show(f), vec.iter().map(|n| n.show(f)).collect::<Vec<_>>()),
+            Export::Just(name) => format!("Just {}", name.show(f)),
+        }
+    }
+
     pub fn contains(&self, name: Name) -> bool {
         match self {
             Export::ConstructorsSome(n, xs) | Export::ConstructorsAll(n, xs) => {
