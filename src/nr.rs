@@ -782,13 +782,6 @@ impl<'s> N<'s> {
         // TODO: Check if these names actually are exported from whence they came
         let l = match b {
             ast::InstBinding::Sig(l, t) => {
-                if let Some(n) = u {
-                    let span = l.0 .1;
-                    self.resolved.insert(
-                        (span.lo(), span.hi()),
-                        Name(Term, n.module(), l.0 .0, Visibility::Public),
-                    );
-                }
                 self.typ(t);
                 l
             }
