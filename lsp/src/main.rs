@@ -310,6 +310,7 @@ pub struct Name(Scope, ast::Ud, ast::Ud, Visibility);
 pub enum Scope {
     Kind,
     Type,
+    Class,
     Term,
     Module,
     Namespace,
@@ -393,7 +394,7 @@ mod name_resolution {
                 NRerrors::Unknown(scope, ns, n, span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
                     format!(
-                        "Failed to resolve this name\n{:?} {}.{}",
+                        "Failed to resolve this name\n{:?} {}.{}\n{:?}.{:?}",
                         scope,
                         names
                             .get(&ns.unwrap_or(ast::Ud(0)))
@@ -402,12 +403,33 @@ mod name_resolution {
                         names
                             .get(&n)
                             .map(|x| x.clone())
-                            .unwrap_or_else(|| "?".into())
-                    ),
+                            .unwrap_or_else(|| "?".into()),
+                    ns,
+                    n
+                    )
                 ),
                 NRerrors::MultipleImports(ns, span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                    format!("This name is imported from {} different modules", ns.len()),
+                    format!(
+                        "This name is imported from {} different modules\n",
+                        ns.iter()
+                            .map(|Name(s, m, n, _)| {
+                                format!(
+                                    "{:?} {}.{}",
+                                    s,
+                                    names
+                                        .get(m)
+                                        .map(|x| x.clone())
+                                        .unwrap_or_else(|| "?".into()),
+                                    names
+                                        .get(n)
+                                        .map(|x| x.clone())
+                                        .unwrap_or_else(|| "?".into()),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
                 ),
                 NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => {
                     Diagnostic::new_simple(
@@ -538,10 +560,7 @@ mod name_resolution {
     }
 
     impl<'s> N<'s> {
-        pub fn new(
-            me: ast::Ud,
-            global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
-        ) -> Self {
+        pub fn new(me: ast::Ud, global_exports: &'s DashMap<ast::Ud, Vec<Export>>) -> Self {
             Self {
                 me,
                 usages: BTreeMap::new(),
@@ -598,7 +617,12 @@ mod name_resolution {
             self.def(s, name, false)
         }
 
-        fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) -> Option<Name> {
+        fn resolve(
+            &mut self,
+            scope: Scope,
+            m: Option<ast::Ud>,
+            n: ast::S<ast::Ud>,
+        ) -> Option<Name> {
             let s = n.1;
             let n = n.0;
             let mut matches = Vec::new();
@@ -624,7 +648,12 @@ mod name_resolution {
             unique_matches.first().copied()
         }
 
-        fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) -> Option<Name>{
+        fn resolveq(
+            &mut self,
+            scope: Scope,
+            m: Option<ast::Qual>,
+            n: ast::S<ast::Ud>,
+        ) -> Option<Name> {
             let m = m.map(|x| {
                 self.resolve(Namespace, None, x.0);
                 x.0 .0
@@ -659,8 +688,8 @@ mod name_resolution {
                     self.imports
                         .get(&m)
                         .iter()
-                        .flat_map(|x| x.1.get(&(ss, n)).cloned().unwrap_or_default())
-                    )
+                        .flat_map(|x| x.1.get(&(ss, n)).cloned().unwrap_or_default()),
+                )
                 .collect()
             } else {
                 self.imports
@@ -721,8 +750,8 @@ mod name_resolution {
                     }
                 }
                 ast::Export::Class(v) => {
-                    self.resolve(Type, None, v.0);
-                    Just(Name(Type, self.me, v.0 .0, Visibility::Public))
+                    self.resolve(Class, None, v.0);
+                    Just(Name(Class, self.me, v.0 .0, Visibility::Public))
                 }
                 ast::Export::Module(v) => {
                     if let Some((mods, names)) = self.imports.get(&Some(v.0 .0)).cloned() {
@@ -810,7 +839,7 @@ mod name_resolution {
                     ast::Import::Typ(x) => ii.push((Type, x.0)),
                     ast::Import::TypDat(x, cs) => {
                         ii.push((Type, x.0));
-                        let es= match self
+                        let es = match self
                             .global_exports
                             .get(&from.0 .0)
                             .unwrap()
@@ -855,7 +884,7 @@ mod name_resolution {
                                             from.0, x.0,
                                         ),
                                     );
-                                            BTreeSet::new()
+                                    BTreeSet::new()
                                 }
                             }
 
@@ -864,7 +893,7 @@ mod name_resolution {
                                     .push(NRerrors::ConstructorsDoesntExistOrIsntExported(
                                         from.0, x.0,
                                     ));
-                                            BTreeSet::new()
+                                BTreeSet::new()
                             }
                         };
                         match cs {
@@ -887,17 +916,18 @@ mod name_resolution {
                         }
                     }
                     ast::Import::TypSymbol(x) => ii.push((Type, x.0)),
-                    ast::Import::Class(x) => ii.push((Type, x.0)),
+                    ast::Import::Class(x) => ii.push((Class, x.0)),
                 }
             }
             let mut exports: Vec<_> = exports.into_iter().map(|x| x.to_names()).collect();
+
             let valid: BTreeMap<_, _> = exports
                 .iter()
                 .flatten()
                 .copied()
                 .map(|name @ Name(s, _, u, _)| ((s, u), name))
                 .collect();
-            if !hiding.is_empty() {
+            if ii.is_empty() {
                 let hiding = hiding
                     .iter()
                     .filter_map(|x| {
@@ -910,29 +940,27 @@ mod name_resolution {
                             // These are not references in hiding since they don't do anything.
                             ast::Import::TypDat(x, ast::DataMember::Some(_)) => (Type, x.0),
                             ast::Import::TypSymbol(x) => (Type, x.0),
-                            ast::Import::Class(x) => (Type, x.0),
+                            ast::Import::Class(x) => (Class, x.0),
                         };
                         if let Some(n) = valid.get(&(s, u.0)) {
                             // Opinionatedly not adding imports to usages
                             self.resolved.insert((u.1.lo(), u.1.hi()), *n);
+                            // NOTE[et]: This is bug-compatible with purs
+                            if matches!(x, ast::Import::TypDat(_, ast::DataMember::Some(_))) {
+                                return None;
+                            }
+                            Some((s, u.0))
                         } else {
                             self.errors
-                                .push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1))
+                                .push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1));
+                            None
                         }
-                        // NOTE[et]: This is bug-compatible with purs
-                        if matches!(x, ast::Import::TypDat(_, ast::DataMember::Some(_))) {
-                            return None;
-                        }
-                        Some((s, u.0))
                     })
                     .collect::<BTreeSet<_>>();
-                exports.retain(|x| !x.iter().any(|Name(s, _, u, _)| hiding.contains(&(*s, *u))));
-            }
-
-            if ii.is_empty() {
+                exports.retain(|x| x.iter().all(|Name(s, _, u, _)| !hiding.contains(&(*s, *u))));
                 let entry = self.imports.entry(to.map(|x| x.0 .0)).or_default();
-                for (k, v) in valid.into_iter() {
-                    entry.1.entry(k).or_default().push(v);
+                for v @ Name(s, _, n, _) in exports.into_iter().flatten() {
+                    entry.1.entry((s, n)).or_default().push(v);
                 }
             } else {
                 let to_insert = ii
@@ -1010,7 +1038,7 @@ mod name_resolution {
                     self.def_global(Type, d.0, is_redecl);
                 }
                 ast::Decl::Class(_, d, _, _, mem) => {
-                    self.def_global(Type, d.0, is_redecl);
+                    self.def_global(Class, d.0, is_redecl);
                     for ast::ClassMember(name, _) in mem.iter() {
                         self.def_global(Term, name.0, false);
                     }
@@ -1162,22 +1190,29 @@ mod name_resolution {
             for c in cs.iter().flatten() {
                 self.constraint(c);
             }
-            self.resolveq(Type, d.0, d.1 .0)
+            self.resolveq(Class, d.0, d.1 .0)
         }
 
         fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<Name>) {
+            // TODO: Check if these names actually are exported from whence they came
             match b {
                 ast::InstBinding::Sig(l, t) => {
                     if let Some(Name(_, m, _, _)) = u {
-                        let span = l.0.1;
-                        self.resolved.insert((span.lo(), span.hi()), Name(Term, m, l.0.0, Visibility::Public));
+                        let span = l.0 .1;
+                        self.resolved.insert(
+                            (span.lo(), span.hi()),
+                            Name(Term, m, l.0 .0, Visibility::Public),
+                        );
                     }
                     self.typ(t);
                 }
                 ast::InstBinding::Def(l, binders, e) => {
                     if let Some(Name(_, m, _, _)) = u {
-                        let span = l.0.1;
-                        self.resolved.insert((span.lo(), span.hi()), Name(Term, m, l.0.0, Visibility::Public));
+                        let span = l.0 .1;
+                        self.resolved.insert(
+                            (span.lo(), span.hi()),
+                            Name(Term, m, l.0 .0, Visibility::Public),
+                        );
                     }
                     let sf = self.push();
                     for b in binders.iter() {
@@ -1477,7 +1512,7 @@ mod name_resolution {
                     for b in bs.iter() {
                         match b {
                             ast::RecordLabelBinder::Pun(l) => {
-                                self.def_local(Term, l.0.0, l.0.1);
+                                self.def_local(Term, l.0 .0, l.0 .1);
                             }
                             ast::RecordLabelBinder::Field(_, b) => {
                                 self.binder(b);
@@ -1492,7 +1527,7 @@ mod name_resolution {
         }
 
         fn constraint(&mut self, ast::Constraint(c, ts): &ast::Constraint) {
-            self.resolveq(Type, c.0, c.1 .0);
+            self.resolveq(Class, c.0, c.1 .0);
             for t in ts.iter() {
                 self.typ(t);
             }
@@ -1626,7 +1661,12 @@ mod name_resolution {
                 .push(Export::Just(Name(Module, name, name, Visibility::Public)));
             n.def_global(Module, h.0 .0, true);
             // Inject the Prim import
-            n.import(&ast::ImportDecl { from: ast::MName(ast::S(prim, ast::Span::Zero)), hiding: Vec::new(), names: Vec::new(), to: None });
+            n.import(&ast::ImportDecl {
+                from: ast::MName(ast::S(prim, ast::Span::Zero)),
+                hiding: Vec::new(),
+                names: Vec::new(),
+                to: None,
+            });
             for i in h.2.iter() {
                 n.import(i);
             }
@@ -1659,7 +1699,7 @@ mod name_resolution {
                     if *m != n.me {
                         continue;
                     }
-                    if !matches!(s, Scope::Term | Scope::Type) {
+                    if !matches!(s, Scope::Class | Scope::Term | Scope::Type) {
                         continue;
                     }
                     if let Some(co) = n.constructors.get(name) {
@@ -2116,7 +2156,11 @@ fn pos_from_tup((line, col): (usize, usize)) -> Position {
     Position::new(line as u32, col as u32)
 }
 
-fn build_builtins() -> (DashMap<ast::Ud, Vec<Export>>, ast::Ud, DashMap<ast::Ud, String>) {
+fn build_builtins() -> (
+    DashMap<ast::Ud, Vec<Export>>,
+    ast::Ud,
+    DashMap<ast::Ud, String>,
+) {
     use Scope::*;
     let names = DashMap::new();
 
@@ -2138,64 +2182,67 @@ fn build_builtins() -> (DashMap<ast::Ud, Vec<Export>>, ast::Ud, DashMap<ast::Ud,
     };
 
     let compiler_defines = [
-            // https://pursuit.purerl.fun/builtins/docs/Prim
-            h(Type, "Prim", "Int"),
-            h(Type, "Prim", "Number"),
-            h(Type, "Prim", "Record"),
-            h(Type, "Prim", "Symbol"),
-            h(Type, "Prim", "Array"),
-            h(Type, "Prim", "Boolean"),
-            h(Type, "Prim", "String"),
-            h(Type, "Prim", "Char"),
-            //
-            h(Type, "Prim", "->"),
-            h(Type, "Prim", "Partial"),
-            h(Type, "Prim", "Type"),
-            h(Type, "Prim", "Constraint"),
-            h(Type, "Prim", "Symbol"),
-            h(Type, "Prim", "Row"),
-            //
-            h(Type, "Prim.Boolean", "True"),
-            h(Type, "Prim.Boolean", "False"),
-            //
-            h(Type, "Prim.Coerce", "Coercible"),
-            //
-            h(Type, "Prim.Ordering", "Ordering"),
-            h(Type, "Prim.Ordering", "LT"),
-            h(Type, "Prim.Ordering", "GT"),
-            h(Type, "Prim.Ordering", "EQ"),
-            //
-            h(Type, "Prim.Row", "Union"),
-            h(Type, "Prim.Row", "Nub"),
-            h(Type, "Prim.Row", "Lacks"),
-            h(Type, "Prim.Row", "Cons"),
-            //
-            h(Type, "Prim.RowList", "RowList"),
-            h(Type, "Prim.RowList", "Cons"),
-            h(Type, "Prim.RowList", "Nil"),
-            h(Type, "Prim.RowList", "RowToList"),
-            //
-            h(Type, "Prim.Symbol", "Append"),
-            h(Type, "Prim.Symbol", "Compare"),
-            h(Type, "Prim.Symbol", "Cons"),
-            //
-            h(Type, "Prim.TypeError", "Warn"),
-            h(Type, "Prim.TypeError", "Fail"),
-            h(Type, "Prim.TypeError", "Doc"),
-            h(Type, "Prim.TypeError", "Text"),
-            h(Type, "Prim.TypeError", "Quote"),
-            h(Type, "Prim.TypeError", "QuoteLabel"),
-            h(Type, "Prim.TypeError", "Beside"),
-            h(Type, "Prim.TypeError", "Above"),
-            //
-        ];
+        // https://pursuit.purerl.fun/builtins/docs/Prim
+        h(Type, "Prim", "Int"),
+        h(Type, "Prim", "Number"),
+        h(Type, "Prim", "Record"),
+        h(Type, "Prim", "Symbol"),
+        h(Type, "Prim", "Array"),
+        h(Type, "Prim", "Boolean"),
+        h(Type, "Prim", "String"),
+        h(Type, "Prim", "Char"),
+        //
+        h(Type, "Prim", "->"),
+        h(Class, "Prim", "Partial"),
+        h(Type, "Prim", "Type"),
+        h(Type, "Prim", "Constraint"),
+        h(Type, "Prim", "Symbol"),
+        h(Type, "Prim", "Row"),
+        //
+        h(Type, "Prim.Boolean", "True"),
+        h(Type, "Prim.Boolean", "False"),
+        //
+        h(Class, "Prim.Coerce", "Coercible"),
+        //
+        h(Type, "Prim.Ordering", "Ordering"),
+        h(Type, "Prim.Ordering", "LT"),
+        h(Type, "Prim.Ordering", "GT"),
+        h(Type, "Prim.Ordering", "EQ"),
+        //
+        h(Class, "Prim.Row", "Union"),
+        h(Class, "Prim.Row", "Nub"),
+        h(Class, "Prim.Row", "Lacks"),
+        h(Class, "Prim.Row", "Cons"),
+        //
+        h(Type, "Prim.RowList", "RowList"),
+        h(Type, "Prim.RowList", "Cons"),
+        h(Type, "Prim.RowList", "Nil"),
+        h(Class, "Prim.RowList", "RowToList"),
+        //
+        h(Class, "Prim.Symbol", "Append"),
+        h(Class, "Prim.Symbol", "Compare"),
+        h(Class, "Prim.Symbol", "Cons"),
+        //
+        h(Class, "Prim.TypeError", "Warn"),
+        h(Class, "Prim.TypeError", "Fail"),
+        h(Type, "Prim.TypeError", "Doc"),
+        h(Type, "Prim.TypeError", "Text"),
+        h(Type, "Prim.TypeError", "Quote"),
+        h(Type, "Prim.TypeError", "QuoteLabel"),
+        h(Type, "Prim.TypeError", "Beside"),
+        h(Type, "Prim.TypeError", "Above"),
+        //
+    ];
 
     let exports = DashMap::new();
     for (s, m, n) in compiler_defines {
-        exports.entry(m).or_insert(Vec::new()).push(Export::Just(Name(s, m, n, Visibility::Public)))
+        exports
+            .entry(m)
+            .or_insert(Vec::new())
+            .push(Export::Just(Name(s, m, n, Visibility::Public)))
     }
 
-    ( exports, prim, names)
+    (exports, prim, names)
 }
 
 #[tokio::main]
