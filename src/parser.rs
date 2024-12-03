@@ -584,7 +584,7 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
                 |p: &mut P<'t>| {
                     let r = typ(p)?;
                     kw_rp(p)?;
-                    Some(r)
+                    Some(Typ::Paren(b!(r)))
                 },
             )
         }
@@ -1109,12 +1109,6 @@ fn do_statement<'t>(p: &mut P<'t>) -> Option<DoStmt> {
 
 fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding> {
     alt!(p: Serror::Info(p.span(), "let_binding"),
-        |p: &mut P<'t>| {
-            let b = binder(p)?;
-            kw_eq(p)?;
-            let e = expr_where(p)?;
-            Some(LetBinding::Pattern(b, e))
-        },
         // NOTE[et]: Binder conflicts with both of these - fun
         |p: &mut P<'t>| {
             let n = name(p)?;
@@ -1127,6 +1121,12 @@ fn let_binding<'t>(p: &mut P<'t>) -> Option<LetBinding> {
             let bs = many(p, "let-binder", |x| binder_atom(x, None));
             let decl = guarded_decl(p)?;
             Some(LetBinding::Name(n, bs, decl))
+        },
+        |p: &mut P<'t>| {
+            let b = binder(p)?;
+            kw_eq(p)?;
+            let e = expr_where(p)?;
+            Some(LetBinding::Pattern(b, e))
         },
     )
 }
@@ -1255,11 +1255,12 @@ fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr> {
         kw_eq(p)?;
         Some(GuardedExpr::Unconditional(expr_where(p)?))
     } else {
-        Some(GuardedExpr::Guarded(many(
-            p,
-            "guardDeclExpr",
-            guarded_decl_expr,
-        )))
+        let decls = many( p, "guardDeclExpr", guarded_decl_expr);
+        if decls.is_empty() {
+            p.raise_("Not a valid declaration - expected a `=`")
+        } else {
+            Some(GuardedExpr::Guarded(decls))
+        }
     }
 }
 

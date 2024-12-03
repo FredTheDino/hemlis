@@ -319,7 +319,7 @@ impl LanguageServer for Backend {
                     n
                 ),
             ),
-            NRerrors::MultipleImports(ns, span) => Diagnostic::new_simple(
+            NRerrors::NameConflict(ns, span) => Diagnostic::new_simple(
                 Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
                 format!(
                     "This name is imported from {} different modules\n{}",

@@ -97,7 +97,7 @@ pub struct Sf(usize);
 #[derive(Debug)]
 pub enum NRerrors {
     Unknown(Scope, Option<ast::Ud>, ast::Ud, ast::Span),
-    MultipleImports(BTreeSet<Name>, ast::Span),
+    NameConflict(BTreeSet<Name>, ast::Span),
     MultipleDefinitions(Name, (usize, usize), (usize, usize)),
     NotAConstructor(Name, ast::ProperName),
     NoConstructors(Name, ast::Span),
@@ -206,7 +206,7 @@ impl<'s> N<'s> {
             1 => (),
             _ => self
                 .errors
-                .push(NRerrors::MultipleImports(unique_matches.clone(), s)),
+                .push(NRerrors::NameConflict(unique_matches.clone(), s)),
         }
         unique_matches.first().copied()
     }
@@ -228,36 +228,27 @@ impl<'s> N<'s> {
 
     // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
     fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> BTreeSet<Name> {
-        if m.is_none() {
-            let ee: BTreeSet<_> = [
-                self.find_local(ss, n),
-                if self
-                    .defines
-                    .contains_key(&Name(ss, self.me, n, Visibility::Public))
-                {
-                    Some(Name(ss, self.me, n, Visibility::Public))
-                } else {
-                    None
-                },
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            if ee.is_empty() {
-                self.imports
-                    .get(&m)
-                    .iter()
-                    .flat_map(|x| {
-                        x.values()
-                            .flatten()
-                            .flat_map(|i| i.to_names())
-                            .find(|p| p.is(ss, n))
-                    })
-                    .collect()
+        // NOTE: There's a strict hirarcy in purs where names are resolved
+        //  1. Locals - trumps everything
+        //  2. Globals from module
+        //  3. Imports
+        //  It doesn't matter if the import is into the global namespace - it's fine to shadow them
+        //  according to purs.
+        [
+            if m.is_none() {
+                self.find_local(ss, n).into_iter().collect::<BTreeSet<_>>()
             } else {
-                ee
-            }
-        } else {
+                BTreeSet::new()
+            },
+            if self
+                .defines
+                .contains_key(&Name(ss, self.me, n, Visibility::Public))
+                && m.is_none()
+            {
+                [Name(ss, self.me, n, Visibility::Public)].into()
+            } else {
+                BTreeSet::new()
+            },
             self.imports
                 .get(&m)
                 .iter()
@@ -267,8 +258,11 @@ impl<'s> N<'s> {
                         .flat_map(|i| i.to_names())
                         .find(|p| p.is(ss, n))
                 })
-                .collect()
-        }
+                .collect(),
+        ]
+        .into_iter()
+        .find(|x| !x.is_empty())
+        .unwrap_or_default()
     }
 
     fn export(&mut self, ex: &ast::Export) {
@@ -694,7 +688,7 @@ impl<'s> N<'s> {
                 }
                 for ast::FunDep(a, b) in deps.iter().flatten() {
                     for n in a.iter().chain(b.iter()) {
-                        self.def_local(Type, n.0 .0, n.0 .1);
+                        self.resolve(Type, None, n.0);
                     }
                 }
                 for c in cs.iter().flatten() {
@@ -750,10 +744,12 @@ impl<'s> N<'s> {
                 // self.pop(sf);
             }
             ast::Decl::Def(_, bs, e) => {
+                let sf = self.push();
                 for b in bs.iter() {
                     self.binder(b);
                 }
                 self.guarded_expr(e);
+                self.pop(sf);
             }
         }
     }
@@ -1006,26 +1002,35 @@ impl<'s> N<'s> {
 
     fn let_binders(&mut self, ls: &[ast::LetBinding]) {
         let grouped = group_by(ls.iter(), |d: &ast::LetBinding| d.ud());
-        for (k, vs) in grouped.iter() {
+        for vs in grouped.values() {
             for v in vs {
                 match v {
                     ast::LetBinding::Sig(l, _) => {
                         self.def_local(Term, l.0 .0, l.0 .1);
+                        break
                     }
                     ast::LetBinding::Name(l, _, _) => {
                         self.def_local(Term, l.0 .0, l.0 .1);
+                        break
                     }
-                    ast::LetBinding::Pattern(b, _) => {
-                        self.binder(b);
-                    }
-                }
-                // Only define the first name for defs
-                if k.is_some() {
-                    break;
+                    ast::LetBinding::Pattern(_, _) => {}
                 }
             }
         }
-        for vs in grouped.values() {
+        for v in grouped.get(&None).iter().copied().flatten() {
+            match v {
+                ast::LetBinding::Sig(..)
+                | ast::LetBinding::Name(..) => {
+                    unreachable!()
+                }
+                ast::LetBinding::Pattern(b, e) => {
+                    self.expr(e);
+                    self.binder(b);
+                }
+            }
+        }
+        for (k, vs) in grouped.iter() {
+            if k.is_none() { continue }
             for v in vs {
                 match v {
                     ast::LetBinding::Sig(name, t) => {
@@ -1041,9 +1046,7 @@ impl<'s> N<'s> {
                         self.guarded_expr(e);
                         self.pop(sf);
                     }
-                    ast::LetBinding::Pattern(_, e) => {
-                        self.expr(e);
-                    }
+                    ast::LetBinding::Pattern(_, _) => { }
                 }
             }
         }
@@ -1122,10 +1125,10 @@ impl<'s> N<'s> {
             | ast::Typ::Hole(_) => (),
 
             ast::Typ::Var(v) => {
-                if self.find_local(Type, v.0 .0).is_some() {
-                    self.resolve(Type, None, v.0);
-                } else {
+                if self.find_local(Type, v.0 .0).is_none() {
                     self.def_local(Type, v.0 .0, v.0 .1);
+                } else {
+                    self.resolve(Type, None, v.0);
                 }
             }
             ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
@@ -1163,6 +1166,9 @@ impl<'s> N<'s> {
             ast::Typ::App(a, b) => {
                 self.typ_define_vars(a);
                 self.typ_define_vars(b);
+            }
+            ast::Typ::Paren(a) => {
+                self.typ_define_vars(a);
             }
         }
     }
@@ -1220,6 +1226,9 @@ impl<'s> N<'s> {
             ast::Typ::App(a, b) => {
                 self.typ(a);
                 self.typ(b);
+            }
+            ast::Typ::Paren(a) => {
+                self.typ(a);
             }
         }
     }

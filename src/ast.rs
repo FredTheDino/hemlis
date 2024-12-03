@@ -424,6 +424,7 @@ pub enum Typ {
     Op(Box<Typ>, QOp, Box<Typ>),
     Constrained(Constraint, Box<Typ>),
     App(Box<Typ>, Box<Typ>),
+    Paren(Box<Typ>),
 }
 
 impl Typ {
@@ -443,6 +444,8 @@ impl Typ {
                 | Typ::Op(_, _, _)
                 | Typ::Constrained(_, _)
                 | Typ::Arr(_, _) => None,
+
+                Typ::Paren(x) => inner(*x, args),
 
                 Typ::Constructor(n) => Some(Constraint(n, args)),
                 Typ::App(l, r) => {
