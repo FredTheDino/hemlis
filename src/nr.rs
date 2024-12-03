@@ -12,8 +12,6 @@ pub enum Visibility {
 pub struct Name(pub Scope, pub ast::Ud, pub ast::Ud, pub Visibility);
 
 impl Name {
-    pub fn module(&self) -> ast::Ud { self.1 }
-
     pub fn is(self, s: Scope, u: ast::Ud) -> bool {
         let Name(ss, _, uu, _) = self;
         ss == s && uu == u
@@ -23,6 +21,14 @@ impl Name {
         let Name(ss, mm, uu, _) = self;
         format!("{:?} {}.{}", ss, f(mm), f(uu))
     }
+
+    fn scope(&self) -> Scope {
+        self.0
+    }
+
+    pub fn module(&self) -> ast::Ud { self.1 }
+
+    pub fn name(&self) -> ast::Ud { self.2 }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -220,7 +226,7 @@ impl<'s> N<'s> {
     fn find_local(&self, ss: Scope, n: ast::Ud) -> Option<Name> {
         self.locals
             .iter()
-            .rfind(|x| x.module() == n && x.scope() == ss)
+            .rfind(|x| x.name() == n && x.scope() == ss)
             .copied()
     }
 
