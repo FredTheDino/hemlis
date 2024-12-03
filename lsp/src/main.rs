@@ -29,7 +29,7 @@ struct Backend {
     ud_to_fi: DashMap<ast::Ud, ast::Fi>,
 
     importers: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
-    imports: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
+    imports: DashMap<ast::Ud, BTreeSet<Export>>,
 
     previouse_global_usages: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
     previouse_defines: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
@@ -305,6 +305,9 @@ pub enum Visibility {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Name(Scope, ast::Ud, ast::Ud, Visibility);
+impl Name {
+    fn module(&self) -> ast::Ud { self.1 }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
@@ -316,7 +319,7 @@ pub enum Scope {
     Namespace,
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
 enum Export {
     ConstructorsSome(Name, Vec<Name>),
     ConstructorsAll(Name, Vec<Name>),
@@ -380,7 +383,7 @@ mod name_resolution {
         NoConstructors(Name, ast::Span),
         ConstructorsDoesntExistOrIsntExported(ast::S<ast::Ud>, ast::S<ast::Ud>),
         NoConstructorOfThatName(ast::S<ast::Ud>, ast::Ud, ast::Ud, ast::Span),
-        NotExportedOrDoesNotExist(ast::S<ast::Ud>, Scope, ast::Ud, ast::Span),
+        NotExportedOrDoesNotExist(ast::Ud, Scope, ast::Ud, ast::Span),
         CannotImportSelf(ast::Span),
         CouldNotFindImport(ast::Ud, ast::Span),
     }
@@ -404,9 +407,9 @@ mod name_resolution {
                             .get(&n)
                             .map(|x| x.clone())
                             .unwrap_or_else(|| "?".into()),
-                    ns,
-                    n
-                    )
+                        ns,
+                        n
+                    ),
                 ),
                 NRerrors::MultipleImports(ns, span) => Diagnostic::new_simple(
                     Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
@@ -509,7 +512,7 @@ mod name_resolution {
                         "{:?} {}.{} is not exported or does not exist",
                         scope,
                         names
-                            .get(&m.0)
+                            .get(&m)
                             .map(|x| x.clone())
                             .unwrap_or_else(|| "?".into()),
                         names
@@ -555,8 +558,7 @@ mod name_resolution {
 
         pub defines: BTreeMap<Name, ast::Span>,
         locals: Vec<(Scope, ast::Ud, Name)>,
-        pub imports:
-            BTreeMap<Option<ast::Ud>, (Vec<ast::Ud>, BTreeMap<(Scope, ast::Ud), Vec<Name>>)>,
+        pub imports: BTreeMap<Option<ast::Ud>, BTreeMap<ast::Ud, Vec<Export>>>,
     }
 
     impl<'s> N<'s> {
@@ -671,7 +673,7 @@ mod name_resolution {
         // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
         fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> Vec<Name> {
             if m.is_none() {
-                [
+                let locals: Vec<_> = [
                     self.find_local(ss, n),
                     if self
                         .defines
@@ -684,18 +686,31 @@ mod name_resolution {
                 ]
                 .into_iter()
                 .flatten()
-                .chain(
+                .collect();
+                if locals.is_empty() {
                     self.imports
                         .get(&m)
                         .iter()
-                        .flat_map(|x| x.1.get(&(ss, n)).cloned().unwrap_or_default()),
-                )
-                .collect()
+                        .flat_map(|x| {
+                            x.values()
+                                .flatten()
+                                .flat_map(|i| i.to_names())
+                                .find(|p| name_is(*p, ss, n))
+                        })
+                        .collect()
+                } else {
+                    locals
+                }
             } else {
                 self.imports
                     .get(&m)
                     .iter()
-                    .flat_map(|x| x.1.get(&(ss, n)).cloned().unwrap_or_default())
+                    .flat_map(|x| {
+                        x.values()
+                            .flatten()
+                            .flat_map(|i| i.to_names())
+                            .find(|p| name_is(*p, ss, n))
+                    })
                     .collect()
             }
         }
@@ -754,42 +769,29 @@ mod name_resolution {
                     Just(Name(Class, self.me, v.0 .0, Visibility::Public))
                 }
                 ast::Export::Module(v) => {
-                    if let Some((mods, names)) = self.imports.get(&Some(v.0 .0)).cloned() {
+                    if let Some(ns) = self.imports.get(&Some(v.0 .0)).cloned() {
                         self.resolve(Namespace, None, v.0);
-                        let xs = mods.iter().copied().collect::<BTreeSet<_>>();
-                        Module(
-                            [
-                                xs.iter()
-                                    .map(|a| Name(Scope::Module, *a, *a, Visibility::Public))
-                                    .collect::<Vec<_>>(),
-                                names.values().flatten().copied().collect(),
-                            ]
-                            .concat(),
-                        )
+                        self.exports
+                            .append(&mut ns.values().flatten().cloned().collect());
+                        return;
                     } else {
                         let name = Name(Scope::Module, v.0 .0, v.0 .0, Visibility::Public);
                         self.resolved.insert((v.0 .1.lo(), v.0 .1.hi()), name);
                         // Module exports export everything that's ever imported from a module -
                         // right?
-                        let to_export = self
-                            .imports
-                            .values()
-                            .filter(|(x, _)| x.contains(&v.0 .0))
-                            .flat_map(|(_, y)| y.values().flatten())
-                            .filter(|x| x.1 == v.0 .0)
-                            .copied()
-                            .collect::<Vec<_>>();
-                        if to_export.is_empty() {
+                        if let Some((_, is)) =
+                            self.imports.values().flatten().find(|(x, _)| **x == v.0 .0)
+                        {
+                            self.exports.append(&mut is.clone())
+                        } else {
                             self.errors.push(NRerrors::Unknown(
                                 Scope::Module,
                                 Some(v.0 .0),
                                 v.0 .0,
                                 v.0 .1,
                             ));
-                            return;
                         }
-                        // NOTE: I don't think this is how it works
-                        Module([vec![name], to_export].concat())
+                        return;
                     }
                 }
             };
@@ -810,13 +812,14 @@ mod name_resolution {
             let name = Name(Module, from.0 .0, from.0 .0, Visibility::Public);
             self.global_usages.insert((name, from.0 .1));
             self.resolved.insert((from.0 .1.lo(), from.0 .1.hi()), name);
+            let import_name = to.map(|x| x.0 .0);
             self.imports
-                .entry(to.map(|x| x.0 .0))
+                .entry(import_name)
                 .or_default()
-                .0
-                .push(from.0 .0);
+                .entry(from.0 .0)
+                .or_default();
             if let Some(b) = to {
-                self.def_global(Namespace, b.0, false);
+                self.def_global(Namespace, b.0, true);
             }
             if from.0 .0 == self.me {
                 self.errors.push(NRerrors::CannotImportSelf(from.0 .1));
@@ -829,105 +832,13 @@ mod name_resolution {
             }
             let exports: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
 
-            let mut ii = Vec::new();
-            // TODO: I'm gonna need a test-suite for this
-            // NOTE[et]: I've choosen to ignore hiding imports and re-exporting that module, because it really complicates things...
-            for i in names {
-                match i {
-                    ast::Import::Value(x) => ii.push((Term, x.0)),
-                    ast::Import::Symbol(x) => ii.push((Term, x.0)),
-                    ast::Import::Typ(x) => ii.push((Type, x.0)),
-                    ast::Import::TypDat(x, cs) => {
-                        ii.push((Type, x.0));
-                        let es = match self
-                            .global_exports
-                            .get(&from.0 .0)
-                            .unwrap()
-                            .value()
-                            .clone()
-                            .iter()
-                            .find(|e| e.contains_(Type, x.0 .0))
-                        {
-                            Some(
-                                Export::ConstructorsSome(_, es) | Export::ConstructorsAll(_, es),
-                            ) => es.iter().map(|x| x.2).collect::<BTreeSet<_>>(),
-
-                            Some(Export::Module(es)) => {
-                                if let Some(Name(_, mm, _, _)) =
-                                    es.iter().find(|e| name_is(**e, Type, x.0 .0))
-                                {
-                                    match self
-                                        .global_exports
-                                        .get(mm)
-                                        .unwrap()
-                                        .value()
-                                        .clone()
-                                        .iter()
-                                        .find(|e| e.contains_(Type, x.0 .0))
-                                    {
-                                        Some(
-                                            Export::ConstructorsSome(_, es)
-                                            | Export::ConstructorsAll(_, es),
-                                        ) => es.iter().map(|x| x.2).collect::<BTreeSet<_>>(),
-                                        _ => {
-                                            self.errors.push(
-                                                NRerrors::ConstructorsDoesntExistOrIsntExported(
-                                                    from.0, x.0,
-                                                ),
-                                            );
-                                            BTreeSet::new()
-                                        }
-                                    }
-                                } else {
-                                    self.errors.push(
-                                        NRerrors::ConstructorsDoesntExistOrIsntExported(
-                                            from.0, x.0,
-                                        ),
-                                    );
-                                    BTreeSet::new()
-                                }
-                            }
-
-                            _ => {
-                                self.errors
-                                    .push(NRerrors::ConstructorsDoesntExistOrIsntExported(
-                                        from.0, x.0,
-                                    ));
-                                BTreeSet::new()
-                            }
-                        };
-                        match cs {
-                            ast::DataMember::All => {
-                                for c in es.iter() {
-                                    ii.push((Term, ast::S(*c, x.0 .1)))
-                                }
-                            }
-                            ast::DataMember::Some(xs) => {
-                                for xx in xs {
-                                    if es.contains(&xx.0 .0) {
-                                        ii.push((Term, xx.0));
-                                    } else {
-                                        self.errors.push(NRerrors::NoConstructorOfThatName(
-                                            from.0, x.0 .0, xx.0 .0, xx.0 .1,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ast::Import::TypSymbol(x) => ii.push((Type, x.0)),
-                    ast::Import::Class(x) => ii.push((Class, x.0)),
-                }
-            }
-            let mut exports: Vec<_> = exports.into_iter().map(|x| x.to_names()).collect();
-
             let valid: BTreeMap<_, _> = exports
                 .iter()
-                .flatten()
-                .copied()
+                .cloned()
+                .flat_map(|x| x.to_names())
                 .map(|name @ Name(s, _, u, _)| ((s, u), name))
                 .collect();
-            if ii.is_empty() {
+            if names.is_empty() {
                 let hiding = hiding
                     .iter()
                     .filter_map(|x| {
@@ -952,38 +863,120 @@ mod name_resolution {
                             Some((s, u.0))
                         } else {
                             self.errors
-                                .push(NRerrors::NotExportedOrDoesNotExist(from.0, s, u.0, u.1));
+                                .push(NRerrors::NotExportedOrDoesNotExist(from.0 .0, s, u.0, u.1));
                             None
                         }
                     })
                     .collect::<BTreeSet<_>>();
-                exports.retain(|x| x.iter().all(|Name(s, _, u, _)| !hiding.contains(&(*s, *u))));
-                let entry = self.imports.entry(to.map(|x| x.0 .0)).or_default();
-                for v @ Name(s, _, n, _) in exports.into_iter().flatten() {
-                    entry.1.entry((s, n)).or_default().push(v);
-                }
+                let entry = self
+                    .imports
+                    .get_mut(&import_name)
+                    .expect("Checked earlier")
+                    .get_mut(&from.0 .0)
+                    .expect("Checked earlier");
+                entry.append(
+                    &mut exports
+                        .into_iter()
+                        .filter(|x| {
+                            x.to_names()
+                                .iter()
+                                .any(|Name(s, _, n, _)| hiding.contains(&(*s, *n)))
+                        })
+                        .collect(),
+                );
             } else {
-                let to_insert = ii
+                // TODO: I'm gonna need a test-suite for this
+                // NOTE[et]: I've choosen to ignore hiding imports and re-exporting that module, because it really complicates things...
+                let mut to_export = names
                     .iter()
-                    .filter_map(|(s, u)| {
-                        let span = u.1;
-                        let u = u.0;
-                        let out = valid.get(&(*s, u));
-                        if let Some(n) = out {
-                            // Opinionatedly not adding imports to usages
-                            self.resolved.insert((span.lo(), span.hi()), *n);
-                        } else {
-                            self.errors
-                                .push(NRerrors::NotExportedOrDoesNotExist(from.0, *s, u, span));
-                        }
-                        Some(((*s, u), *out?))
-                    })
-                    .collect::<Vec<_>>();
-                let entry = self.imports.entry(to.map(|x| x.0 .0)).or_default();
-                for (k, v) in to_insert {
-                    entry.1.entry(k).or_default().push(v);
-                }
+                    .filter_map(|i| self.import_part(i, from.0.0, &exports))
+                    .collect();
+                self.imports
+                    .get_mut(&import_name)
+                    .expect("Checked earlier")
+                    .get_mut(&from.0 .0)
+                    .expect("Checked earlier")
+                    .append(&mut to_export);
             }
+        }
+
+        fn import_part(
+            &mut self,
+            i: &ast::Import,
+            from: ast::Ud,
+            valid: &[Export],
+        ) -> Option<Export> {
+            let mut export_as = |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
+                if let out @ Some(_) = valid.iter().find_map(|n| match n {
+                    out @ Export::Just(name) if name_is(*name, scope, x) => Some(out),
+                    _ => None,
+                }) {
+                    out.cloned()
+                } else {
+                    self.errors
+                        .push(NRerrors::NotExportedOrDoesNotExist(from, scope, x, s));
+                    None
+                }
+            };
+
+            Some(match i {
+                ast::Import::Value(ast::Name(ast::S(x, s)))
+                | ast::Import::Symbol(ast::Symbol(ast::S(x, s))) => export_as(Term, *x, *s)?,
+                ast::Import::TypSymbol(ast::Symbol(ast::S(x, s)))
+                | ast::Import::Typ(ast::ProperName(ast::S(x, s))) => export_as(Type, *x, *s)?,
+                ast::Import::Class(ast::ProperName(ast::S(x, s))) => export_as(Class, *x, *s)?,
+                ast::Import::TypDat(x, ast::DataMember::All) => {
+                    if let Some(out) = valid.iter().find_map(|n| match n {
+                        out @ (Export::ConstructorsSome(name, _)
+                        | Export::ConstructorsAll(name, _))
+                            if name_is(*name, Type, x.0 .0) =>
+                        {
+                            Some(out)
+                        }
+                        _ => None,
+                    }) {
+                        out.clone()
+                    } else {
+                        self.errors.push(NRerrors::NotExportedOrDoesNotExist(
+                            from, Type, x.0 .0, x.0 .1,
+                        ));
+                        return None;
+                    }
+                }
+                ast::Import::TypDat(x, ast::DataMember::Some(cs)) => {
+                    if let Some((name, es)) = valid.iter().find_map(|n| match n {
+                        Export::ConstructorsSome(name, cs) | Export::ConstructorsAll(name, cs)
+                            if name_is(*name, Type, x.0 .0) =>
+                        {
+                            Some((name, cs))
+                        }
+                        _ => None,
+                    }) {
+                        let es = es
+                            .iter()
+                            .map(|n @ Name(_, _, x, _)| (x, n))
+                            .collect::<BTreeMap<_, _>>();
+                        let cs = cs.iter()
+                                .filter_map(|n| {
+                                    if let Some(xx) = es.get(&n.0 .0) {
+                                        Some(**xx)
+                                    } else {
+                                        self.errors.push(NRerrors::NotExportedOrDoesNotExist(
+                                            from, Term, n.0 .0, n.0 .1,
+                                        ));
+                                        None
+                                    }
+                                })
+                                .collect();
+                        Export::ConstructorsSome(*name, cs)
+                    } else {
+                        self.errors.push(NRerrors::NotExportedOrDoesNotExist(
+                            from, Type, x.0 .0, x.0 .1,
+                        ));
+                        return None;
+                    }
+                }
+            })
         }
 
         // NOTE: This is needs to be split into two passes - one for the initial declarations and
@@ -1970,11 +1963,13 @@ impl Backend {
 
         {
             let new_imports: BTreeSet<_> =
-                n.imports.values().flat_map(|(x, _)| x).copied().collect();
+                n.imports.values().flat_map(|x| x.values().flatten()).cloned().collect();
             let old_imports = self
                 .imports
                 .insert(me, new_imports.clone())
                 .unwrap_or_else(BTreeSet::new);
+            let new_imports = new_imports.iter().flat_map(|x| x.to_names().into_iter().map(|x| x.module())).collect::<BTreeSet<ast::Ud>>();
+            let old_imports = old_imports.iter().flat_map(|x| x.to_names().into_iter().map(|x| x.module())).collect::<BTreeSet<ast::Ud>>();
             for x in old_imports.difference(&new_imports) {
                 self.importers
                     .entry(*x)
@@ -2183,6 +2178,7 @@ fn build_builtins() -> (
 
     let compiler_defines = [
         // https://pursuit.purerl.fun/builtins/docs/Prim
+        h(Module, "Prim", "Prim"),
         h(Type, "Prim", "Int"),
         h(Type, "Prim", "Number"),
         h(Type, "Prim", "Record"),
@@ -2191,38 +2187,45 @@ fn build_builtins() -> (
         h(Type, "Prim", "Boolean"),
         h(Type, "Prim", "String"),
         h(Type, "Prim", "Char"),
-        //
         h(Type, "Prim", "->"),
+        h(Type, "Prim", "Function"),
         h(Class, "Prim", "Partial"),
         h(Type, "Prim", "Type"),
         h(Type, "Prim", "Constraint"),
         h(Type, "Prim", "Symbol"),
         h(Type, "Prim", "Row"),
         //
+        h(Module, "Prim.Boolean", "Prim.Boolean"),
         h(Type, "Prim.Boolean", "True"),
         h(Type, "Prim.Boolean", "False"),
         //
+        h(Module, "Prim.Coerce", "Prim.Coerce"),
         h(Class, "Prim.Coerce", "Coercible"),
         //
+        h(Module, "Prim.Ordering", "Prim.Ordering"),
         h(Type, "Prim.Ordering", "Ordering"),
         h(Type, "Prim.Ordering", "LT"),
         h(Type, "Prim.Ordering", "GT"),
         h(Type, "Prim.Ordering", "EQ"),
         //
+        h(Module, "Prim.Row", "Prim.Row"),
         h(Class, "Prim.Row", "Union"),
         h(Class, "Prim.Row", "Nub"),
         h(Class, "Prim.Row", "Lacks"),
         h(Class, "Prim.Row", "Cons"),
         //
+        h(Module, "Prim.RowList", "Prim.RowList"),
         h(Type, "Prim.RowList", "RowList"),
         h(Type, "Prim.RowList", "Cons"),
         h(Type, "Prim.RowList", "Nil"),
         h(Class, "Prim.RowList", "RowToList"),
         //
+        h(Module, "Prim.Symbol", "Prim.Symbol"),
         h(Class, "Prim.Symbol", "Append"),
         h(Class, "Prim.Symbol", "Compare"),
         h(Class, "Prim.Symbol", "Cons"),
         //
+        h(Module, "Prim.TypeError", "Prim.TypeError"),
         h(Class, "Prim.TypeError", "Warn"),
         h(Class, "Prim.TypeError", "Fail"),
         h(Type, "Prim.TypeError", "Doc"),
