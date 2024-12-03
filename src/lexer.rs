@@ -684,6 +684,7 @@ fn process(c: &mut C<'_>) {
                 _ => {
                     c.collapse(offsideP);
                     if c.is_top() {
+                        c.insertSep();
                         c.appSrc();
                     } else {
                         c.insertSep();
