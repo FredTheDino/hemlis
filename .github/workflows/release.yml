@@ -41,7 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Set release info
-        run: echo "BUILT_AT=$(date +'%Y-%m-%dT%H:%M:%S')\nGIT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        run: |
+          echo "BUILT_AT=$(date +'%Y-%m-%dT%H:%M:%S')" >> $GITHUB_ENV
+          echo "GIT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       - name: Build binary
         uses: houseabsolute/actions-rust-cross@v0
         with:
@@ -59,7 +61,7 @@ jobs:
           args: "--locked --release"
           strip: true
       - name: Rename binary (linux and macos)
-        run: tar -cavf target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} target/${{ matrix.platform.target }}/release/{hemlis-language-server,hemlis} 
+        run: tar -cavf target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} target/${{ matrix.platform.target }}/release/*
         # if: matrix.platform.os_name != 'Windows-x86_64'
         # - name: Rename binary (windows)
         #   run: mv target/${{ matrix.platform.target }}/release/hemlis-language-server.exe target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
