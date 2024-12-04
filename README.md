@@ -1,53 +1,32 @@
 # Hemlis
-A faster frontend for PureScript.
+A faster frontend/lsp for PureScript.
 
-Focuses:
- - Speed
- - Resiliance
+## What currently exists
+ - A simple parser that parses most of PureScript
+ - Basic syntactical analysis (resolving names and references)
+ - A simple goto-definition/list usages LSP
+ - Most of it is somewhat fast
 
-Current scope and todo-list:
- 1. CST parser
-    - https://docs.google.com/document/d/1wXbmWPXcMeubI3Q8NaNBvxyJX-H-KZ0G7WHlmjNvEeQ/edit#heading=h.yujvlccyg2h7
- 2. Formatter
- 3. CTags
- 4. Simple LSP with goto-definition and list-usages and the like
- 5. Start looking at the typechecker
- 6. Typechecker
- 7. Codegen
- 8. A repl?
+## Known limitations
+ - Let-bindings (and where-bindings) in Purs are preprocessed to resolve some dependency orders. This is pretty wild and is currently not implemented - a simpler approach is used though this needs to be fixed. 
+ - Only syntactical analysis - there is no type information
+ - Comments are completely ignored - meaning they are not trivial to show in the LSP
 
-
-## Evaluation of Lexers
-
- - Lexers are notoriously hard to write correctly and efficently by hand. Generating them is however quite easy.
- - There are a number of Rust libraries for this.
- - Alternatives
-    - Logos
-        - Uses Rust-Syntax
-        - The most used
-        - Has the most documentation
-        - I know it's fast (~1GB/s on my machine)
-        - I've used it before
-        - Supports the linenumber and lineoffset if managed carefully
-    - https://crates.io/crates/lexgen
-        - Uses special syntax
-        - Less used
-        - Has know limitations
-    - https://crates.io/crates/lrlex
-        - Uses special syntax
-    - Some parser library?
-        - We don't nessecarily want a parser
-
-## Current gameplan
-
-Resources: https://github.com/Kixiron/rust-langdev?tab=readme-ov-file#lexers
-
-Check status every week
-https://logos.maciej.codes/
-
-1. Write a lexer
-2. Write a CST-parser
-3. Write a formatter
-4. Optimizse the formatter
-5. Convert to AST (or similar format) 
-6. Start doing LSP queries
+## Possible extensions in no particular order (the short and incomplete list)
+ - Rename symbol support
+ - Supply the edtior with tokens to render things like resolved names
+ - Better parser error recovery
+ - Parse with correct operator precedence
+ - Code actions
+    - Import this symbol
+    - Extract to function
+    - Inline function
+    - Remove unnessecary parenthesis
+    - Add to exports
+ - Find exports that are never imported
+ - Pre-populate a match block with all constructors
+ - A typechecker
+ - Completions - list available names
+ - Documentation on hover
+ - Syntactic checks/linting (e.g. `$> pure` is probably wrong)
+ - If-to-match and match-to-if
