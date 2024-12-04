@@ -30,3 +30,62 @@ A faster frontend/lsp for PureScript.
  - Documentation on hover
  - Syntactic checks/linting (e.g. `$> pure` is probably wrong)
  - If-to-match and match-to-if
+
+## Getting started
+
+Getting started varies depending on which editor you use:
+
+### Neovim - with LSP-config and not using Lazy
+1. Download `hemlis-language-server` and add to path
+2. Add this to LSP-config:
+```lua
+local util = require 'lspconfig.util'
+
+local function client_with_fn(fn, req)
+  return function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local client = util.get_active_client_by_name(bufnr, 'texlab')
+    if not client then
+      return vim.notify(('texlab client not found in bufnr %d'):format(bufnr), vim.log.levels.ERROR)
+    end
+    fn(client, bufnr, req)
+  end
+end
+
+local function buf_build(client, bufnr, req)
+  client.request(req, {}, function(err, result)
+    if err then
+      error(tostring(err))
+    end
+    local status = {
+      [0] = 'Success',
+      [1] = 'Error',
+      [2] = 'Failure',
+      [3] = 'Cancelled',
+    }
+    vim.notify('Got ' .. status[result.status], vim.log.levels.INFO)
+  end, bufnr)
+end
+
+return {
+  default_config = {
+    cmd = { 'hemlis-language-server' },
+    filetypes = { 'purescript', 'purs' },
+    root_dir = util.root_pattern('.git'),
+    single_file_support = true,
+  },
+  docs = {
+    description = [[ ??? ]],
+    default_config = {
+      root_dir = [[util.root_pattern(".git")]],
+    },
+  },
+}
+```
+3. Enable it by adding `nvim_lsp.hemlis.setup {}` to your config
+
+### VS-code
+https://github.com/pepebecker/vscode-lsp-config
+
+### Helix
+I think you have fork the editor - but I don't know.
