@@ -44,24 +44,28 @@ jobs:
         run: |
           echo "BUILT_AT=$(date +'%Y-%m-%dT%H:%M:%S')" >> $GITHUB_ENV
           echo "GIT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
-      - name: Build binary
+      - name: Build hemlis
         uses: houseabsolute/actions-rust-cross@v0
         with:
-          command: "build -p hemlis-language-server"
+          command: "build"
           target: ${{ matrix.platform.target }}
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --release"
           strip: true
-      - name: Build binary
+      - name: cd into lsp
+        run: pushd lsp
+      - name: Build hemlis-language-server
         uses: houseabsolute/actions-rust-cross@v0
         with:
-          command: "build -p hemlis"
+          command: "build"
           target: ${{ matrix.platform.target }}
           toolchain: ${{ matrix.toolchain }}
           args: "--locked --release"
           strip: true
+      - name: cd back
+        run: popd lsp
       - name: Rename binary (linux and macos)
-        run: tar -cavf target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} target/${{ matrix.platform.target }}/release/*
+        run: tar -cavf target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} target/${{ matrix.platform.target }}/release/hemlis*
         # if: matrix.platform.os_name != 'Windows-x86_64'
         # - name: Rename binary (windows)
         #   run: mv target/${{ matrix.platform.target }}/release/hemlis-language-server.exe target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
