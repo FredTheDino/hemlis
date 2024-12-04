@@ -40,6 +40,8 @@ jobs:
           - nightly
     steps:
       - uses: actions/checkout@v3
+      - name: Set release info
+        run: echo "BUILT_AT=$(date +'%Y-%m-%dT%H:%M:%S')\nGIT_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       - name: Build binary
         uses: houseabsolute/actions-rust-cross@v0
         with:

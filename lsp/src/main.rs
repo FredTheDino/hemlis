@@ -99,11 +99,14 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::ERROR, "Scanning...".to_string())
+            .log_message(MessageType::ERROR, hemlis_lib::version())
+            .await;
+        self.client
+            .log_message(MessageType::INFO, "Scanning...".to_string())
             .await;
         self.load_workspace().await;
         self.client
-            .log_message(MessageType::ERROR, "Done scanning!".to_string())
+            .log_message(MessageType::INFO, "Done scanning!".to_string())
             .await;
     }
 
@@ -269,7 +272,7 @@ impl LanguageServer for Backend {
     async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
         self.client
             .log_message(
-                MessageType::ERROR,
+                MessageType::INFO,
                 "Does not handle changed watched files".to_string(),
             )
             .await;
@@ -287,7 +290,7 @@ impl LanguageServer for Backend {
         } else {
             self.client
                 .log_message(
-                    MessageType::ERROR,
+                    MessageType::INFO,
                     format!("Unkown command: {}", params.command),
                 )
                 .await;
@@ -435,12 +438,6 @@ impl Backend {
         let folders = self.client.workspace_folders().await.ok()??;
         for folder in folders {
             use glob::glob;
-            self.client
-                .log_message(
-                    MessageType::ERROR,
-                    &format!("Scanning: {:?}/lib/**/*.purs", folder.uri.to_string()),
-                )
-                .await;
             let mut deps: Vec<(ast::Ud, ast::Fi, BTreeSet<ast::Ud>, ast::Module)> = Vec::new();
             for path in glob(&format!(
                 "{}/lib/**/*.purs",
@@ -476,15 +473,6 @@ impl Backend {
                     Some((me, fi, imports, m))
                 })();
                 if let Some(x) = x {
-                    self.client
-                        .log_message(
-                            MessageType::ERROR,
-                            &format!(
-                                "DONE: {:?}",
-                                &path.clone().into_os_string().into_string().ok()?
-                            ),
-                        )
-                        .await;
                     deps.push(x);
                 } else {
                     self.client
@@ -499,7 +487,7 @@ impl Backend {
                 }
             }
             self.client
-                .log_message(MessageType::ERROR, &"========".to_string())
+                .log_message(MessageType::INFO, &"========".to_string())
                 .await;
 
             // NOTE: Not adding them to the name lookup
@@ -549,22 +537,19 @@ impl Backend {
                             )
                             .await;
                     }
-                    self.client
-                        .log_message(MessageType::ERROR, "EXITING!")
-                        .await;
                     break;
                 }
                 for (_, fi, _, m) in todo.iter() {
                     self.resolve_module(m, *fi);
                     self.show_errors(*fi).await;
                 }
-                let names = todo
-                    .iter()
-                    .map(|(m, _, _, _)| self.names.get(m).unwrap().value().clone())
-                    .collect::<Vec<_>>();
-                self.client
-                    .log_message(MessageType::ERROR, &format!("ROUND: {:?}", names))
-                    .await;
+                // let names = todo
+                //     .iter()
+                //     .map(|(m, _, _, _)| self.names.get(m).unwrap().value().clone())
+                //     .collect::<Vec<_>>();
+                // self.client
+                //     .log_message(MessageType::ERROR, &format!("ROUND: {:?}", names))
+                //     .await;
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
         }
@@ -796,7 +781,7 @@ impl Backend {
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         self.client
-            .log_message(MessageType::ERROR, "GOT CHANGE!")
+            .log_message(MessageType::INFO, "GOT CHANGE!")
             .await;
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
         //if self.modules.len() < 5 {
@@ -822,7 +807,7 @@ impl Backend {
             self.show_errors(fi).await;
         }
         self.client
-            .log_message(MessageType::ERROR, "FINISHED CHANGE!")
+            .log_message(MessageType::INFO, "FINISHED CHANGE!")
             .await;
     }
 }
@@ -844,6 +829,8 @@ async fn main() {
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
+
+    println!("{}", hemlis_lib::version());
 
     let (exports, prim, names) = hemlis_lib::build_builtins();
 

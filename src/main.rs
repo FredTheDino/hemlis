@@ -13,13 +13,21 @@ pub mod nr;
 
 #[allow(dead_code)]
 fn main() {
-    if env::var("HEMLIS_IMPORTS").is_ok() {
+    if env::var("HEMLIS_VERSION").is_ok() {
+        println!("version: {}", version());
+    } else if env::var("HEMLIS_IMPORTS").is_ok() {
         parse_and_resolve_names();
     } else if env::var("HEMLIS_GEN").is_ok() {
         linear_parse_generate_test();
     } else {
         parse_modules();
     }
+}
+
+pub fn version() -> String {
+    let hash = option_env!("GIT_COMMIT").unwrap_or("DEV-BUILD");
+    let date = option_env!("BUILT_AT").unwrap_or("NO-BUILD-DATE");
+    format!("hemlis-{}-{}", hash, date)
 }
 
 pub fn build_builtins() -> (
