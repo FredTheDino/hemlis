@@ -94,5 +94,6 @@ Add this to your Helix config to run Hemlis alongside the ordinary Purescript LS
 command = "hemlis-language-server"
 
 [[language]]
+name = "purescript"
 language-servers = [ "hemlis-language-server", "purescript-language-server" ]
 ```
