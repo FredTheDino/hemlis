@@ -10,7 +10,7 @@ use hemlis_lib::*;
 use nr::{Export, NRerrors, Name, Pos, Scope, Visibility};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -92,6 +92,8 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -182,6 +184,121 @@ impl LanguageServer for Backend {
             )
         }();
         Ok(reference_list)
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let mut symbols = Vec::new();
+        for i in self.previouse_defines.iter() {
+            let fi = i.key();
+            let names = i.value();
+            for (Name(scope, ns, n, vis), at) in names.iter() {
+                if *vis != Visibility::Public {
+                    continue;
+                }
+                let n = self.names.get(n).unwrap();
+                let ns = self.names.get(ns).unwrap();
+                if Some(fi) != at.fi().as_ref() {
+                    continue;
+                };
+                if !(n.value().starts_with(&params.query)
+                    || ns.value().starts_with(&params.query)
+                    || format!("{:?}", scope).starts_with(&params.query))
+                {
+                    continue;
+                };
+                let name = format!("{}.{}", ns.value(), n.value());
+                let out = SymbolInformation {
+                    name,
+                    kind: match scope {
+                        Scope::Kind => SymbolKind::INTERFACE,
+                        Scope::Type if n.starts_with(|c| matches!(c, 'a'..='z' | '_')) => {
+                            SymbolKind::VARIABLE
+                        }
+                        Scope::Type => SymbolKind::INTERFACE,
+                        Scope::Class => SymbolKind::CLASS,
+                        Scope::Term if n.starts_with(|c| matches!(c, 'A'..='Z' | '_')) => {
+                            SymbolKind::CONSTRUCTOR
+                        }
+                        Scope::Term => SymbolKind::FUNCTION,
+                        Scope::Module => SymbolKind::MODULE,
+                        Scope::Namespace => SymbolKind::NAMESPACE,
+                    },
+                    tags: None,
+                    deprecated: None,
+
+                    location: {
+                        let url = self.fi_to_url.get(fi).unwrap().clone();
+                        let lo = pos_from_tup(at.lo());
+                        let hi = pos_from_tup(at.hi());
+
+                        let range = Range::new(lo, hi);
+
+                        Location::new(url, range)
+                    },
+
+                    container_name: None,
+                };
+                symbols.push(out);
+            }
+        }
+        Ok(Some(symbols))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let mut symbols = Vec::new();
+        let fi_inner = if let Some(fi) = self.url_to_fi.get(&params.text_document.uri) {
+            *fi
+        } else {
+            return Err(Error::new(ErrorCode::ServerError(1)));
+        };
+        if let Some(names) = self.previouse_defines.get(&fi_inner) {
+            for (Name(scope, _, n, vis), at) in names.iter() {
+                if *vis != Visibility::Public {
+                    continue;
+                }
+                let name = self.names.get(n).unwrap();
+                let fi = if let Some(fi) = at.fi() { fi } else { continue };
+                let out = SymbolInformation {
+                    name: name.value().to_string(),
+                    kind: match scope {
+                        Scope::Kind => SymbolKind::INTERFACE,
+                        Scope::Type if name.starts_with(|c| matches!(c, 'a'..='z' | '_')) => {
+                            SymbolKind::VARIABLE
+                        }
+                        Scope::Type => SymbolKind::INTERFACE,
+                        Scope::Class => SymbolKind::CLASS,
+                        Scope::Term if name.starts_with(|c| matches!(c, 'A'..='Z' | '_')) => {
+                            SymbolKind::CONSTRUCTOR
+                        }
+                        Scope::Term => SymbolKind::FUNCTION,
+                        Scope::Module => SymbolKind::MODULE,
+                        Scope::Namespace => SymbolKind::NAMESPACE,
+                    },
+                    tags: None,
+                    deprecated: None,
+
+                    location: {
+                        let url = self.fi_to_url.get(&fi).unwrap().clone();
+                        let lo = pos_from_tup(at.lo());
+                        let hi = pos_from_tup(at.hi());
+
+                        let range = Range::new(lo, hi);
+
+                        Location::new(url, range)
+                    },
+
+                    container_name: None,
+                };
+                symbols.push(out);
+            }
+        }
+        Ok(Some(DocumentSymbolResponse::Flat(symbols)))
     }
 
     /*
