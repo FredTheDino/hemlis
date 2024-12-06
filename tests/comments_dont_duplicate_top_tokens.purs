@@ -1,10 +1,11 @@
-module T where
+module A
+  ( a
+  ) where
 
-a :: A
-a =
-  do
-    -- A comment!
-    x <- A.b
+--
+
+import A as A
+import J (class R)
 
 -- + expected stdout:
 -- + 19 of 19
