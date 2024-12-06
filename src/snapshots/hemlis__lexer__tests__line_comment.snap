@@ -1,0 +1,9 @@
+---
+source: src/lexer.rs
+expression: "p(\"a + -- this is a comment\\nb\")"
+---
+Ok(Lower("a"))
+Ok(Op("+"))
+Ok(LayTop)
+Ok(Lower("b"))
+Ok(LayTop)

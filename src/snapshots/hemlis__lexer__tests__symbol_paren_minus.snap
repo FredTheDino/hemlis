@@ -1,0 +1,6 @@
+---
+source: src/lexer.rs
+expression: "p(\"(-)\")"
+---
+Ok(Symbol("(-)"))
+Ok(LayTop)
