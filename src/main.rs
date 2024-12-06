@@ -14,16 +14,57 @@ pub mod lexer;
 pub mod nr;
 pub mod parser;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+enum Flag {
+    ShowTokens,
+    ShowTree,
+    ShowUsages,
+    ShowImports,
+    ShowExports,
+    Resolve,
+    Parse,
+    Version,
+}
+
 #[allow(dead_code)]
 fn main() {
-    if env::var("HEMLIS_VERSION").is_ok() {
+    let mut flags = BTreeSet::new();
+    let mut files = Vec::new();
+    let mut parsing_options = true;
+    for arg in env::args().skip(1) {
+        if arg == "--" {
+            parsing_options = true;
+            continue;
+        }
+        if parsing_options && arg.starts_with("-") {
+            match arg.as_ref() {
+                "-t" | "--tokens" => flags.insert(Flag::ShowTokens),
+                "-a" | "--tree" => flags.insert(Flag::ShowTree),
+                "-n" | "--names" => flags.insert(Flag::ShowUsages),
+                "-e" | "--exports" => flags.insert(Flag::ShowExports),
+                "-i" | "--imports" => flags.insert(Flag::ShowImports),
+                "-r" | "--resolve" => flags.insert(Flag::Resolve),
+                "-p" | "--parse" => flags.insert(Flag::Parse),
+                "-v" | "--version" => flags.insert(Flag::Version),
+                _ => {
+                    eprintln!("Not a valid argument {} - aborting", arg);
+                    continue;
+                }
+            };
+        } else {
+            parsing_options = false;
+            files.push(arg);
+        }
+    }
+        
+    if flags.contains(&Flag::Version) {
         println!("version: {}", version());
-    } else if env::var("HEMLIS_IMPORTS").is_ok() {
-        parse_and_resolve_names();
-    } else if env::var("HEMLIS_GEN").is_ok() {
-        linear_parse_generate_test();
+        return;
+    }
+    if flags.contains(&Flag::Resolve) {
+        parse_and_resolve_names(flags, files);
     } else {
-        parse_modules();
+        parse_modules(flags, files);
     }
 }
 
@@ -131,16 +172,11 @@ pub fn build_builtins() -> (
     (exports, prim, names)
 }
 
-fn parse_and_resolve_names() {
-    let args = env::args()
-        .map(|x| x.to_string())
-        .skip(1)
-        .collect::<Vec<_>>();
-
+fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
     let (exports, prim, names) = build_builtins();
 
-    let deps: Vec<_> = args
-        .par_iter()
+    let deps: Vec<_> = files
+        .iter()
         .enumerate()
         .filter_map(|(i, arg)| match fs::read_to_string(arg.clone()) {
             Err(e) => {
@@ -174,6 +210,7 @@ fn parse_and_resolve_names() {
         .collect();
     let mut done: BTreeSet<_> = exports.iter().map(|k| *k.key()).collect();
     let mut imports = BTreeMap::new();
+    let mut usages = BTreeMap::new();
 
     let mut errors = Vec::new();
     loop {
@@ -202,6 +239,7 @@ fn parse_and_resolve_names() {
             errors.append(&mut n.errors);
             exports.insert(*me, n.exports);
             imports.insert(*me, n.imports);
+            usages.insert(*me, n.usages);
         }
         done.append(&mut todo.into_iter().map(|(_, me, _)| *me).collect());
     }
@@ -209,18 +247,35 @@ fn parse_and_resolve_names() {
         println!("{:?}", e);
     }
 
-    println!("EXPORTS");
-    for e in exports.iter() {
-        let name = names_.get(e.key()).unwrap();
-        if name.starts_with("Prim") {
-            continue;
-        }
-        println!("> {}", name);
-        for v in e.value().iter() {
-            println!("   {}", v.show(&|u| names_.get(u).unwrap().clone()));
+    if flags.contains(&Flag::ShowUsages) {
+        println!("NAMES");
+        for (name, uses) in usages.iter() {
+            let name = names_.get(name).unwrap();
+            if name.starts_with("Prim") {
+                continue;
+            }
+            println!("> {}", name);
+            for (nr::Name(s, m, n, v), spans) in uses.iter() {
+                println!("   {:?} {} {} {:?}: {:?}", s, names_.get(m).unwrap(), names_.get(n).unwrap(), v, spans.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>());
+            }
         }
     }
 
+    if flags.contains(&Flag::ShowExports) {
+        println!("EXPORTS");
+        for e in exports.iter() {
+            let name = names_.get(e.key()).unwrap();
+            if name.starts_with("Prim") {
+                continue;
+            }
+            println!("> {}", name);
+            for v in e.value().iter() {
+                println!("   {}", v.show(&|u| names_.get(u).unwrap().clone()));
+            }
+        }
+    }
+
+    if flags.contains(&Flag::ShowImports) {
     println!("IMPORTS");
     for (k, v) in imports.iter() {
         let name = names_.get(k).unwrap();
@@ -242,41 +297,11 @@ fn parse_and_resolve_names() {
             }
         }
     }
+    }
 }
 
-fn linear_parse_generate_test() {
-    let args = env::args()
-        .map(|x| x.to_string())
-        .skip(1)
-        .collect::<Vec<_>>();
-    args.into_iter()
-        .enumerate()
-        .for_each(|(i, arg)| match fs::read_to_string(arg.clone()) {
-            Err(e) => {
-                panic!("ERR: {} {:?}", arg, e);
-            }
-            Ok(src) => {
-                let l = lexer::lex(&src, ast::Fi(i));
-                let n = DashMap::new();
-                let mut p = parser::P::new(&l, &n);
-                parser::module(&mut p);
-                if p.i < p.tokens.len() {
-                    p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
-                }
-                if p.errors.is_empty() {
-                    return;
-                }
-                println!("{} {}", arg, p.errors.len());
-            }
-        });
-}
-
-fn parse_modules() {
-    let args = env::args()
-        .map(|x| x.to_string())
-        .skip(1)
-        .collect::<Vec<_>>();
-    args.par_iter()
+fn parse_modules(flags: BTreeSet<Flag>, files: Vec<String>) {
+    files.iter()
         .enumerate()
         .for_each(|(i, arg)| match fs::read_to_string(arg.clone()) {
             Err(e) => {
@@ -311,7 +336,7 @@ fn parse_modules() {
                             .map(|x| { format!("{:?}\n", x) })
                             .collect::<Vec<_>>()
                             .join("\n"),
-                        if env::var("HEMLIS_TOKENS").is_ok() {
+                        if flags.contains(&Flag::ShowTokens) {
                             p.tokens
                                 .iter()
                                 .map(|(a, s)| format!("{:?} {:?}", a, s))
@@ -320,7 +345,7 @@ fn parse_modules() {
                         } else {
                             "".to_string()
                         },
-                        if env::var("HEMLIS_TREE").is_ok() {
+                        if flags.contains(&Flag::ShowTree) {
                             inner
                         } else {
                             "".to_string()
