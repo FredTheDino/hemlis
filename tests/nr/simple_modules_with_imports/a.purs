@@ -397,58 +397,51 @@ f =
 -- + 
 -- + NAMES
 -- + > D
--- +    Type D a Private((5, 11)): ["Known(Fi(2), (5, 11), (5, 12))"]
--- +    Type D a Private((13, 14)): ["Known(Fi(2), (13, 14), (13, 15))", "Known(Fi(2), (13, 23), (13, 24))", "Known(Fi(2), (14, 9), (14, 10))"]
--- +    Type D x Private((18, 12)): ["Known(Fi(2), (18, 12), (18, 13))", "Known(Fi(2), (18, 21), (18, 22))"]
--- +    Type D Maybe Public: ["Known(Fi(2), (5, 5), (5, 10))", "Known(Fi(2), (13, 17), (13, 22))"]
--- +    Type D Tag Public: ["Known(Fi(2), (4, 5), (4, 8))", "Known(Fi(2), (7, 13), (7, 16))", "Known(Fi(2), (7, 20), (7, 23))"]
--- +    Term D tag Private((8, 10)): ["Known(Fi(2), (8, 10), (8, 13))", "Known(Fi(2), (8, 16), (8, 19))"]
--- +    Term D foo Public: ["Known(Fi(2), (13, 0), (13, 3))", "Known(Fi(2), (14, 0), (14, 3))"]
--- +    Term D a Private((19, 2)): ["Known(Fi(2), (19, 2), (19, 3))", "Known(Fi(2), (19, 6), (19, 7))"]
--- +    Term D x Public: ["Known(Fi(2), (18, 0), (18, 1))", "Known(Fi(2), (19, 0), (19, 1))"]
--- +    Term D biz Public: ["Known(Fi(2), (16, 0), (16, 3))"]
--- +    Term D internal_ Public: ["Known(Fi(2), (7, 0), (7, 9))", "Known(Fi(2), (8, 0), (8, 9))"]
--- +    Module D D Public: ["Known(Fi(2), (0, 7), (0, 8))"]
+-- +    Type D a Private((5, 11)): ["(Known(Fi(2), (5, 11), (5, 12)), Def)"]
+-- +    Type D a Private((13, 14)): ["(Known(Fi(2), (13, 14), (13, 15)), Def)", "(Known(Fi(2), (13, 23), (13, 24)), Ref)", "(Known(Fi(2), (14, 9), (14, 10)), Ref)"]
+-- +    Type D x Private((18, 12)): ["(Known(Fi(2), (18, 12), (18, 13)), Def)", "(Known(Fi(2), (18, 21), (18, 22)), Ref)"]
+-- +    Type D Maybe Public: ["(Known(Fi(2), (5, 5), (5, 10)), Def)", "(Known(Fi(2), (13, 17), (13, 22)), Ref)"]
+-- +    Type D Tag Public: ["(Known(Fi(2), (4, 5), (4, 8)), Def)", "(Known(Fi(2), (7, 13), (7, 16)), Ref)", "(Known(Fi(2), (7, 20), (7, 23)), Ref)"]
+-- +    Term D tag Private((8, 10)): ["(Known(Fi(2), (8, 10), (8, 13)), Def)", "(Known(Fi(2), (8, 16), (8, 19)), Ref)"]
+-- +    Term D foo Public: ["(Known(Fi(2), (13, 0), (13, 3)), Def)", "(Known(Fi(2), (14, 0), (14, 3)), Def)"]
+-- +    Term D a Private((19, 2)): ["(Known(Fi(2), (19, 2), (19, 3)), Def)", "(Known(Fi(2), (19, 6), (19, 7)), Ref)"]
+-- +    Term D x Public: ["(Known(Fi(2), (18, 0), (18, 1)), Def)", "(Known(Fi(2), (19, 0), (19, 1)), Def)"]
+-- +    Term D biz Public: ["(Known(Fi(2), (16, 0), (16, 3)), Def)"]
+-- +    Term D internal_ Public: ["(Known(Fi(2), (7, 0), (7, 9)), Def)", "(Known(Fi(2), (8, 0), (8, 9)), Def)"]
+-- +    Module D D Public: ["(Known(Fi(2), (0, 7), (0, 8)), Def)"]
 -- + > A
--- +    Type A a Private((4, 11)): ["Known(Fi(3), (4, 11), (4, 12))", "Known(Fi(3), (4, 18), (4, 19))"]
--- +    Type A a Private((11, 20)): ["Known(Fi(3), (11, 20), (11, 21))", "Known(Fi(3), (11, 30), (11, 31))"]
--- +    Type A A Public: ["Known(Fi(3), (2, 5), (2, 6))"]
--- +    Type A QQ Public: ["Known(Fi(3), (4, 8), (4, 10))"]
--- +    Term A Q Public: ["Known(Fi(3), (2, 17), (2, 18))"]
--- +    Term A readJSON Public: ["Known(Fi(3), (11, 0), (11, 8))"]
--- +    Term A f Public: ["Known(Fi(3), (13, 0), (13, 1))"]
--- +    Term A a Private((15, 4)): ["Known(Fi(3), (15, 4), (15, 5))"]
--- +    Term A a Public: ["Known(Fi(3), (8, 0), (8, 1))", "Known(Fi(3), (9, 0), (9, 1))", "Known(Fi(3), (9, 7), (9, 8))", "Known(Fi(3), (9, 21), (9, 22))"]
--- +    Term A r Private((6, 10)): ["Known(Fi(3), (6, 10), (6, 11))", "Known(Fi(3), (6, 26), (6, 27))"]
--- +    Term A C Public: ["Known(Fi(3), (2, 13), (2, 14))"]
--- +    Term A QQ Public: ["Known(Fi(3), (4, 15), (4, 17))", "Known(Fi(3), (9, 4), (9, 6))"]
--- +    Term A b Private((15, 6)): ["Known(Fi(3), (15, 6), (15, 7))", "Known(Fi(3), (17, 4), (17, 5))"]
--- +    Term A b Public: ["Known(Fi(3), (6, 0), (6, 1))"]
--- +    Term A B Public: ["Known(Fi(3), (2, 9), (2, 10))"]
--- +    Module A A Public: ["Known(Fi(3), (0, 7), (0, 8))"]
+-- +    Type A a Private((4, 11)): ["(Known(Fi(3), (4, 11), (4, 12)), Def)", "(Known(Fi(3), (4, 18), (4, 19)), Ref)"]
+-- +    Type A a Private((11, 20)): ["(Known(Fi(3), (11, 20), (11, 21)), Def)", "(Known(Fi(3), (11, 30), (11, 31)), Ref)"]
+-- +    Type A A Public: ["(Known(Fi(3), (2, 5), (2, 6)), Def)"]
+-- +    Type A QQ Public: ["(Known(Fi(3), (4, 8), (4, 10)), Def)"]
+-- +    Term A Q Public: ["(Known(Fi(3), (2, 17), (2, 18)), Def)"]
+-- +    Term A readJSON Public: ["(Known(Fi(3), (11, 0), (11, 8)), Def)"]
+-- +    Term A f Public: ["(Known(Fi(3), (13, 0), (13, 1)), Def)"]
+-- +    Term A a Private((15, 4)): ["(Known(Fi(3), (15, 4), (15, 5)), Def)"]
+-- +    Term A a Public: ["(Known(Fi(3), (8, 0), (8, 1)), Def)", "(Known(Fi(3), (9, 0), (9, 1)), Def)", "(Known(Fi(3), (9, 7), (9, 8)), Ref)", "(Known(Fi(3), (9, 21), (9, 22)), Ref)"]
+-- +    Term A r Private((6, 10)): ["(Known(Fi(3), (6, 10), (6, 11)), Def)", "(Known(Fi(3), (6, 26), (6, 27)), Ref)"]
+-- +    Term A C Public: ["(Known(Fi(3), (2, 13), (2, 14)), Def)"]
+-- +    Term A QQ Public: ["(Known(Fi(3), (4, 15), (4, 17)), Def)", "(Known(Fi(3), (9, 4), (9, 6)), Ref)"]
+-- +    Term A b Private((15, 6)): ["(Known(Fi(3), (15, 6), (15, 7)), Def)", "(Known(Fi(3), (17, 4), (17, 5)), Ref)"]
+-- +    Term A b Public: ["(Known(Fi(3), (6, 0), (6, 1)), Def)"]
+-- +    Term A B Public: ["(Known(Fi(3), (2, 9), (2, 10)), Def)"]
+-- +    Module A A Public: ["(Known(Fi(3), (0, 7), (0, 8)), Def)"]
 -- + > C
--- +    Type C Foo Public: ["Known(Fi(1), (0, 36), (0, 39))", "Known(Fi(1), (2, 5), (2, 8))"]
--- +    Type C Order Public: ["Known(Fi(1), (0, 29), (0, 34))", "Known(Fi(1), (4, 5), (4, 10))", "Known(Fi(1), (10, 23), (10, 28))"]
--- +    Type C a Private((6, 9)): ["Known(Fi(1), (6, 9), (6, 10))", "Known(Fi(1), (7, 8), (7, 9))", "Known(Fi(1), (7, 13), (7, 14))"]
--- +    Type C a Private((9, 18)): ["Known(Fi(1), (9, 9), (9, 10))", "Known(Fi(1), (9, 18), (9, 19))", "Known(Fi(1), (10, 13), (10, 14))", "Known(Fi(1), (10, 18), (10, 19))"]
--- +    Type C Bool Public: ["Known(Fi(1), (0, 23), (0, 27))", "Known(Fi(1), (3, 5), (3, 9))", "Known(Fi(1), (7, 18), (7, 22))"]
--- +    Class C Ord Public: ["Known(Fi(1), (9, 14), (9, 17))"]
--- +    Class C Eq Public: ["Known(Fi(1), (6, 6), (6, 8))", "Known(Fi(1), (9, 6), (9, 8))"]
--- +    Term C compare Public: ["Known(Fi(1), (0, 14), (0, 21))", "Known(Fi(1), (10, 2), (10, 9))"]
--- +    Term C eq Public: ["Known(Fi(1), (0, 10), (0, 12))", "Known(Fi(1), (7, 2), (7, 4))"]
--- +    Module C C Public: ["Known(Fi(1), (0, 7), (0, 8))"]
+-- +    Type C Foo Public: ["(Known(Fi(1), (0, 36), (0, 39)), Ref)", "(Known(Fi(1), (0, 36), (0, 39)), Export)", "(Known(Fi(1), (2, 5), (2, 8)), Def)"]
+-- +    Type C Order Public: ["(Known(Fi(1), (0, 29), (0, 34)), Ref)", "(Known(Fi(1), (0, 29), (0, 34)), Export)", "(Known(Fi(1), (4, 5), (4, 10)), Def)", "(Known(Fi(1), (10, 23), (10, 28)), Ref)"]
+-- +    Type C a Private((6, 9)): ["(Known(Fi(1), (6, 9), (6, 10)), Def)", "(Known(Fi(1), (7, 8), (7, 9)), Ref)", "(Known(Fi(1), (7, 13), (7, 14)), Ref)"]
+-- +    Type C a Private((9, 18)): ["(Known(Fi(1), (9, 9), (9, 10)), Ref)", "(Known(Fi(1), (9, 18), (9, 19)), Def)", "(Known(Fi(1), (10, 13), (10, 14)), Ref)", "(Known(Fi(1), (10, 18), (10, 19)), Ref)"]
+-- +    Type C Bool Public: ["(Known(Fi(1), (0, 23), (0, 27)), Ref)", "(Known(Fi(1), (0, 23), (0, 27)), Export)", "(Known(Fi(1), (3, 5), (3, 9)), Def)", "(Known(Fi(1), (7, 18), (7, 22)), Ref)"]
+-- +    Class C Ord Public: ["(Known(Fi(1), (9, 14), (9, 17)), Def)"]
+-- +    Class C Eq Public: ["(Known(Fi(1), (6, 6), (6, 8)), Def)", "(Known(Fi(1), (9, 6), (9, 8)), Ref)"]
+-- +    Term C compare Public: ["(Known(Fi(1), (0, 14), (0, 21)), Ref)", "(Known(Fi(1), (0, 14), (0, 21)), Export)", "(Known(Fi(1), (10, 2), (10, 9)), Def)"]
+-- +    Term C eq Public: ["(Known(Fi(1), (0, 10), (0, 12)), Ref)", "(Known(Fi(1), (0, 10), (0, 12)), Export)", "(Known(Fi(1), (7, 2), (7, 4)), Def)"]
+-- +    Module C C Public: ["(Known(Fi(1), (0, 7), (0, 8)), Def)"]
 -- + > B
--- +    Term B fiz Public: ["Known(Fi(0), (4, 0), (4, 3))"]
--- +    Term B a Private((5, 10)): ["Known(Fi(0), (5, 10), (5, 11))", "Known(Fi(0), (5, 17), (5, 18))"]
--- +    Module B B Public: ["Known(Fi(0), (0, 7), (0, 8))"]
+-- +    Term B fiz Public: ["(Known(Fi(0), (4, 0), (4, 3)), Def)"]
+-- +    Term B a Private((5, 10)): ["(Known(Fi(0), (5, 10), (5, 11)), Def)", "(Known(Fi(0), (5, 17), (5, 18)), Ref)"]
+-- +    Module B B Public: ["(Known(Fi(0), (0, 7), (0, 8)), Def)"]
 -- + EXPORTS
--- + > C
--- +    Just Module C.C
--- +    Just Term C.eq
--- +    Just Term C.compare
--- +    Just Type C.Bool
--- +    Just Type C.Order
--- +    Just Type C.Foo
 -- + > D
 -- +    Just Module D.D
 -- +    ConstructorsAll Type D.Maybe []
@@ -465,12 +458,18 @@ f =
 -- +    Just Term A.f
 -- +    Just Term A.a
 -- +    Just Term A.b
+-- + > C
+-- +    Just Module C.C
+-- +    Just Term C.eq
+-- +    Just Term C.compare
+-- +    Just Type C.Bool
+-- +    Just Type C.Order
+-- +    Just Type C.Foo
 -- + > B
 -- +    Just Module B.B
 -- +    Just Term B.fiz
 -- + IMPORTS
 -- + > D
--- +  ! namespace: ME
 -- +    import: Prim
 -- +      * Just Module Prim.Prim
 -- +      * Just Type Prim.Int
@@ -492,7 +491,6 @@ f =
 -- +      * Just Module B.B
 -- +      * Just Term B.fiz
 -- + > A
--- +  ! namespace: ME
 -- +    import: Prim
 -- +      * Just Module Prim.Prim
 -- +      * Just Type Prim.Int
@@ -511,7 +509,6 @@ f =
 -- +      * Just Type Prim.Symbol
 -- +      * Just Type Prim.Row
 -- + > C
--- +  ! namespace: ME
 -- +    import: Prim
 -- +      * Just Module Prim.Prim
 -- +      * Just Type Prim.Int
@@ -530,7 +527,6 @@ f =
 -- +      * Just Type Prim.Symbol
 -- +      * Just Type Prim.Row
 -- + > B
--- +  ! namespace: ME
 -- +    import: A
 -- +      * Just Module A.A
 -- +      * ConstructorsAll Type A.A ["Term A.Q", "Term A.C", "Term A.B"]

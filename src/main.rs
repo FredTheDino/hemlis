@@ -275,13 +275,15 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
 
     if flags.contains(&Flag::ShowExports) {
         println!("EXPORTS");
-        for e in exports.iter() {
-            let name = names_.get(e.key()).unwrap();
+        let mut ee = exports.iter().map(|a| (*a.key(), a.value().clone())) .collect::<Vec<_>>();
+        ee.sort();
+        for (k, v) in ee.iter() {
+            let name = names_.get(k).unwrap();
             if name.starts_with("Prim") {
                 continue;
             }
             println!("> {}", name);
-            for v in e.value().iter() {
+            for v in v.iter() {
                 println!("   {}", v.show(&|u| names_.get(u).unwrap().clone()));
             }
         }
@@ -295,12 +297,7 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
             continue;
         }
         println!("> {}", name);
-        for (k, v) in v.iter() {
-            println!(
-                " ! namespace: {}",
-                k.map(|u| names_.get(&u).unwrap().clone())
-                    .unwrap_or("ME".into())
-            );
+        for (_, v) in v.iter() {
             for (k, v) in v.iter() {
                 println!("   import: {}", names_.get(k).unwrap().clone());
                 for v in v.iter() {
