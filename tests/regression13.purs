@@ -6,11 +6,3 @@ a =
     -- A comment!
     x <- A.b
 
--- + expected stdout:
--- + 19 of 19
--- + ===
--- + 
--- + ===
--- + 
--- + ===
-
