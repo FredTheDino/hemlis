@@ -423,6 +423,8 @@ pub enum Typ {
     Constrained(Constraint, Box<Typ>),
     App(Box<Typ>, Box<Typ>),
     Paren(Box<Typ>),
+
+    Error(Span),
 }
 
 impl Typ {
@@ -441,6 +443,7 @@ impl Typ {
                 | Typ::Kinded(_, _)
                 | Typ::Op(_, _, _)
                 | Typ::Constrained(_, _)
+                | Typ::Error(_)
                 | Typ::Arr(_, _) => None,
 
                 Typ::Paren(x) => inner(*x, args),
@@ -560,6 +563,8 @@ pub enum Expr {
     Number(Number),
     HexInt(HexInt),
     Paren(Box<Expr>),
+
+    Error(Span),
 }
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
