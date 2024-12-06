@@ -1,0 +1,18 @@
+---
+source: src/parser.rs
+expression: "p_typ(\"a\")"
+---
+8 of 8
+===
+Module
+ Header
+  MName
+   (0, 7)->(0, 10)
+  NULL
+  Decl::Sig
+   Name
+    (2, 0)->(2, 1)
+   Typ::Var
+    Name
+     (2, 5)->(2, 6)
+===
