@@ -7,7 +7,6 @@ use std::{
 
 use ast::Ast;
 use dashmap::DashMap;
-use rayon::prelude::*;
 
 pub mod ast;
 pub mod lexer;
@@ -247,6 +246,19 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
         println!("{:?}", e);
     }
 
+    for (m, name, _) in deps.iter() {
+        if flags.contains(&Flag::ShowTree) {
+            let name = names_.get(name).unwrap();
+            use std::io::BufWriter;
+            let mut buf = BufWriter::new(Vec::new());
+            m.show(0, &mut buf).unwrap();
+            let inner = String::from_utf8(
+                buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap(),
+            );
+            println!("TREE: {}\n{}", name, inner.unwrap());
+        }
+    }
+
     if flags.contains(&Flag::ShowUsages) {
         println!("NAMES");
         for (name, uses) in usages.iter() {
@@ -319,7 +331,7 @@ fn parse_modules(flags: BTreeSet<Flag>, files: Vec<String>) {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
 
-                if true {
+                if flags.contains(&Flag::ShowTokens) || flags.contains(&Flag::ShowTree) || !p.errors.is_empty() {
                     let mut buf = BufWriter::new(Vec::new());
                     out.show(0, &mut buf).unwrap();
                     let inner = String::from_utf8(
