@@ -1,0 +1,20 @@
+module C (eq, compare, Bool, Order, Foo) where
+
+data Foo
+data Bool
+data Order
+
+class Eq a where
+  eq :: a -> a -> Bool
+
+class Eq a <= Ord a where
+  compare :: a -> a -> Order
+
+-- class Semigroupoid a where
+--   compose :: forall b c d. a c d -> a b c -> a b d
+
+-- instance Semigroupoid F where
+--   compose = 1
+-- 
+-- a = compose
+

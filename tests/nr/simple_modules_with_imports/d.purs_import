@@ -1,0 +1,20 @@
+module D where
+
+import B hiding (baz)
+
+data Tag
+data Maybe a
+
+internal_ :: Tag -> Tag
+internal_ tag = tag
+
+-- foo :: B.A
+-- foo = B.Q
+
+foo :: forall a. Maybe a
+foo = Q @a
+
+biz = baz
+
+x :: forall x. Array x
+x a = a.b

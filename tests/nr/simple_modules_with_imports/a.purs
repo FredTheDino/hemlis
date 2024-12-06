@@ -1,0 +1,559 @@
+module A where
+
+data A = B | C | Q
+
+newtype QQ a = QQ a
+
+b = let { r } = 1 in { x: r }
+
+a :: -1
+a = QQ a { foo { a = a } }
+
+readJSON :: forall @a . Array a
+
+f = 
+  let
+    a@b = 1
+  in
+    b
+
+-- + args: --names --tree --resolve --imports --exports tests/nr/simple_modules_with_imports/b.purs_import tests/nr/simple_modules_with_imports/c.purs_import tests/nr/simple_modules_with_imports/d.purs_import
+-- + expected stdout:
+-- + NotExportedOrDoesNotExist(Ud(18086178835076887451), Term, Ud(16260972211344176173), Known(Fi(2), (2, 17), (2, 20)))
+-- + Unknown(Term, None, Ud(1475969176590154986), Known(Fi(2), (14, 6), (14, 7)))
+-- + Unknown(Term, None, Ud(16260972211344176173), Known(Fi(2), (16, 6), (16, 9)))
+-- + TREE: B
+-- + Module
+-- +  Header
+-- +   MName
+-- +    (0, 7)->(0, 8)
+-- +   NULL
+-- +    ImportDecl
+-- +     MName
+-- +      (2, 7)->(2, 8)
+-- +     NULL
+-- +   Decl::Def
+-- +    Name
+-- +     (4, 0)->(4, 3)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Case
+-- +      (4, 6)->(4, 10)
+-- +       Expr::Section
+-- +        (4, 11)->(4, 12)
+-- +       CaseBranch
+-- +         Binder::Var
+-- +          Name
+-- +           (5, 10)->(5, 11)
+-- +        GuardedExpr::Unconditional
+-- +         Expr::App
+-- +          Expr::Ident
+-- +           QName
+-- +            NULL
+-- +            Name
+-- +             (5, 15)->(5, 16)
+-- +          Expr::Ident
+-- +           QName
+-- +            NULL
+-- +            Name
+-- +             (5, 17)->(5, 18)
+-- + 
+-- + TREE: C
+-- + Module
+-- +  Header
+-- +   MName
+-- +    (0, 7)->(0, 8)
+-- +    Export::Value
+-- +     Name
+-- +      (0, 10)->(0, 12)
+-- +    Export::Value
+-- +     Name
+-- +      (0, 14)->(0, 21)
+-- +    Export::Typ
+-- +     ProperName
+-- +      (0, 23)->(0, 27)
+-- +    Export::Typ
+-- +     ProperName
+-- +      (0, 29)->(0, 34)
+-- +    Export::Typ
+-- +     ProperName
+-- +      (0, 36)->(0, 39)
+-- +   Decl::Data
+-- +    ProperName
+-- +     (2, 5)->(2, 8)
+-- +   Decl::Data
+-- +    ProperName
+-- +     (3, 5)->(3, 9)
+-- +   Decl::Data
+-- +    ProperName
+-- +     (4, 5)->(4, 10)
+-- +   Decl::Class
+-- +    NULL
+-- +    ProperName
+-- +     (6, 6)->(6, 8)
+-- +     TypVarBinding
+-- +      Name
+-- +       (6, 9)->(6, 10)
+-- +      NULL
+-- +    NULL
+-- +     ClassMember
+-- +      Name
+-- +       (7, 2)->(7, 4)
+-- +      Typ::Arr
+-- +       Typ::Var
+-- +        Name
+-- +         (7, 8)->(7, 9)
+-- +       Typ::Arr
+-- +        Typ::Var
+-- +         Name
+-- +          (7, 13)->(7, 14)
+-- +        Typ::Constructor
+-- +         QProperName
+-- +          NULL
+-- +          ProperName
+-- +           (7, 18)->(7, 22)
+-- +   Decl::Class
+-- +     Constraint
+-- +      QProperName
+-- +       NULL
+-- +       ProperName
+-- +        (9, 6)->(9, 8)
+-- +       Typ::Var
+-- +        Name
+-- +         (9, 9)->(9, 10)
+-- +    ProperName
+-- +     (9, 14)->(9, 17)
+-- +     TypVarBinding
+-- +      Name
+-- +       (9, 18)->(9, 19)
+-- +      NULL
+-- +    NULL
+-- +     ClassMember
+-- +      Name
+-- +       (10, 2)->(10, 9)
+-- +      Typ::Arr
+-- +       Typ::Var
+-- +        Name
+-- +         (10, 13)->(10, 14)
+-- +       Typ::Arr
+-- +        Typ::Var
+-- +         Name
+-- +          (10, 18)->(10, 19)
+-- +        Typ::Constructor
+-- +         QProperName
+-- +          NULL
+-- +          ProperName
+-- +           (10, 23)->(10, 28)
+-- + 
+-- + TREE: D
+-- + Module
+-- +  Header
+-- +   MName
+-- +    (0, 7)->(0, 8)
+-- +   NULL
+-- +    ImportDecl
+-- +     MName
+-- +      (2, 7)->(2, 8)
+-- +      Import::Value
+-- +       Name
+-- +        (2, 17)->(2, 20)
+-- +     NULL
+-- +   Decl::Data
+-- +    ProperName
+-- +     (4, 5)->(4, 8)
+-- +   Decl::Data
+-- +    ProperName
+-- +     (5, 5)->(5, 10)
+-- +     TypVarBinding
+-- +      Name
+-- +       (5, 11)->(5, 12)
+-- +      NULL
+-- +   Decl::Sig
+-- +    Name
+-- +     (7, 0)->(7, 9)
+-- +    Typ::Arr
+-- +     Typ::Constructor
+-- +      QProperName
+-- +       NULL
+-- +       ProperName
+-- +        (7, 13)->(7, 16)
+-- +     Typ::Constructor
+-- +      QProperName
+-- +       NULL
+-- +       ProperName
+-- +        (7, 20)->(7, 23)
+-- +   Decl::Def
+-- +    Name
+-- +     (8, 0)->(8, 9)
+-- +     Binder::Var
+-- +      Name
+-- +       (8, 10)->(8, 13)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Ident
+-- +      QName
+-- +       NULL
+-- +       Name
+-- +        (8, 16)->(8, 19)
+-- +   Decl::Sig
+-- +    Name
+-- +     (13, 0)->(13, 3)
+-- +    Typ::Forall
+-- +      TypVarBinding
+-- +       Name
+-- +        (13, 14)->(13, 15)
+-- +       NULL
+-- +     Typ::App
+-- +      Typ::Constructor
+-- +       QProperName
+-- +        NULL
+-- +        ProperName
+-- +         (13, 17)->(13, 22)
+-- +      Typ::Var
+-- +       Name
+-- +        (13, 23)->(13, 24)
+-- +   Decl::Def
+-- +    Name
+-- +     (14, 0)->(14, 3)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Vta
+-- +      Expr::Constructor
+-- +       QProperName
+-- +        NULL
+-- +        ProperName
+-- +         (14, 6)->(14, 7)
+-- +      Typ::Var
+-- +       Name
+-- +        (14, 9)->(14, 10)
+-- +   Decl::Def
+-- +    Name
+-- +     (16, 0)->(16, 3)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Ident
+-- +      QName
+-- +       NULL
+-- +       Name
+-- +        (16, 6)->(16, 9)
+-- +   Decl::Sig
+-- +    Name
+-- +     (18, 0)->(18, 1)
+-- +    Typ::Forall
+-- +      TypVarBinding
+-- +       Name
+-- +        (18, 12)->(18, 13)
+-- +       NULL
+-- +     Typ::App
+-- +      Typ::Constructor
+-- +       QProperName
+-- +        NULL
+-- +        ProperName
+-- +         (18, 15)->(18, 20)
+-- +      Typ::Var
+-- +       Name
+-- +        (18, 21)->(18, 22)
+-- +   Decl::Def
+-- +    Name
+-- +     (19, 0)->(19, 1)
+-- +     Binder::Var
+-- +      Name
+-- +       (19, 2)->(19, 3)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Access
+-- +      Expr::Ident
+-- +       QName
+-- +        NULL
+-- +        Name
+-- +         (19, 6)->(19, 7)
+-- +       Label
+-- +        (19, 8)->(19, 9)
+-- + 
+-- + TREE: A
+-- + Module
+-- +  Header
+-- +   MName
+-- +    (0, 7)->(0, 8)
+-- +   NULL
+-- +   Decl::Data
+-- +    ProperName
+-- +     (2, 5)->(2, 6)
+-- +     (
+-- +      ProperName
+-- +       (2, 9)->(2, 10)
+-- +     )
+-- +     (
+-- +      ProperName
+-- +       (2, 13)->(2, 14)
+-- +     )
+-- +     (
+-- +      ProperName
+-- +       (2, 17)->(2, 18)
+-- +     )
+-- +   Decl::NewType
+-- +    ProperName
+-- +     (4, 8)->(4, 10)
+-- +     TypVarBinding
+-- +      Name
+-- +       (4, 11)->(4, 12)
+-- +      NULL
+-- +    ProperName
+-- +     (4, 15)->(4, 17)
+-- +    Typ::Var
+-- +     Name
+-- +      (4, 18)->(4, 19)
+-- +   Decl::Def
+-- +    Name
+-- +     (6, 0)->(6, 1)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Let
+-- +      (6, 4)->(6, 7)
+-- +       LetBinding::Pattern
+-- +        Binder::Record
+-- +          RecordLabelBinder::Pun
+-- +           Name
+-- +            (6, 10)->(6, 11)
+-- +        Expr::Number
+-- +         Number
+-- +          (6, 16)->(6, 17)
+-- +      Expr::Record
+-- +       (6, 21)->(6, 22)
+-- +        RecordLabelExpr::Field
+-- +         Label
+-- +          (6, 23)->(6, 24)
+-- +         Expr::Ident
+-- +          QName
+-- +           NULL
+-- +           Name
+-- +            (6, 26)->(6, 27)
+-- +       (8, 0)->(8, 1)
+-- +   Decl::Sig
+-- +    Name
+-- +     (8, 0)->(8, 1)
+-- +    Typ::Int
+-- +     Int
+-- +      (8, 5)->(8, 7)
+-- +   Decl::Def
+-- +    Name
+-- +     (9, 0)->(9, 1)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::App
+-- +      Expr::Constructor
+-- +       QProperName
+-- +        NULL
+-- +        ProperName
+-- +         (9, 4)->(9, 6)
+-- +      Expr::Update
+-- +       Expr::Ident
+-- +        QName
+-- +         NULL
+-- +         Name
+-- +          (9, 7)->(9, 8)
+-- +        RecordUpdate::Branch
+-- +         Label
+-- +          (9, 11)->(9, 14)
+-- +          RecordUpdate::Leaf
+-- +           Label
+-- +            (9, 17)->(9, 18)
+-- +           Expr::Ident
+-- +            QName
+-- +             NULL
+-- +             Name
+-- +              (9, 21)->(9, 22)
+-- +   Decl::Sig
+-- +    Name
+-- +     (11, 0)->(11, 8)
+-- +    Typ::Forall
+-- +      TypVarBinding
+-- +       Name
+-- +        (11, 20)->(11, 21)
+-- +       NULL
+-- +     Typ::App
+-- +      Typ::Constructor
+-- +       QProperName
+-- +        NULL
+-- +        ProperName
+-- +         (11, 24)->(11, 29)
+-- +      Typ::Var
+-- +       Name
+-- +        (11, 30)->(11, 31)
+-- +   Decl::Def
+-- +    Name
+-- +     (13, 0)->(13, 1)
+-- +    GuardedExpr::Unconditional
+-- +     Expr::Let
+-- +      (14, 2)->(14, 5)
+-- +       LetBinding::Pattern
+-- +        Binder::Named
+-- +         Name
+-- +          (15, 4)->(15, 5)
+-- +         Binder::Var
+-- +          Name
+-- +           (15, 6)->(15, 7)
+-- +        Expr::Number
+-- +         Number
+-- +          (15, 10)->(15, 11)
+-- +      Expr::Ident
+-- +       QName
+-- +        NULL
+-- +        Name
+-- +         (17, 4)->(17, 5)
+-- + 
+-- + NAMES
+-- + > D
+-- +    Type D a Private((5, 11)): ["Known(Fi(2), (5, 11), (5, 12))"]
+-- +    Type D a Private((13, 14)): ["Known(Fi(2), (13, 14), (13, 15))", "Known(Fi(2), (13, 23), (13, 24))", "Known(Fi(2), (14, 9), (14, 10))"]
+-- +    Type D x Private((18, 12)): ["Known(Fi(2), (18, 12), (18, 13))", "Known(Fi(2), (18, 21), (18, 22))"]
+-- +    Type D Maybe Public: ["Known(Fi(2), (5, 5), (5, 10))", "Known(Fi(2), (13, 17), (13, 22))"]
+-- +    Type D Tag Public: ["Known(Fi(2), (4, 5), (4, 8))", "Known(Fi(2), (7, 13), (7, 16))", "Known(Fi(2), (7, 20), (7, 23))"]
+-- +    Term D tag Private((8, 10)): ["Known(Fi(2), (8, 10), (8, 13))", "Known(Fi(2), (8, 16), (8, 19))"]
+-- +    Term D foo Public: ["Known(Fi(2), (13, 0), (13, 3))", "Known(Fi(2), (14, 0), (14, 3))"]
+-- +    Term D a Private((19, 2)): ["Known(Fi(2), (19, 2), (19, 3))", "Known(Fi(2), (19, 6), (19, 7))"]
+-- +    Term D x Public: ["Known(Fi(2), (18, 0), (18, 1))", "Known(Fi(2), (19, 0), (19, 1))"]
+-- +    Term D biz Public: ["Known(Fi(2), (16, 0), (16, 3))"]
+-- +    Term D internal_ Public: ["Known(Fi(2), (7, 0), (7, 9))", "Known(Fi(2), (8, 0), (8, 9))"]
+-- +    Module D D Public: ["Known(Fi(2), (0, 7), (0, 8))"]
+-- + > A
+-- +    Type A a Private((4, 11)): ["Known(Fi(3), (4, 11), (4, 12))", "Known(Fi(3), (4, 18), (4, 19))"]
+-- +    Type A a Private((11, 20)): ["Known(Fi(3), (11, 20), (11, 21))", "Known(Fi(3), (11, 30), (11, 31))"]
+-- +    Type A A Public: ["Known(Fi(3), (2, 5), (2, 6))"]
+-- +    Type A QQ Public: ["Known(Fi(3), (4, 8), (4, 10))"]
+-- +    Term A Q Public: ["Known(Fi(3), (2, 17), (2, 18))"]
+-- +    Term A readJSON Public: ["Known(Fi(3), (11, 0), (11, 8))"]
+-- +    Term A f Public: ["Known(Fi(3), (13, 0), (13, 1))"]
+-- +    Term A a Private((15, 4)): ["Known(Fi(3), (15, 4), (15, 5))"]
+-- +    Term A a Public: ["Known(Fi(3), (8, 0), (8, 1))", "Known(Fi(3), (9, 0), (9, 1))", "Known(Fi(3), (9, 7), (9, 8))", "Known(Fi(3), (9, 21), (9, 22))"]
+-- +    Term A r Private((6, 10)): ["Known(Fi(3), (6, 10), (6, 11))", "Known(Fi(3), (6, 26), (6, 27))"]
+-- +    Term A C Public: ["Known(Fi(3), (2, 13), (2, 14))"]
+-- +    Term A QQ Public: ["Known(Fi(3), (4, 15), (4, 17))", "Known(Fi(3), (9, 4), (9, 6))"]
+-- +    Term A b Private((15, 6)): ["Known(Fi(3), (15, 6), (15, 7))", "Known(Fi(3), (17, 4), (17, 5))"]
+-- +    Term A b Public: ["Known(Fi(3), (6, 0), (6, 1))"]
+-- +    Term A B Public: ["Known(Fi(3), (2, 9), (2, 10))"]
+-- +    Module A A Public: ["Known(Fi(3), (0, 7), (0, 8))"]
+-- + > C
+-- +    Type C Foo Public: ["Known(Fi(1), (0, 36), (0, 39))", "Known(Fi(1), (2, 5), (2, 8))"]
+-- +    Type C Order Public: ["Known(Fi(1), (0, 29), (0, 34))", "Known(Fi(1), (4, 5), (4, 10))", "Known(Fi(1), (10, 23), (10, 28))"]
+-- +    Type C a Private((6, 9)): ["Known(Fi(1), (6, 9), (6, 10))", "Known(Fi(1), (7, 8), (7, 9))", "Known(Fi(1), (7, 13), (7, 14))"]
+-- +    Type C a Private((9, 18)): ["Known(Fi(1), (9, 9), (9, 10))", "Known(Fi(1), (9, 18), (9, 19))", "Known(Fi(1), (10, 13), (10, 14))", "Known(Fi(1), (10, 18), (10, 19))"]
+-- +    Type C Bool Public: ["Known(Fi(1), (0, 23), (0, 27))", "Known(Fi(1), (3, 5), (3, 9))", "Known(Fi(1), (7, 18), (7, 22))"]
+-- +    Class C Ord Public: ["Known(Fi(1), (9, 14), (9, 17))"]
+-- +    Class C Eq Public: ["Known(Fi(1), (6, 6), (6, 8))", "Known(Fi(1), (9, 6), (9, 8))"]
+-- +    Term C compare Public: ["Known(Fi(1), (0, 14), (0, 21))", "Known(Fi(1), (10, 2), (10, 9))"]
+-- +    Term C eq Public: ["Known(Fi(1), (0, 10), (0, 12))", "Known(Fi(1), (7, 2), (7, 4))"]
+-- +    Module C C Public: ["Known(Fi(1), (0, 7), (0, 8))"]
+-- + > B
+-- +    Term B fiz Public: ["Known(Fi(0), (4, 0), (4, 3))"]
+-- +    Term B a Private((5, 10)): ["Known(Fi(0), (5, 10), (5, 11))", "Known(Fi(0), (5, 17), (5, 18))"]
+-- +    Module B B Public: ["Known(Fi(0), (0, 7), (0, 8))"]
+-- + EXPORTS
+-- + > C
+-- +    Just Module C.C
+-- +    Just Term C.eq
+-- +    Just Term C.compare
+-- +    Just Type C.Bool
+-- +    Just Type C.Order
+-- +    Just Type C.Foo
+-- + > D
+-- +    Just Module D.D
+-- +    ConstructorsAll Type D.Maybe []
+-- +    ConstructorsAll Type D.Tag []
+-- +    Just Term D.foo
+-- +    Just Term D.x
+-- +    Just Term D.biz
+-- +    Just Term D.internal_
+-- + > A
+-- +    Just Module A.A
+-- +    ConstructorsAll Type A.A ["Term A.Q", "Term A.C", "Term A.B"]
+-- +    ConstructorsAll Type A.QQ ["Term A.QQ"]
+-- +    Just Term A.readJSON
+-- +    Just Term A.f
+-- +    Just Term A.a
+-- +    Just Term A.b
+-- + > B
+-- +    Just Module B.B
+-- +    Just Term B.fiz
+-- + IMPORTS
+-- + > D
+-- +  ! namespace: ME
+-- +    import: Prim
+-- +      * Just Module Prim.Prim
+-- +      * Just Type Prim.Int
+-- +      * Just Type Prim.Number
+-- +      * Just Type Prim.Record
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Array
+-- +      * Just Type Prim.Boolean
+-- +      * Just Type Prim.String
+-- +      * Just Type Prim.Char
+-- +      * Just Type Prim.->
+-- +      * Just Type Prim.Function
+-- +      * Just Class Prim.Partial
+-- +      * Just Type Prim.Type
+-- +      * Just Type Prim.Constraint
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Row
+-- +    import: B
+-- +      * Just Module B.B
+-- +      * Just Term B.fiz
+-- + > A
+-- +  ! namespace: ME
+-- +    import: Prim
+-- +      * Just Module Prim.Prim
+-- +      * Just Type Prim.Int
+-- +      * Just Type Prim.Number
+-- +      * Just Type Prim.Record
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Array
+-- +      * Just Type Prim.Boolean
+-- +      * Just Type Prim.String
+-- +      * Just Type Prim.Char
+-- +      * Just Type Prim.->
+-- +      * Just Type Prim.Function
+-- +      * Just Class Prim.Partial
+-- +      * Just Type Prim.Type
+-- +      * Just Type Prim.Constraint
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Row
+-- + > C
+-- +  ! namespace: ME
+-- +    import: Prim
+-- +      * Just Module Prim.Prim
+-- +      * Just Type Prim.Int
+-- +      * Just Type Prim.Number
+-- +      * Just Type Prim.Record
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Array
+-- +      * Just Type Prim.Boolean
+-- +      * Just Type Prim.String
+-- +      * Just Type Prim.Char
+-- +      * Just Type Prim.->
+-- +      * Just Type Prim.Function
+-- +      * Just Class Prim.Partial
+-- +      * Just Type Prim.Type
+-- +      * Just Type Prim.Constraint
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Row
+-- + > B
+-- +  ! namespace: ME
+-- +    import: A
+-- +      * Just Module A.A
+-- +      * ConstructorsAll Type A.A ["Term A.Q", "Term A.C", "Term A.B"]
+-- +      * ConstructorsAll Type A.QQ ["Term A.QQ"]
+-- +      * Just Term A.readJSON
+-- +      * Just Term A.f
+-- +      * Just Term A.a
+-- +      * Just Term A.b
+-- +    import: Prim
+-- +      * Just Module Prim.Prim
+-- +      * Just Type Prim.Int
+-- +      * Just Type Prim.Number
+-- +      * Just Type Prim.Record
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Array
+-- +      * Just Type Prim.Boolean
+-- +      * Just Type Prim.String
+-- +      * Just Type Prim.Char
+-- +      * Just Type Prim.->
+-- +      * Just Type Prim.Function
+-- +      * Just Class Prim.Partial
+-- +      * Just Type Prim.Type
+-- +      * Just Type Prim.Constraint
+-- +      * Just Type Prim.Symbol
+-- +      * Just Type Prim.Row
+

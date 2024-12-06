@@ -1,0 +1,6 @@
+module B where
+
+import A
+
+fiz = case _ of
+          a -> f a
