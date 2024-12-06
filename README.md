@@ -88,4 +88,12 @@ return {
 https://github.com/pepebecker/vscode-lsp-config
 
 ### Helix
-I think you have fork the editor - but I don't know.
+Add this to your Helix config to run Hemlis alongside the ordinary Purescript LSP:
+```toml
+[language-server.hemlis-language-server]
+command = "hemlis-language-server"
+
+[[language]]
+name = "purescript"
+language-servers = [ "hemlis-language-server", "purescript-language-server" ]
+```
