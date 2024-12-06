@@ -1007,11 +1007,11 @@ impl<'s> N<'s> {
                 match v {
                     ast::LetBinding::Sig(l, _) => {
                         self.def_local(Term, l.0 .0, l.0 .1);
-                        break
+                        break;
                     }
                     ast::LetBinding::Name(l, _, _) => {
                         self.def_local(Term, l.0 .0, l.0 .1);
-                        break
+                        break;
                     }
                     ast::LetBinding::Pattern(_, _) => {}
                 }
@@ -1019,8 +1019,7 @@ impl<'s> N<'s> {
         }
         for v in grouped.get(&None).iter().copied().flatten() {
             match v {
-                ast::LetBinding::Sig(..)
-                | ast::LetBinding::Name(..) => {
+                ast::LetBinding::Sig(..) | ast::LetBinding::Name(..) => {
                     unreachable!()
                 }
                 ast::LetBinding::Pattern(b, e) => {
@@ -1030,7 +1029,9 @@ impl<'s> N<'s> {
             }
         }
         for (k, vs) in grouped.iter() {
-            if k.is_none() { continue }
+            if k.is_none() {
+                continue;
+            }
             for v in vs {
                 match v {
                     ast::LetBinding::Sig(name, t) => {
@@ -1046,7 +1047,7 @@ impl<'s> N<'s> {
                         self.guarded_expr(e);
                         self.pop(sf);
                     }
-                    ast::LetBinding::Pattern(_, _) => { }
+                    ast::LetBinding::Pattern(_, _) => {}
                 }
             }
         }

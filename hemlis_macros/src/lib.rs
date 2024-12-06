@@ -128,7 +128,7 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
                                 let n = f.ident.as_ref().map(|x| quote!(#x)).unwrap_or_else(|| {
                                     let i = syn::Ident::new(
                                         &format!("a{}", i),
-                                        proc_macro2::Span::call_site()
+                                        proc_macro2::Span::call_site(),
                                     );
                                     quote!(#i)
                                 });
@@ -175,4 +175,3 @@ pub fn ast_derive(input: TokenStream) -> TokenStream {
         }
     ))
 }
-

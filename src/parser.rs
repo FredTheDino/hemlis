@@ -96,7 +96,6 @@ fn label(p: &mut P<'_>) -> Option<Label> {
     Some(out)
 }
 
-
 macro_rules! kw {
     ($name:ident, $kw:pat) => {
         fn $name(p: &mut P) -> Option<()> {
@@ -650,9 +649,7 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp> {
             Some(TypOp::FatArr)
         }
         // Not a type op
-        (Some(T::Op("<=")), _) => {
-            None
-        }
+        (Some(T::Op("<=")), _) => None,
         (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(TypOp::Op(qop(p)?)),
         _ => {
             typ_atom(&mut p.fork(), None)?;
@@ -743,12 +740,11 @@ fn typ_only_call<'t>(p: &mut P<'t>) -> Option<Typ> {
             lhs = Typ::App(b!(lhs), b!(rhs));
             *p = pp;
         } else {
-            break
+            break;
         }
     }
     Some(lhs)
 }
-
 
 fn typ_var_binding<'t>(p: &mut P<'t>) -> Option<TypVarBinding> {
     let is_paren = matches!(p.peekt(), Some(T::LeftParen));
@@ -1158,11 +1154,7 @@ fn binder_no_type<'t>(p: &mut P<'t>) -> Option<Binder> {
 fn binder_call<'t>(p: &mut P<'t>) -> Option<Binder> {
     let head = binder_atom(p, Some("Expected a binder"))?;
     if matches!(head, Binder::Constructor(_)) {
-        let bs = many(
-            p,
-            "binder_no_type",
-            |x| binder_atom(x, None),
-        );
+        let bs = many(p, "binder_no_type", |x| binder_atom(x, None));
         let bs = [vec![head], bs].concat();
         match Binder::to_constructor(bs) {
             Ok(a) => Some(a),
@@ -1255,7 +1247,7 @@ fn guarded_decl<'t>(p: &mut P<'t>) -> Option<GuardedExpr> {
         kw_eq(p)?;
         Some(GuardedExpr::Unconditional(expr_where(p)?))
     } else {
-        let decls = many( p, "guardDeclExpr", guarded_decl_expr);
+        let decls = many(p, "guardDeclExpr", guarded_decl_expr);
         if decls.is_empty() {
             p.raise_("Not a valid declaration - expected a `=`")
         } else {
@@ -1635,32 +1627,32 @@ fn constraints<'t>(p: &mut P<'t>, l: bool) -> Option<Vec<Constraint>> {
 
 fn fundeps<'t>(p: &mut P<'t>) -> Option<Option<Vec<FunDep>>> {
     if next_is!(T::Pipe)(p) {
-            kw_pipe(p)?;
-            let mut deps = Vec::new();
-            loop {
-                deps.push(fundep(p)?);
-                if next_is!(T::Comma)(p) {
-                    kw_comma(p)?;
-                } else {
-                    break;
-                }
+        kw_pipe(p)?;
+        let mut deps = Vec::new();
+        loop {
+            deps.push(fundep(p)?);
+            if next_is!(T::Comma)(p) {
+                kw_comma(p)?;
+            } else {
+                break;
             }
-            Some(Some(deps))
-        } else {
-            Some(None::<Vec<FunDep>>)
         }
+        Some(Some(deps))
+    } else {
+        Some(None::<Vec<FunDep>>)
+    }
 }
 
 fn fundep<'t>(p: &mut P<'t>) -> Option<FunDep> {
     if next_is!(T::RightArrow)(p) {
-            kw_right_arrow(p)?;
-            Some(FunDep(Vec::new(), many(p, "fundep A", name)))
-        } else {
-            let b = many_until(p, "fundep B", name, next_isnt!(T::Lower(_)));
-            kw_right_arrow(p)?;
-            let c = many_until(p, "fundep C", name, next_isnt!(T::Lower(_)));
-            Some(FunDep(b, c))
-        }
+        kw_right_arrow(p)?;
+        Some(FunDep(Vec::new(), many(p, "fundep A", name)))
+    } else {
+        let b = many_until(p, "fundep B", name, next_isnt!(T::Lower(_)));
+        kw_right_arrow(p)?;
+        let c = many_until(p, "fundep C", name, next_isnt!(T::Lower(_)));
+        Some(FunDep(b, c))
+    }
 }
 
 fn members<'t>(p: &mut P<'t>) -> Option<Vec<ClassMember>> {

@@ -1,5 +1,8 @@
 use std::{
-    collections::{BTreeMap, BTreeSet}, env, fs::{self}, hash::{DefaultHasher, Hash, Hasher}
+    collections::{BTreeMap, BTreeSet},
+    env,
+    fs::{self},
+    hash::{DefaultHasher, Hash, Hasher},
 };
 
 use ast::Ast;
@@ -8,8 +11,8 @@ use rayon::prelude::*;
 
 pub mod ast;
 pub mod lexer;
-pub mod parser;
 pub mod nr;
+pub mod parser;
 
 #[allow(dead_code)]
 fn main() {
@@ -136,7 +139,8 @@ fn parse_and_resolve_names() {
 
     let (exports, prim, names) = build_builtins();
 
-    let deps: Vec<_> = args.par_iter()
+    let deps: Vec<_> = args
+        .par_iter()
         .enumerate()
         .filter_map(|(i, arg)| match fs::read_to_string(arg.clone()) {
             Err(e) => {
@@ -146,17 +150,17 @@ fn parse_and_resolve_names() {
                 let l = lexer::lex(&src, ast::Fi(i));
                 let mut p = parser::P::new(&l, &names);
                 if let Some(m) = parser::module(&mut p) {
-                        let header = m.0.clone()?;
-                        let me = header.0 .0 .0;
-                        Some((
-                            m,
-                            me,
-                            header
-                                .2
-                                .iter()
-                                .map(|x| x.from.0 .0)
-                                .collect::<BTreeSet<_>>(),
-                        ))
+                    let header = m.0.clone()?;
+                    let me = header.0 .0 .0;
+                    Some((
+                        m,
+                        me,
+                        header
+                            .2
+                            .iter()
+                            .map(|x| x.from.0 .0)
+                            .collect::<BTreeSet<_>>(),
+                    ))
                 } else {
                     None
                 }
@@ -164,10 +168,12 @@ fn parse_and_resolve_names() {
         })
         .collect();
 
-    let names_: BTreeMap<_, _> = names.iter().map(|k| (*k.key(), k.value().clone())).collect();
+    let names_: BTreeMap<_, _> = names
+        .iter()
+        .map(|k| (*k.key(), k.value().clone()))
+        .collect();
     let mut done: BTreeSet<_> = exports.iter().map(|k| *k.key()).collect();
     let mut imports = BTreeMap::new();
-
 
     let mut errors = Vec::new();
     loop {
@@ -179,12 +185,14 @@ fn parse_and_resolve_names() {
         if todo.is_empty() {
             if let Some((m, x)) = deps
                 .iter()
-                .map(|(_, me, deps)| {
-                    (me, deps.difference(&done).cloned().collect::<Vec<_>>())
-                })
+                .map(|(_, me, deps)| (me, deps.difference(&done).cloned().collect::<Vec<_>>()))
                 .find(|(_, aa)| !aa.is_empty())
             {
-                println!("DEADLOCKED! {:?} {:?}", names_.get(m).unwrap(), x.iter().map(|x| names_.get(x).unwrap()).collect::<Vec<_>>());
+                println!(
+                    "DEADLOCKED! {:?} {:?}",
+                    names_.get(m).unwrap(),
+                    x.iter().map(|x| names_.get(x).unwrap()).collect::<Vec<_>>()
+                );
             }
             break;
         }
@@ -204,7 +212,9 @@ fn parse_and_resolve_names() {
     println!("EXPORTS");
     for e in exports.iter() {
         let name = names_.get(e.key()).unwrap();
-        if name.starts_with("Prim") { continue; }
+        if name.starts_with("Prim") {
+            continue;
+        }
         println!("> {}", name);
         for v in e.value().iter() {
             println!("   {}", v.show(&|u| names_.get(u).unwrap().clone()));
@@ -214,10 +224,16 @@ fn parse_and_resolve_names() {
     println!("IMPORTS");
     for (k, v) in imports.iter() {
         let name = names_.get(k).unwrap();
-        if name.starts_with("Prim") { continue; }
+        if name.starts_with("Prim") {
+            continue;
+        }
         println!("> {}", name);
         for (k, v) in v.iter() {
-            println!(" ! namespace: {}", k.map(|u| names_.get(&u).unwrap().clone()).unwrap_or("ME".into()));
+            println!(
+                " ! namespace: {}",
+                k.map(|u| names_.get(&u).unwrap().clone())
+                    .unwrap_or("ME".into())
+            );
             for (k, v) in v.iter() {
                 println!("   import: {}", names_.get(k).unwrap().clone());
                 for v in v.iter() {

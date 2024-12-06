@@ -299,122 +299,121 @@ impl LanguageServer for Backend {
     }
 }
 
-
-    pub fn nrerror_turn_into_diagnostic(
-        error: NRerrors,
-        names: &DashMap<ast::Ud, String>,
-    ) -> tower_lsp::lsp_types::Diagnostic {
-        match error {
-            NRerrors::Unknown(scope, ns, n, span) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+pub fn nrerror_turn_into_diagnostic(
+    error: NRerrors,
+    names: &DashMap<ast::Ud, String>,
+) -> tower_lsp::lsp_types::Diagnostic {
+    match error {
+        NRerrors::Unknown(scope, ns, n, span) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+            format!(
+                "Failed to resolve this name\n{:?} {}.{}\n{:?}.{:?}",
+                scope,
+                names
+                    .get(&ns.unwrap_or(ast::Ud(0)))
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "_".into()),
+                names
+                    .get(&n)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into()),
+                ns,
+                n
+            ),
+        ),
+        NRerrors::NameConflict(ns, span) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+            format!(
+                "This name is imported from {} different modules\n{}",
+                ns.len(),
+                ns.iter()
+                    .map(|Name(s, m, n, x)| {
+                        format!(
+                            "{:?} {}.{} {:?}",
+                            s,
+                            names
+                                .get(m)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            names
+                                .get(n)
+                                .map(|x| x.clone())
+                                .unwrap_or_else(|| "?".into()),
+                            x,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        ),
+        NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => {
+            Diagnostic::new_simple(
+                Range::new(pos_from_tup(second), pos_from_tup(second)),
                 format!(
-                    "Failed to resolve this name\n{:?} {}.{}\n{:?}.{:?}",
+                    "{:?} {:?} is defined multiple times",
                     scope,
                     names
-                        .get(&ns.unwrap_or(ast::Ud(0)))
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "_".into()),
-                    names
-                        .get(&n)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into()),
-                    ns,
-                    n
-                ),
-            ),
-            NRerrors::NameConflict(ns, span) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                format!(
-                    "This name is imported from {} different modules\n{}",
-                    ns.len(),
-                    ns.iter()
-                        .map(|Name(s, m, n, x)| {
-                            format!(
-                                "{:?} {}.{} {:?}",
-                                s,
-                                names
-                                    .get(m)
-                                    .map(|x| x.clone())
-                                    .unwrap_or_else(|| "?".into()),
-                                names
-                                    .get(n)
-                                    .map(|x| x.clone())
-                                    .unwrap_or_else(|| "?".into()),
-                                x,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                ),
-            ),
-            NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => {
-                Diagnostic::new_simple(
-                    Range::new(pos_from_tup(second), pos_from_tup(second)),
-                    format!(
-                        "{:?} {:?} is defined multiple times",
-                        scope,
-                        names
-                            .get(&i)
-                            .map(|x| x.clone())
-                            .unwrap_or_else(|| "?".into())
-                    ),
-                )
-            }
-            NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
-                format!(
-                    "{} does not have a constructors {}",
-                    names
-                        .get(&d.2)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into()),
-                    names
-                        .get(&m.0 .0)
+                        .get(&i)
                         .map(|x| x.clone())
                         .unwrap_or_else(|| "?".into())
                 ),
-            ),
-            NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                format!(
-                    "{} does not have constructors",
-                    names
-                        .get(&m.2)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into()),
-                ),
-            ),
-            NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                format!(
-                    "{:?} {}.{} is not exported or does not exist",
-                    scope,
-                    names
-                        .get(&m)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into()),
-                    names
-                        .get(&ud)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into()),
-                ),
-            ),
-            NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                "A module cannot import itself".to_string(),
-            ),
-            NRerrors::CouldNotFindImport(n, s) => Diagnostic::new_simple(
-                Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-                format!(
-                    "Could not find this import {}",
-                    names
-                        .get(&n)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into()),
-                ),
-            ),
+            )
         }
+        NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
+            format!(
+                "{} does not have a constructors {}",
+                names
+                    .get(&d.2)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into()),
+                names
+                    .get(&m.0 .0)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into())
+            ),
+        ),
+        NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            format!(
+                "{} does not have constructors",
+                names
+                    .get(&m.2)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into()),
+            ),
+        ),
+        NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            format!(
+                "{:?} {}.{} is not exported or does not exist",
+                scope,
+                names
+                    .get(&m)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into()),
+                names
+                    .get(&ud)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into()),
+            ),
+        ),
+        NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            "A module cannot import itself".to_string(),
+        ),
+        NRerrors::CouldNotFindImport(n, s) => Diagnostic::new_simple(
+            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            format!(
+                "Could not find this import {}",
+                names
+                    .get(&n)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into()),
+            ),
+        ),
     }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct InlayHintParams {
@@ -633,14 +632,24 @@ impl Backend {
         };
 
         {
-            let new_imports: BTreeSet<_> =
-                n.imports.values().flat_map(|x| x.values().flatten()).cloned().collect();
+            let new_imports: BTreeSet<_> = n
+                .imports
+                .values()
+                .flat_map(|x| x.values().flatten())
+                .cloned()
+                .collect();
             let old_imports = self
                 .imports
                 .insert(me, new_imports.clone())
                 .unwrap_or_else(BTreeSet::new);
-            let new_imports = new_imports.iter().flat_map(|x| x.to_names().into_iter().map(|x| x.module())).collect::<BTreeSet<ast::Ud>>();
-            let old_imports = old_imports.iter().flat_map(|x| x.to_names().into_iter().map(|x| x.module())).collect::<BTreeSet<ast::Ud>>();
+            let new_imports = new_imports
+                .iter()
+                .flat_map(|x| x.to_names().into_iter().map(|x| x.module()))
+                .collect::<BTreeSet<ast::Ud>>();
+            let old_imports = old_imports
+                .iter()
+                .flat_map(|x| x.to_names().into_iter().map(|x| x.module()))
+                .collect::<BTreeSet<ast::Ud>>();
             for x in old_imports.difference(&new_imports) {
                 self.importers
                     .entry(*x)
@@ -821,7 +830,6 @@ fn hash_exports(exports: &[Export]) -> u64 {
 fn pos_from_tup((line, col): (usize, usize)) -> Position {
     Position::new(line as u32, col as u32)
 }
-
 
 #[tokio::main]
 async fn main() {

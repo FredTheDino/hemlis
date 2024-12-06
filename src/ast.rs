@@ -387,10 +387,8 @@ pub enum InstBinding {
 impl InstBinding {
     pub fn ud(&self) -> Ud {
         match self {
-            InstBinding::Sig(name, _)
-            | InstBinding::Def(name, _, _) => name.0.0,
+            InstBinding::Sig(name, _) | InstBinding::Def(name, _, _) => name.0 .0,
         }
-        
     }
 }
 
@@ -523,8 +521,7 @@ pub enum LetBinding {
 impl LetBinding {
     pub fn ud(&self) -> Option<Ud> {
         match self {
-            LetBinding::Sig(name, _)
-            | LetBinding::Name(name, _, _) => Some(name.0.0),
+            LetBinding::Sig(name, _) | LetBinding::Name(name, _, _) => Some(name.0 .0),
             LetBinding::Pattern(_, _) => None,
         }
     }
