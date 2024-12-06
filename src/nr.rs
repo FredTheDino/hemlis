@@ -108,14 +108,28 @@ pub enum NRerrors {
 
 pub type Pos = (usize, usize);
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Sort {
+    Def,
+    Ref,
+    Import,
+    Export,
+}
+
+impl Sort {
+    pub fn is_import_or_export(&self) -> bool {
+        matches!(self, Sort::Import | Sort::Export)
+    }
+}
+
 #[derive(Debug)]
 pub struct N<'s> {
     pub me: ast::Ud,
 
     pub global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
-    pub global_usages: BTreeSet<(Name, ast::Span)>,
+    pub global_usages: BTreeSet<(Name, ast::Span, Sort)>,
 
-    pub usages: BTreeMap<Name, BTreeSet<ast::Span>>,
+    pub usages: BTreeMap<Name, BTreeSet<(ast::Span, Sort)>>,
 
     pub errors: Vec<NRerrors>,
 
@@ -171,8 +185,7 @@ impl<'s> N<'s> {
                 }
             }
         }
-        self.resolved.insert((s.lo(), s.hi()), name);
-        self.usages.entry(name).or_default().insert(s);
+        self.add_usage(name, s, Sort::Def);
     }
 
     fn def_global(&mut self, scope: Scope, s: ast::S<ast::Ud>, is_redecl: bool) {
@@ -187,18 +200,22 @@ impl<'s> N<'s> {
         self.def(s, name, false)
     }
 
+    fn add_usage(&mut self, name: Name, s: ast::Span, sort: Sort) {
+        self.resolved.insert((s.lo(), s.hi()), name);
+        if name.1 == self.me {
+            self.usages.entry(name).or_default().insert((s, sort));
+        } else {
+            self.global_usages.insert((name, s, sort));
+        }
+    }
+
     fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) -> Option<Name> {
         let s = n.1;
         let n = n.0;
         let unique_matches = self.resolve_inner(scope, m, n);
 
         for name in unique_matches.iter().copied() {
-            self.resolved.insert((s.lo(), s.hi()), name);
-            if name.1 == self.me {
-                self.usages.entry(name).or_default().insert(s);
-            } else {
-                self.global_usages.insert((name, s));
-            }
+            self.add_usage(name, s, Sort::Ref);
         }
 
         match unique_matches.len() {
@@ -271,31 +288,38 @@ impl<'s> N<'s> {
         match ex {
             ast::Export::Value(v) => {
                 if let Some(n) = self.resolve(Term, None, v.0) {
+                    self.add_usage(n, v.0.1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::Symbol(v) => {
                 if let Some(n) = self.resolve(Term, None, v.0) {
+                    self.add_usage(n, v.0.1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::Typ(v) => {
                 if let Some(n) = self.resolve(Type, None, v.0) {
+                    self.add_usage(n, v.0.1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::TypSymbol(v) => {
                 if let Some(n) = self.resolve(Type, None, v.0) {
+                    self.add_usage(n, v.0.1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::Class(v) => {
                 if let Some(n) = self.resolve(Class, None, v.0) {
+                    self.add_usage(n, v.0.1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::TypDat(v, ds) => {
-                self.resolve(Type, None, v.0);
+                if let Some(name) = self.resolve(Type, None, v.0) {
+                    self.add_usage(name, v.0.1, Sort::Export);
+                }
                 let x = Name(Type, self.me, v.0 .0, Visibility::Public);
                 let ms = match self.constructors.get(&x) {
                     None => {
@@ -311,7 +335,9 @@ impl<'s> N<'s> {
                         ns.iter()
                             .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
                                 Some(a) => {
-                                    self.resolve(a.0, None, m.0);
+                                    if let Some(name) = self.resolve(a.0, None, m.0) {
+                                        self.add_usage(name, m.0.1, Sort::Export);
+                                    }
                                     Some(*a)
                                 }
                                 None => {
@@ -335,7 +361,7 @@ impl<'s> N<'s> {
                         .append(&mut ns.values().flatten().cloned().collect());
                 } else {
                     let name = Name(Scope::Module, v.0 .0, v.0 .0, Visibility::Public);
-                    self.resolved.insert((v.0 .1.lo(), v.0 .1.hi()), name);
+                    self.add_usage(name, v.0 .1, Sort::Export);
                     // Module exports export everything that's ever imported from a module -
                     // right?
                     let imports = self
@@ -396,8 +422,7 @@ impl<'s> N<'s> {
         // NOTE: I've decided the export isn't a usage - it's annoying to see references that
         // aren't really used.
         let name = Name(Module, from.0 .0, from.0 .0, Visibility::Public);
-        self.global_usages.insert((name, from.0 .1));
-        self.resolved.insert((from.0 .1.lo(), from.0 .1.hi()), name);
+        self.add_usage(name, from.0 .1, Sort::Import);
         let import_name = to.map(|x| x.0 .0);
         self.imports
             .entry(import_name)
@@ -440,8 +465,7 @@ impl<'s> N<'s> {
                         ast::Import::Class(x) => (Class, x.0),
                     };
                     if let Some(n) = valid.get(&(s, u.0)) {
-                        // Opinionatedly not adding imports to usages
-                        self.resolved.insert((u.1.lo(), u.1.hi()), *n);
+                        self.add_usage(*n, u.1, Sort::Import);
                         // NOTE[et]: This is bug-compatible with purs
                         if matches!(x, ast::Import::TypDat(_, ast::DataMember::Some(_))) {
                             return None;
@@ -793,10 +817,8 @@ impl<'s> N<'s> {
         };
         if let Some(n) = u {
             let span = l.0 .1;
-            self.resolved.insert(
-                (span.lo(), span.hi()),
-                Name(Term, n.module(), l.0 .0, Visibility::Public),
-            );
+            let name = Name(Term, n.module(), l.0 .0, Visibility::Public);
+            self.add_usage(name, span, Sort::Ref);
         }
     }
 
@@ -984,6 +1006,7 @@ impl<'s> N<'s> {
             ast::Expr::Paren(e) => {
                 self.expr(e);
             }
+            ast::Expr::Error(_) => {}
         }
     }
 
@@ -1171,6 +1194,7 @@ impl<'s> N<'s> {
             ast::Typ::Paren(a) => {
                 self.typ_define_vars(a);
             }
+            ast::Typ::Error(_) => (),
         }
     }
 
@@ -1231,6 +1255,7 @@ impl<'s> N<'s> {
             ast::Typ::Paren(a) => {
                 self.typ(a);
             }
+            ast::Typ::Error(_) => {}
         }
     }
 }

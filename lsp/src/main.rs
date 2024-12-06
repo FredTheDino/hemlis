@@ -32,14 +32,14 @@ struct Backend {
     importers: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
     imports: DashMap<ast::Ud, BTreeSet<Export>>,
 
-    previouse_global_usages: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
+    previouse_global_usages: DashMap<ast::Fi, BTreeSet<(Name, ast::Span, nr::Sort)>>,
     previouse_defines: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
 
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
     defines: DashMap<Name, ast::Span>,
-    usages: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<ast::Span>>>,
+    usages: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<(ast::Span, nr::Sort)>>>,
 
     syntax_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
     name_resolution_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
@@ -171,7 +171,8 @@ impl LanguageServer for Backend {
                     .get(&name.1)?
                     .get(&name)?
                     .iter()
-                    .filter_map(|s: &ast::Span| {
+                    .filter_map(|(s, sort): &(ast::Span, nr::Sort)| {
+                        if sort.is_import_or_export() { return None }
                         let url = self.fi_to_url.get(&s.fi()?)?;
                         let lo = pos_from_tup(s.lo());
                         let hi = pos_from_tup(s.hi());
@@ -688,7 +689,7 @@ impl Backend {
         {
             let mut us = self.usages.entry(me).or_insert(BTreeMap::new());
             for (k, v) in us.iter_mut() {
-                v.retain(|x| x.fi() != Some(fi));
+                v.retain(|(x, _)| x.fi() != Some(fi));
                 v.append(&mut usages.get(k).cloned().unwrap_or_default());
             }
             for (k, v) in usages.into_iter() {
@@ -722,17 +723,17 @@ impl Backend {
                 .previouse_global_usages
                 .insert(fi, new.clone())
                 .unwrap_or_default();
-            for (name, pos) in old.difference(&new) {
+            for (name, pos, sort) in old.difference(&new) {
                 if let Some(mut e) = self.usages.get_mut(&name.1) {
                     if let Some(e) = e.get_mut(name) {
-                        e.remove(pos);
+                        e.remove(&(*pos, *sort));
                     }
                 }
             }
 
-            for (name, pos) in new.difference(&old) {
+            for (name, pos, sort) in new.difference(&old) {
                 let mut e = self.usages.entry(name.1).or_insert(BTreeMap::new());
-                e.entry(*name).or_insert(BTreeSet::new()).insert(*pos);
+                e.entry(*name).or_insert(BTreeSet::new()).insert((*pos, *sort));
             }
         }
 
