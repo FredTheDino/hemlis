@@ -302,84 +302,84 @@ impl LanguageServer for Backend {
     }
 
     /*
-    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
-        let completions = || -> Option<Vec<CompletionItem>> {
-            let rope = self.document_map.get(&uri.to_string())?;
-            let ast = self.ast_map.get(&uri.to_string())?;
-            let char = rope.try_line_to_char(position.line as usize).ok()?;
-            let offset = char + position.character as usize;
-            let completions = completion(&ast, offset);
-            let mut ret = Vec::with_capacity(completions.len());
-            for (_, item) in completions {
-                match item {
-                    nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
-                        ret.push(CompletionItem {
-                            label: var.clone(),
-                            insert_text: Some(var.clone()),
-                            kind: Some(CompletionItemKind::VARIABLE),
-                            detail: Some(var),
-                            ..Default::default()
-                        });
-                    }
-                    nrs_language_server::completion::ImCompleteCompletionItem::Function(
-                        name,
-                        args,
-                    ) => {
-                        ret.push(CompletionItem {
-                            label: name.clone(),
-                            kind: Some(CompletionItemKind::FUNCTION),
-                            detail: Some(name.clone()),
-                            insert_text: Some(format!(
-                                "{}({})",
-                                name,
-                                args.iter()
-                                    .enumerate()
-                                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
-                                    .collect::<Vec<_>>()
-                                    .join(",")
-                            )),
-                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-                            ..Default::default()
-                        });
+        async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+            let uri = params.text_document_position.text_document.uri;
+            let position = params.text_document_position.position;
+            let completions = || -> Option<Vec<CompletionItem>> {
+                let rope = self.document_map.get(&uri.to_string())?;
+                let ast = self.ast_map.get(&uri.to_string())?;
+                let char = rope.try_line_to_char(position.line as usize).ok()?;
+                let offset = char + position.character as usize;
+                let completions = completion(&ast, offset);
+                let mut ret = Vec::with_capacity(completions.len());
+                for (_, item) in completions {
+                    match item {
+                        nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
+                            ret.push(CompletionItem {
+                                label: var.clone(),
+                                insert_text: Some(var.clone()),
+                                kind: Some(CompletionItemKind::VARIABLE),
+                                detail: Some(var),
+                                ..Default::default()
+                            });
+                        }
+                        nrs_language_server::completion::ImCompleteCompletionItem::Function(
+                            name,
+                            args,
+                        ) => {
+                            ret.push(CompletionItem {
+                                label: name.clone(),
+                                kind: Some(CompletionItemKind::FUNCTION),
+                                detail: Some(name.clone()),
+                                insert_text: Some(format!(
+                                    "{}({})",
+                                    name,
+                                    args.iter()
+                                        .enumerate()
+                                        .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+                                        .collect::<Vec<_>>()
+                                        .join(",")
+                                )),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
-            }
-            Some(ret)
-        }();
-        Ok(completions.map(CompletionResponse::Array))
-    }
+                Some(ret)
+            }();
+            Ok(completions.map(CompletionResponse::Array))
+        }
 
-    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let workspace_edit = || -> Option<WorkspaceEdit> {
-            let uri = params.text_document_position.text_document.uri;
-            let semantic = self.semantic_map.get(uri.as_str())?;
-            let rope = self.document_map.get(uri.as_str())?;
-            let position = params.text_document_position.position;
-            let offset = position_to_offset(position, &rope)?;
-            let reference_list = get_references(&semantic, offset, offset + 1, true)?;
+        async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+            let workspace_edit = || -> Option<WorkspaceEdit> {
+                let uri = params.text_document_position.text_document.uri;
+                let semantic = self.semantic_map.get(uri.as_str())?;
+                let rope = self.document_map.get(uri.as_str())?;
+                let position = params.text_document_position.position;
+                let offset = position_to_offset(position, &rope)?;
+                let reference_list = get_references(&semantic, offset, offset + 1, true)?;
 
-            let new_name = params.new_name;
-            (!reference_list.is_empty()).then_some(()).map(|_| {
-                let edit_list = reference_list
-                    .into_iter()
-                    .filter_map(|range| {
-                        let start_position = offset_to_position(range.start, &rope)?;
-                        let end_position = offset_to_position(range.end, &rope)?;
-                        Some(TextEdit::new(
-                            Range::new(start_position, end_position),
-                            new_name.clone(),
-                        ))
-                    })
-                    .collect::<Vec<_>>();
-                let mut map = HashMap::new();
-                map.insert(uri, edit_list);
-                WorkspaceEdit::new(map)
-            })
-        }();
-        Ok(workspace_edit)
-    }
+                let new_name = params.new_name;
+                (!reference_list.is_empty()).then_some(()).map(|_| {
+                    let edit_list = reference_list
+                        .into_iter()
+                        .filter_map(|range| {
+                            let start_position = offset_to_position(range.start, &rope)?;
+                            let end_position = offset_to_position(range.end, &rope)?;
+                            Some(TextEdit::new(
+                                Range::new(start_position, end_position),
+                                new_name.clone(),
+                            ))
+                        })
+                        .collect::<Vec<_>>();
+                    let mut map = HashMap::new();
+                    map.insert(uri, edit_list);
+                    WorkspaceEdit::new(map)
+                })
+            }();
+            Ok(workspace_edit)
+        }
     */
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
@@ -550,7 +550,13 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
+
+    async fn log(&self, _s: String) {
+        // self.client.log_message(MessageType::ERROR, s).await;
+    }
+
     async fn load_workspace(&self) -> Option<()> {
+        self.log("LOAD_WORKSPACE - START".into()).await;
         let folders = self.client.workspace_folders().await.ok()??;
         for folder in folders {
             use glob::glob;
@@ -629,27 +635,15 @@ impl Backend {
                     .filter(|(m, _, deps, _)| (!done.contains(m)) && deps.is_subset(&done))
                     .collect();
                 if todo.is_empty() {
-                    if let Some((m, x)) = deps
+                    let left: Vec<_> = deps
                         .iter()
-                        .map(|(m, _, deps, _)| {
-                            (m, deps.difference(&done).cloned().collect::<Vec<_>>())
-                        })
-                        .min_by_key(|(_, aa)| match aa.len() {
-                            0 => 9999,
-                            n => n,
-                        })
-                    {
+                        .filter(|(m, _, _, _)| !done.contains(m))
+                        .collect();
+                    if !left.is_empty() {
                         self.client
                             .log_message(
                                 MessageType::ERROR,
-                                &format!(
-                                    "SMALLEST: {} [{}]",
-                                    self.names.get(m).unwrap().value().clone(),
-                                    x.iter()
-                                        .map(|x| self.names.get(x).unwrap().value().clone())
-                                        .collect::<Vec<_>>()
-                                        .join(" ")
-                                ),
+                                &format!("Dependency cycle detected: {}", left.len()),
                             )
                             .await;
                     }
@@ -659,16 +653,10 @@ impl Backend {
                     self.resolve_module(m, *fi);
                     self.show_errors(*fi).await;
                 }
-                // let names = todo
-                //     .iter()
-                //     .map(|(m, _, _, _)| self.names.get(m).unwrap().value().clone())
-                //     .collect::<Vec<_>>();
-                // self.client
-                //     .log_message(MessageType::ERROR, &format!("ROUND: {:?}", names))
-                //     .await;
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
         }
+        self.log("LOAD_WORKSPACE - DONE".into()).await;
         Some(())
     }
 
@@ -676,25 +664,34 @@ impl Backend {
         let me = m.0.as_ref()?.0 .0 .0;
         let mut n = nr::N::new(me, &self.exports);
         nr::resolve_names(&mut n, self.prim, m);
-        let me = n.me;
+        let nr::N {
+            me,
+            errors,
+            resolved,
+            usages,
+            defines,
+            global_usages,
+            exports,
+            ..
+        } = n;
 
         self.name_resolution_errors.insert(
             fi,
-            n.errors
+            errors
                 .into_iter()
                 .map(|x| nrerror_turn_into_diagnostic(x, &self.names))
                 .collect::<Vec<_>>(),
         );
 
-        self.resolved.insert(me, n.resolved);
+        self.resolved.insert(me, resolved);
 
         {
             let mut us = self.usages.entry(me).or_insert(BTreeMap::new());
             for (k, v) in us.iter_mut() {
                 v.retain(|x| x.fi() != Some(fi));
-                v.append(&mut n.usages.get(k).cloned().unwrap_or_default());
+                v.append(&mut usages.get(k).cloned().unwrap_or_default());
             }
-            for (k, v) in n.usages.into_iter() {
+            for (k, v) in usages.into_iter() {
                 if us.contains_key(&k) {
                     continue;
                 }
@@ -703,7 +700,7 @@ impl Backend {
         }
 
         {
-            let new = n.defines.into_iter().collect::<BTreeSet<_>>();
+            let new = defines.into_iter().collect::<BTreeSet<_>>();
             let old = self
                 .previouse_defines
                 .insert(fi, new.clone())
@@ -720,7 +717,7 @@ impl Backend {
         }
 
         {
-            let new = n.global_usages;
+            let new = global_usages;
             let old = self
                 .previouse_global_usages
                 .insert(fi, new.clone())
@@ -740,8 +737,8 @@ impl Backend {
         }
 
         let exports_changed = {
-            let new_hash = hash_exports(&n.exports);
-            if let Some(old) = self.exports.insert(me, n.exports) {
+            let new_hash = hash_exports(&exports);
+            if let Some(old) = self.exports.insert(me, exports) {
                 new_hash != hash_exports(&old)
             } else {
                 true
@@ -923,8 +920,10 @@ impl Backend {
 
                 self.show_errors(fi).await;
                 if exports_changed {
+                    self.log("CASCADE CHANGE - START".into()).await;
                     self.resolve_cascading(me).await;
                     let _ = self.client.workspace_diagnostic_refresh().await;
+                    self.log("CASCADE CHANGE - END".into()).await;
                 }
             } else {
                 self.show_errors(fi).await;

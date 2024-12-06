@@ -112,7 +112,7 @@ pub type Pos = (usize, usize);
 pub struct N<'s> {
     pub me: ast::Ud,
 
-    global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
+    pub global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
     pub global_usages: BTreeSet<(Name, ast::Span)>,
 
     pub usages: BTreeMap<Name, BTreeSet<ast::Span>>,
@@ -122,10 +122,10 @@ pub struct N<'s> {
     pub resolved: BTreeMap<(Pos, Pos), Name>,
     pub exports: Vec<Export>,
 
-    constructors: BTreeMap<Name, BTreeSet<Name>>,
+    pub constructors: BTreeMap<Name, BTreeSet<Name>>,
 
     pub defines: BTreeMap<Name, ast::Span>,
-    locals: Vec<Name>,
+    pub locals: Vec<Name>,
     pub imports: BTreeMap<Option<ast::Ud>, BTreeMap<ast::Ud, Vec<Export>>>,
 }
 
