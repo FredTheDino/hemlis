@@ -1,7 +1,7 @@
 #![feature(btree_cursors)]
 #![allow(clippy::type_complexity)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
 
@@ -351,37 +351,29 @@ impl LanguageServer for Backend {
             }();
             Ok(completions.map(CompletionResponse::Array))
         }
-
-        async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-            let workspace_edit = || -> Option<WorkspaceEdit> {
-                let uri = params.text_document_position.text_document.uri;
-                let semantic = self.semantic_map.get(uri.as_str())?;
-                let rope = self.document_map.get(uri.as_str())?;
-                let position = params.text_document_position.position;
-                let offset = position_to_offset(position, &rope)?;
-                let reference_list = get_references(&semantic, offset, offset + 1, true)?;
-
-                let new_name = params.new_name;
-                (!reference_list.is_empty()).then_some(()).map(|_| {
-                    let edit_list = reference_list
-                        .into_iter()
-                        .filter_map(|range| {
-                            let start_position = offset_to_position(range.start, &rope)?;
-                            let end_position = offset_to_position(range.end, &rope)?;
-                            Some(TextEdit::new(
-                                Range::new(start_position, end_position),
-                                new_name.clone(),
-                            ))
-                        })
-                        .collect::<Vec<_>>();
-                    let mut map = HashMap::new();
-                    map.insert(uri, edit_list);
-                    WorkspaceEdit::new(map)
-                })
-            }();
-            Ok(workspace_edit)
-        }
     */
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let workspace_edit = (|| {
+            let name = self.resolve_name(
+                &params.text_document_position.text_document.uri,
+                params.text_document_position.position,
+            )?;
+            let mut edits = HashMap::new();
+            for (at, _) in self.usages.get(&name.1)?.get(&name)?.iter() {
+                let url = self.fi_to_url.get(&if let Some(fi) = at.fi() { fi } else { continue }).unwrap().clone();
+                let lo = pos_from_tup(at.lo());
+                let hi = pos_from_tup(at.hi());
+                let range = Range::new(lo, hi);
+                edits.entry(url).or_insert(Vec::new()).push(TextEdit {
+                    range, new_text: params.new_name.clone()
+                });
+            }
+            Some(WorkspaceEdit::new(edits))
+
+        })();
+        Ok(workspace_edit)
+    }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
 
