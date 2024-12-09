@@ -416,7 +416,7 @@ f =
 -- +    Type A QQ Public: ["(Known(Fi(3), (4, 8), (4, 10)), Def)"]
 -- +    Term A Q Public: ["(Known(Fi(3), (2, 17), (2, 18)), Def)"]
 -- +    Term A readJSON Public: ["(Known(Fi(3), (11, 0), (11, 8)), Def)"]
--- +    Term A f Public: ["(Known(Fi(3), (13, 0), (13, 1)), Def)"]
+-- +    Term A f Public: ["(Known(Fi(0), (5, 15), (5, 16)), Ref)", "(Known(Fi(3), (13, 0), (13, 1)), Def)"]
 -- +    Term A a Private((15, 4)): ["(Known(Fi(3), (15, 4), (15, 5)), Def)"]
 -- +    Term A a Public: ["(Known(Fi(3), (8, 0), (8, 1)), Def)", "(Known(Fi(3), (9, 0), (9, 1)), Def)", "(Known(Fi(3), (9, 7), (9, 8)), Ref)", "(Known(Fi(3), (9, 21), (9, 22)), Ref)"]
 -- +    Term A r Private((6, 10)): ["(Known(Fi(3), (6, 10), (6, 11)), Def)", "(Known(Fi(3), (6, 26), (6, 27)), Ref)"]
@@ -425,7 +425,7 @@ f =
 -- +    Term A b Private((15, 6)): ["(Known(Fi(3), (15, 6), (15, 7)), Def)", "(Known(Fi(3), (17, 4), (17, 5)), Ref)"]
 -- +    Term A b Public: ["(Known(Fi(3), (6, 0), (6, 1)), Def)"]
 -- +    Term A B Public: ["(Known(Fi(3), (2, 9), (2, 10)), Def)"]
--- +    Module A A Public: ["(Known(Fi(3), (0, 7), (0, 8)), Def)"]
+-- +    Module A A Public: ["(Known(Fi(0), (2, 7), (2, 8)), Import)", "(Known(Fi(3), (0, 7), (0, 8)), Def)"]
 -- + > C
 -- +    Type C Foo Public: ["(Known(Fi(1), (0, 36), (0, 39)), Ref)", "(Known(Fi(1), (0, 36), (0, 39)), Export)", "(Known(Fi(1), (2, 5), (2, 8)), Def)"]
 -- +    Type C Order Public: ["(Known(Fi(1), (0, 29), (0, 34)), Ref)", "(Known(Fi(1), (0, 29), (0, 34)), Export)", "(Known(Fi(1), (4, 5), (4, 10)), Def)", "(Known(Fi(1), (10, 23), (10, 28)), Ref)"]
@@ -440,7 +440,7 @@ f =
 -- + > B
 -- +    Term B fiz Public: ["(Known(Fi(0), (4, 0), (4, 3)), Def)"]
 -- +    Term B a Private((5, 10)): ["(Known(Fi(0), (5, 10), (5, 11)), Def)", "(Known(Fi(0), (5, 17), (5, 18)), Ref)"]
--- +    Module B B Public: ["(Known(Fi(0), (0, 7), (0, 8)), Def)"]
+-- +    Module B B Public: ["(Known(Fi(0), (0, 7), (0, 8)), Def)", "(Known(Fi(2), (2, 7), (2, 8)), Import)"]
 -- + EXPORTS
 -- + > D
 -- +    Just Module D.D
