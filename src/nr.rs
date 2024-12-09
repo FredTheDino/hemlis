@@ -283,42 +283,41 @@ impl<'s> N<'s> {
     }
 
     fn export(&mut self, ex: &ast::Export) {
-        // TODO: Resolve usages here so I can goto definition on things
         use Export::*;
         match ex {
             ast::Export::Value(v) => {
                 if let Some(n) = self.resolve(Term, None, v.0) {
-                    self.add_usage(n, v.0.1, Sort::Export);
+                    self.add_usage(n, v.0 .1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::Symbol(v) => {
                 if let Some(n) = self.resolve(Term, None, v.0) {
-                    self.add_usage(n, v.0.1, Sort::Export);
+                    self.add_usage(n, v.0 .1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::Typ(v) => {
                 if let Some(n) = self.resolve(Type, None, v.0) {
-                    self.add_usage(n, v.0.1, Sort::Export);
+                    self.add_usage(n, v.0 .1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::TypSymbol(v) => {
                 if let Some(n) = self.resolve(Type, None, v.0) {
-                    self.add_usage(n, v.0.1, Sort::Export);
+                    self.add_usage(n, v.0 .1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::Class(v) => {
                 if let Some(n) = self.resolve(Class, None, v.0) {
-                    self.add_usage(n, v.0.1, Sort::Export);
+                    self.add_usage(n, v.0 .1, Sort::Export);
                     self.exports.push(Just(n))
                 }
             }
             ast::Export::TypDat(v, ds) => {
                 if let Some(name) = self.resolve(Type, None, v.0) {
-                    self.add_usage(name, v.0.1, Sort::Export);
+                    self.add_usage(name, v.0 .1, Sort::Export);
                 }
                 let x = Name(Type, self.me, v.0 .0, Visibility::Public);
                 let ms = match self.constructors.get(&x) {
@@ -336,7 +335,7 @@ impl<'s> N<'s> {
                             .filter_map(|m| match ms.iter().find(|a| a.2 == m.0 .0) {
                                 Some(a) => {
                                     if let Some(name) = self.resolve(a.0, None, m.0) {
-                                        self.add_usage(name, m.0.1, Sort::Export);
+                                        self.add_usage(name, m.0 .1, Sort::Export);
                                     }
                                     Some(*a)
                                 }
@@ -495,7 +494,6 @@ impl<'s> N<'s> {
                     .collect(),
             );
         } else {
-            // TODO: I'm gonna need a test-suite for this
             let mut to_export = names
                 .iter()
                 .filter_map(|i| self.import_part(i, from.0 .0, &exports))
@@ -512,10 +510,10 @@ impl<'s> N<'s> {
     fn import_part(&mut self, i: &ast::Import, from: ast::Ud, valid: &[Export]) -> Option<Export> {
         let mut export_as = |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
             if let out @ Some(_) = valid.iter().find_map(|n| match n {
-                out @ Export::Just(name) if name.is(scope, x) => Some(out.clone()),
-                Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _)
+                Export::Just(name) | Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _)
                     if name.is(scope, x) =>
                 {
+                    self.add_usage(*name, s, Sort::Import);
                     Some(Export::Just(*name))
                 }
                 _ => None,
@@ -540,6 +538,7 @@ impl<'s> N<'s> {
                     @ (Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _))
                         if name.is(Type, x.0 .0) =>
                     {
+                        self.add_usage(*name, x.0 .1, Sort::Import);
                         Some(out)
                     }
                     _ => None,
@@ -557,6 +556,7 @@ impl<'s> N<'s> {
                     Export::ConstructorsSome(name, cs) | Export::ConstructorsAll(name, cs)
                         if name.is(Type, x.0 .0) =>
                     {
+                        self.add_usage(*name, x.0 .1, Sort::Import);
                         Some((name, cs))
                     }
                     _ => None,
@@ -569,6 +569,7 @@ impl<'s> N<'s> {
                         .iter()
                         .filter_map(|n| {
                             if let Some(xx) = es.get(&n.0 .0) {
+                                self.add_usage(**xx, n.0 .1, Sort::Import);
                                 Some(**xx)
                             } else {
                                 self.errors.push(NRerrors::NotExportedOrDoesNotExist(

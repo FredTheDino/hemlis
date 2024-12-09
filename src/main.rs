@@ -20,6 +20,7 @@ enum Flag {
     ShowUsages,
     ShowImports,
     ShowExports,
+    ShowResolved,
     Resolve,
     Parse,
     Version,
@@ -43,6 +44,7 @@ fn main() {
                 "-e" | "--exports" => flags.insert(Flag::ShowExports),
                 "-i" | "--imports" => flags.insert(Flag::ShowImports),
                 "-r" | "--resolve" => flags.insert(Flag::Resolve),
+                "-x" | "--xx" => flags.insert(Flag::ShowResolved),
                 "-p" | "--parse" => flags.insert(Flag::Parse),
                 "-v" | "--version" => flags.insert(Flag::Version),
                 _ => {
@@ -55,7 +57,7 @@ fn main() {
             files.push(arg);
         }
     }
-        
+
     if flags.contains(&Flag::Version) {
         println!("version: {}", version());
         return;
@@ -210,6 +212,7 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
     let mut done: BTreeSet<_> = exports.iter().map(|k| *k.key()).collect();
     let mut imports = BTreeMap::new();
     let mut usages = BTreeMap::new();
+    let mut resolved = BTreeMap::new();
 
     let mut errors = Vec::new();
     loop {
@@ -238,7 +241,16 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
             errors.append(&mut n.errors);
             exports.insert(*me, n.exports);
             imports.insert(*me, n.imports);
+            for (name, span, sort) in n.global_usages.iter() {
+                usages
+                    .entry(name.module())
+                    .or_insert(BTreeMap::new())
+                    .entry(*name)
+                    .or_insert(BTreeSet::new())
+                    .insert((*span, *sort));
+            }
             usages.insert(*me, n.usages);
+            resolved.insert(*me, n.resolved);
         }
         done.append(&mut todo.into_iter().map(|(_, me, _)| *me).collect());
     }
@@ -252,9 +264,8 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
             use std::io::BufWriter;
             let mut buf = BufWriter::new(Vec::new());
             m.show(0, &mut buf).unwrap();
-            let inner = String::from_utf8(
-                buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap(),
-            );
+            let inner =
+                String::from_utf8(buf.into_inner().map_err(|x| format!("{:?}", x)).unwrap());
             println!("TREE: {}\n{}", name, inner.unwrap());
         }
     }
@@ -268,14 +279,46 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
             }
             println!("> {}", name);
             for (nr::Name(s, m, n, v), spans) in uses.iter() {
-                println!("   {:?} {} {} {:?}: {:?}", s, names_.get(m).unwrap(), names_.get(n).unwrap(), v, spans.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>());
+                println!(
+                    "   {:?} {} {} {:?}: {:?}",
+                    s,
+                    names_.get(m).unwrap(),
+                    names_.get(n).unwrap(),
+                    v,
+                    spans.iter().map(|s| format!("{:?}", s)).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+    if flags.contains(&Flag::ShowResolved) {
+        println!("RESOLVED");
+        for (name, resolved) in resolved.iter() {
+            let name = names_.get(name).unwrap();
+            if name.starts_with("Prim") {
+                continue;
+            }
+            println!("> {}", name);
+            for ((lo, hi), nr::Name(s, m, n, v)) in resolved.iter() {
+                println!(
+                    "   {:?}->{:?}: {:?} {} {} {:?}",
+                    lo,
+                    hi,
+                    s,
+                    names_.get(m).unwrap(),
+                    names_.get(n).unwrap(),
+                    v
+                );
             }
         }
     }
 
     if flags.contains(&Flag::ShowExports) {
         println!("EXPORTS");
-        let mut ee = exports.iter().map(|a| (*a.key(), a.value().clone())) .collect::<Vec<_>>();
+        let mut ee = exports
+            .iter()
+            .map(|a| (*a.key(), a.value().clone()))
+            .collect::<Vec<_>>();
         ee.sort();
         for (k, v) in ee.iter() {
             let name = names_.get(k).unwrap();
@@ -290,27 +333,28 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
     }
 
     if flags.contains(&Flag::ShowImports) {
-    println!("IMPORTS");
-    for (k, v) in imports.iter() {
-        let name = names_.get(k).unwrap();
-        if name.starts_with("Prim") {
-            continue;
-        }
-        println!("> {}", name);
-        for (_, v) in v.iter() {
-            for (k, v) in v.iter() {
-                println!("   import: {}", names_.get(k).unwrap().clone());
-                for v in v.iter() {
-                    println!("     * {}", v.show(&|u| names_.get(u).unwrap().clone()));
+        println!("IMPORTS");
+        for (k, v) in imports.iter() {
+            let name = names_.get(k).unwrap();
+            if name.starts_with("Prim") {
+                continue;
+            }
+            println!("> {}", name);
+            for (_, v) in v.iter() {
+                for (k, v) in v.iter() {
+                    println!("   import: {}", names_.get(k).unwrap().clone());
+                    for v in v.iter() {
+                        println!("     * {}", v.show(&|u| names_.get(u).unwrap().clone()));
+                    }
                 }
             }
         }
     }
-    }
 }
 
 fn parse_modules(flags: BTreeSet<Flag>, files: Vec<String>) {
-    files.iter()
+    files
+        .iter()
         .enumerate()
         .for_each(|(i, arg)| match fs::read_to_string(arg.clone()) {
             Err(e) => {
@@ -328,7 +372,10 @@ fn parse_modules(flags: BTreeSet<Flag>, files: Vec<String>) {
                     p.errors.push(parser::Serror::NotAtEOF(p.span(), p.peekt()))
                 }
 
-                if flags.contains(&Flag::ShowTokens) || flags.contains(&Flag::ShowTree) || !p.errors.is_empty() {
+                if flags.contains(&Flag::ShowTokens)
+                    || flags.contains(&Flag::ShowTree)
+                    || !p.errors.is_empty()
+                {
                     let mut buf = BufWriter::new(Vec::new());
                     out.show(0, &mut buf).unwrap();
                     let inner = String::from_utf8(
