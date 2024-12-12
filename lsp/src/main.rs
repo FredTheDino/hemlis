@@ -172,7 +172,9 @@ impl LanguageServer for Backend {
                     .get(&name)?
                     .iter()
                     .filter_map(|(s, sort): &(ast::Span, nr::Sort)| {
-                        if sort.is_import_or_export() { return None }
+                        if sort.is_import_or_export() {
+                            return None;
+                        }
                         let url = self.fi_to_url.get(&s.fi()?)?;
                         let lo = pos_from_tup(s.lo());
                         let hi = pos_from_tup(s.hi());
@@ -361,16 +363,20 @@ impl LanguageServer for Backend {
             )?;
             let mut edits = HashMap::new();
             for (at, _) in self.usages.get(&name.1)?.get(&name)?.iter() {
-                let url = self.fi_to_url.get(&if let Some(fi) = at.fi() { fi } else { continue }).unwrap().clone();
+                let url = self
+                    .fi_to_url
+                    .get(&if let Some(fi) = at.fi() { fi } else { continue })
+                    .unwrap()
+                    .clone();
                 let lo = pos_from_tup(at.lo());
                 let hi = pos_from_tup(at.hi());
                 let range = Range::new(lo, hi);
                 edits.entry(url).or_insert(Vec::new()).push(TextEdit {
-                    range, new_text: params.new_name.clone()
+                    range,
+                    new_text: params.new_name.clone(),
                 });
             }
             Some(WorkspaceEdit::new(edits))
-
         })();
         Ok(workspace_edit)
     }
@@ -409,30 +415,58 @@ impl LanguageServer for Backend {
     }
 }
 
+fn create_diagnostic(
+    range: Range,
+    code: String,
+    message: String,
+    related: Vec<(String, Location)>,
+) -> tower_lsp::lsp_types::Diagnostic {
+    Diagnostic::new(
+        range,
+        Some(DiagnosticSeverity::ERROR),
+        Some(NumberOrString::String(code)),
+        Some("hemlis".into()),
+        message,
+        {
+            let related: Vec<_> = related
+                .into_iter()
+                .map(|(message, location)| DiagnosticRelatedInformation { message, location })
+                .collect();
+            if related.is_empty() {
+                None
+            } else {
+                Some(related)
+            }
+        },
+        None,
+    )
+}
+
 pub fn nrerror_turn_into_diagnostic(
     error: NRerrors,
     names: &DashMap<ast::Ud, String>,
 ) -> tower_lsp::lsp_types::Diagnostic {
     match error {
-        NRerrors::Unknown(scope, ns, n, span) => Diagnostic::new_simple(
+        NRerrors::Unknown(scope, ns, n, span) => create_diagnostic(
             Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+            "Unknown".into(),
             format!(
-                "Failed to resolve this name\n{:?} {}.{}\n{:?}.{:?}",
+                "{:?} {}\nFailed to resolve",
                 scope,
-                names
-                    .get(&ns.unwrap_or(ast::Ud(0)))
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| "_".into()),
-                names
-                    .get(&n)
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| "?".into()),
-                ns,
-                n
+                match (
+                    names.get(&ns.unwrap_or(ast::Ud(0))).map(|x| x.clone()),
+                    names.get(&n).map(|x| x.clone())
+                ) {
+                    (None, Some(name)) => name,
+                    (Some(ns), Some(name)) => format!("{}.{}", ns, name),
+                    (_, _) => "!! UNREACHABLE - PLEASE REPORT".into(),
+                }
             ),
+            Vec::new(),
         ),
-        NRerrors::NameConflict(ns, span) => Diagnostic::new_simple(
+        NRerrors::NameConflict(ns, span) => create_diagnostic(
             Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+            "NameConflict".into(),
             format!(
                 "This name is imported from {} different modules\n{}",
                 ns.len(),
@@ -455,22 +489,24 @@ pub fn nrerror_turn_into_diagnostic(
                     .collect::<Vec<_>>()
                     .join("\n")
             ),
+            Vec::new(),
         ),
-        NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => {
-            Diagnostic::new_simple(
-                Range::new(pos_from_tup(second), pos_from_tup(second)),
-                format!(
-                    "{:?} {:?} is defined multiple times",
-                    scope,
-                    names
-                        .get(&i)
-                        .map(|x| x.clone())
-                        .unwrap_or_else(|| "?".into())
-                ),
-            )
-        }
-        NRerrors::NotAConstructor(d, m) => Diagnostic::new_simple(
+        NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => create_diagnostic(
+            Range::new(pos_from_tup(second), pos_from_tup(second)),
+            "MultipleDefinitions".into(),
+            format!(
+                "{:?} {:?} is defined multiple times",
+                scope,
+                names
+                    .get(&i)
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| "?".into())
+            ),
+            Vec::new(),
+        ),
+        NRerrors::NotAConstructor(d, m) => create_diagnostic(
             Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
+            "NotAConstructor".into(),
             format!(
                 "{} does not have a constructors {}",
                 names
@@ -482,9 +518,11 @@ pub fn nrerror_turn_into_diagnostic(
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into())
             ),
+            Vec::new(),
         ),
-        NRerrors::NoConstructors(m, s) => Diagnostic::new_simple(
+        NRerrors::NoConstructors(m, s) => create_diagnostic(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            "NoConstructors".into(),
             format!(
                 "{} does not have constructors",
                 names
@@ -492,9 +530,11 @@ pub fn nrerror_turn_into_diagnostic(
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
+            Vec::new(),
         ),
-        NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => Diagnostic::new_simple(
+        NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => create_diagnostic(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            "NotExportedOrDoesNotExist".into(),
             format!(
                 "{:?} {}.{} is not exported or does not exist",
                 scope,
@@ -507,13 +547,17 @@ pub fn nrerror_turn_into_diagnostic(
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
+            Vec::new(),
         ),
-        NRerrors::CannotImportSelf(s) => Diagnostic::new_simple(
+        NRerrors::CannotImportSelf(s) => create_diagnostic(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            "CannotImportSelf".into(),
             "A module cannot import itself".to_string(),
+            Vec::new(),
         ),
-        NRerrors::CouldNotFindImport(n, s) => Diagnostic::new_simple(
+        NRerrors::CouldNotFindImport(n, s) => create_diagnostic(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            "CouldNotFindImport".into(),
             format!(
                 "Could not find this import {}",
                 names
@@ -521,6 +565,7 @@ pub fn nrerror_turn_into_diagnostic(
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
+            Vec::new(),
         ),
     }
 }
@@ -543,7 +588,6 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
-
     async fn log(&self, _s: String) {
         // self.client.log_message(MessageType::ERROR, s).await;
     }
@@ -725,7 +769,9 @@ impl Backend {
 
             for (name, pos, sort) in new.difference(&old) {
                 let mut e = self.usages.entry(name.1).or_insert(BTreeMap::new());
-                e.entry(*name).or_insert(BTreeSet::new()).insert((*pos, *sort));
+                e.entry(*name)
+                    .or_insert(BTreeSet::new())
+                    .insert((*pos, *sort));
             }
         }
 
@@ -885,9 +931,11 @@ impl Backend {
                     };
                     let span = err.span();
 
-                    Diagnostic::new_simple(
+                    create_diagnostic(
                         Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+                        "Syntax".into(),
                         message,
+                        Vec::new(),
                     )
                 })
                 .collect::<Vec<_>>(),
