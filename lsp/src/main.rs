@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
+use std::sync::RwLock;
 
 use dashmap::DashMap;
 use hemlis_lib::*;
@@ -21,6 +22,7 @@ struct Backend {
 
     prim: ast::Ud,
 
+    has_started: RwLock<bool>,
     names: DashMap<ast::Ud, String>,
 
     fi_to_url: DashMap<ast::Fi, Url>,
@@ -106,10 +108,18 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "Scanning...".to_string())
             .await;
-        self.load_workspace().await;
+        let load = self.load_workspace();
+        load.await.unwrap();
+        {
+            let mut write = self.has_started.write().unwrap();
+            *write = true;
+        }
         self.client
             .log_message(MessageType::INFO, "Done scanning!".to_string())
             .await;
+        for i in self.fi_to_url.iter() {
+            self.show_errors(*i.key()).await;
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -688,7 +698,7 @@ impl Backend {
                 }
                 for (_, fi, _, m) in todo.iter() {
                     self.resolve_module(m, *fi);
-                    self.show_errors(*fi).await;
+                    // self.show_errors(*fi).await;
                 }
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
@@ -862,6 +872,12 @@ impl Backend {
     }
 
     async fn show_errors(&self, fi: ast::Fi) {
+        if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
+            self.client
+                .log_message(MessageType::INFO, "Blocking with showing errors")
+                .await;
+            return;
+        }
         if let Some(url) = self.fi_to_url.get(&fi) {
             self.client
                 .publish_diagnostics(
@@ -1000,6 +1016,7 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
 
+        has_started: false.into(),
         prim,
         names,
 
