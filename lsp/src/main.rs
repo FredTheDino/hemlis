@@ -7,6 +7,7 @@ use std::ops::Bound;
 use std::sync::RwLock;
 
 use dashmap::DashMap;
+use futures::future::join_all;
 use hemlis_lib::*;
 use nr::{Export, NRerrors, Name, Pos, Scope, Visibility};
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ struct Backend {
 
     prim: ast::Ud,
 
+    locked: RwLock<()>,
     has_started: RwLock<bool>,
     names: DashMap<ast::Ud, String>,
 
@@ -59,6 +61,11 @@ impl Backend {
         }
         Some(*name)
     }
+
+    fn got_refresh(&self, fi: ast::Fi, version: Option<i32>) -> bool {
+        self.fi_to_version.get(&fi).map(|x| *x.value()) != Some(version)
+    }
+
 }
 
 #[tower_lsp::async_trait]
@@ -102,14 +109,9 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::ERROR, hemlis_lib::version())
-            .await;
-        self.client
-            .log_message(MessageType::INFO, "Scanning...".to_string())
-            .await;
-        let load = self.load_workspace();
-        load.await.unwrap();
+        self.client.log_message(MessageType::INFO, hemlis_lib::version()).await;
+        self.client.log_message(MessageType::INFO, "Scanning...".to_string()).await;
+        self.load_workspace().await;
         {
             let mut write = self.has_started.write().unwrap();
             *write = true;
@@ -117,9 +119,11 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "Done scanning!".to_string())
             .await;
+        let mut futures = Vec::new();
         for i in self.fi_to_url.iter() {
-            self.show_errors(*i.key()).await;
+            futures.push(self.show_errors(*i.key(), None));
         }
+        join_all(futures).await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -696,10 +700,11 @@ impl Backend {
                     }
                     break;
                 }
+                let mut futures = Vec::new();
                 for (_, fi, _, m) in todo.iter() {
-                    self.resolve_module(m, *fi);
-                    // self.show_errors(*fi).await;
+                    futures.push(async { self.resolve_module(m, *fi, None); });
                 }
+                join_all(futures).await;
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
         }
@@ -707,10 +712,15 @@ impl Backend {
         Some(())
     }
 
-    fn resolve_module(&self, m: &ast::Module, fi: ast::Fi) -> Option<(bool, ast::Ud)> {
+    fn resolve_module(&self, m: &ast::Module, fi: ast::Fi, version: Option<i32>) -> Option<(bool, ast::Ud)> {
         let me = m.0.as_ref()?.0 .0 .0;
         let mut n = nr::N::new(me, &self.exports);
         nr::resolve_names(&mut n, self.prim, m);
+
+        if self.got_refresh(fi, version) {
+            return None;
+        }
+
         let nr::N {
             me,
             errors,
@@ -721,6 +731,8 @@ impl Backend {
             exports,
             ..
         } = n;
+
+        let lock = self.locked.write();
 
         self.name_resolution_errors.insert(
             fi,
@@ -826,10 +838,11 @@ impl Backend {
                     .insert(me);
             }
         }
+        drop(lock);
         Some((exports_changed, n.me))
     }
 
-    async fn resolve_cascading(&self, me: ast::Ud) {
+    async fn resolve_cascading(&self, me: ast::Ud, fi: ast::Fi, version: Option<i32>) {
         // TODO: This can be way way smarter, currently it only runs on changed exports.
         // Some exteions include: Lineage tracking - saying letting me know what parts actually
         // changed.
@@ -843,13 +856,17 @@ impl Backend {
             .copied()
             .collect();
         while let Some(x) = to_check.pop() {
+            if self.got_refresh(fi, version) {
+                return;
+            }
             if checked.contains(&x) {
                 continue;
             }
             checked.insert(x);
             if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
-                let _ = self.resolve_module(&m, *fi);
-                self.show_errors(*fi).await;
+                let version = self.fi_to_version.get(&fi).unwrap();
+                let _ = self.resolve_module(&m, *fi, *version);
+                self.show_errors(*fi, *version).await;
                 if self
                     .exports
                     .get(&x)
@@ -871,7 +888,10 @@ impl Backend {
         }
     }
 
-    async fn show_errors(&self, fi: ast::Fi) {
+    async fn show_errors(&self, fi: ast::Fi, version: Option<i32>) {
+        if self.got_refresh(fi, version) {
+            return;
+        }
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             self.client
                 .log_message(MessageType::INFO, "Blocking with showing errors")
@@ -961,35 +981,43 @@ impl Backend {
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         self.client
-            .log_message(MessageType::INFO, "GOT CHANGE!")
+            .log_message(MessageType::INFO, format!("GOT CHANGE! {:?} {:?}", params.uri.to_string(), params.version))
             .await;
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
-        //if self.modules.len() < 5 {
-        //    self.load_workspace().await;
-        //}
+
+        if self.got_refresh(fi, params.version) {
+            return;
+        }
+
+        self.client
+            .log_message(MessageType::INFO, format!("PARSED! {:?} {:?}", params.uri.to_string(), params.version))
+            .await;
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
-            if let Some((exports_changed, me)) = self.resolve_module(&m, fi) {
+            if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
+                if self.got_refresh(fi, params.version) {
+                    return;
+                }
                 self.modules.insert(me, m);
                 self.fi_to_ud.insert(fi, me);
                 self.ud_to_fi.insert(me, fi);
 
-                self.show_errors(fi).await;
                 if exports_changed {
                     self.log("CASCADE CHANGE - START".into()).await;
-                    self.resolve_cascading(me).await;
+                    self.resolve_cascading(me, fi, params.version).await;
                     let _ = self.client.workspace_diagnostic_refresh().await;
                     self.log("CASCADE CHANGE - END".into()).await;
                 }
+                self.show_errors(fi, params.version).await;
             } else {
-                self.show_errors(fi).await;
+                self.show_errors(fi, params.version).await;
             }
         } else {
-            self.show_errors(fi).await;
+            self.show_errors(fi, params.version).await;
         }
         self.client
-            .log_message(MessageType::INFO, "FINISHED CHANGE!")
+            .log_message(MessageType::INFO, format!("FINISHED! {:?} {:?}", params.uri.to_string(), params.version))
             .await;
     }
 }
@@ -1016,6 +1044,7 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
 
+        locked: ().into(),
         has_started: false.into(),
         prim,
         names,
