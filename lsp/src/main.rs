@@ -717,10 +717,6 @@ impl Backend {
         let mut n = nr::N::new(me, &self.exports);
         nr::resolve_names(&mut n, self.prim, m);
 
-        if self.got_refresh(fi, version) {
-            return None;
-        }
-
         let nr::N {
             me,
             errors,
@@ -732,7 +728,13 @@ impl Backend {
             ..
         } = n;
 
+        if self.got_refresh(fi, version) {
+            return None;
+        }
         let lock = self.locked.write();
+        if self.got_refresh(fi, version) {
+            return None;
+        }
 
         self.name_resolution_errors.insert(
             fi,
@@ -981,7 +983,7 @@ impl Backend {
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         self.client
-            .log_message(MessageType::INFO, format!("GOT CHANGE! {:?} {:?}", params.uri.to_string(), params.version))
+            .log_message(MessageType::INFO, format!("!! {:?} CHANGE! {:?}", params.version, params.uri.to_string()))
             .await;
         let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
 
@@ -990,12 +992,15 @@ impl Backend {
         }
 
         self.client
-            .log_message(MessageType::INFO, format!("PARSED! {:?} {:?}", params.uri.to_string(), params.version))
+            .log_message(MessageType::INFO, format!("!! {:?} PARSED! {:?}", params.version, params.uri.to_string()))
             .await;
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
+                self.client
+                    .log_message(MessageType::INFO, format!("!! {:?} RESOLVED! {:?}", params.version, params.uri.to_string()))
+                    .await;
                 if self.got_refresh(fi, params.version) {
                     return;
                 }
@@ -1017,7 +1022,7 @@ impl Backend {
             self.show_errors(fi, params.version).await;
         }
         self.client
-            .log_message(MessageType::INFO, format!("FINISHED! {:?} {:?}", params.uri.to_string(), params.version))
+            .log_message(MessageType::INFO, format!("!! {:?} FINISHED! {:?}", params.version, params.uri.to_string()))
             .await;
     }
 }
