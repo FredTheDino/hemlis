@@ -214,17 +214,15 @@ pub fn module<'t>(p: &mut P<'t>) -> Option<Module> {
         let after_skip = p.i;
 
         if before_skip != after_skip {
-            let end = p.span();
             p.raise(Serror::FailedToParseDecl(
-                start.merge(end),
+                start,
                 p.errors.len() - e,
                 before_skip,
                 after_skip,
             ));
         } else if p.errors.len() != e || failed {
-            let end = p.span();
             p.raise(Serror::FailedToParseDecl(
-                start.merge(end),
+                start,
                 p.errors.len() - e,
                 i,
                 after_skip,
@@ -892,7 +890,6 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr, prec: usize) -> Option<Expr> {
         }
     })(p)
     {
-        // Make the check a peek
         let mut rhs = expr_atom(p, Some("Expected an expression after the operator"))?;
         while let Some(next) = (|p: &mut P<'t>| {
             let op = expr_op(&mut p.fork())?;
