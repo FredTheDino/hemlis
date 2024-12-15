@@ -227,6 +227,7 @@ impl LanguageServer for Backend {
                     continue;
                 };
                 let name = format!("{}.{}", ns.value(), n.value());
+                #[allow(deprecated)]
                 let out = SymbolInformation {
                     name,
                     kind: match scope {
@@ -244,6 +245,7 @@ impl LanguageServer for Backend {
                         Scope::Namespace => SymbolKind::NAMESPACE,
                     },
                     tags: None,
+                    
                     deprecated: None,
 
                     location: {
@@ -281,6 +283,7 @@ impl LanguageServer for Backend {
                 }
                 let name = self.names.get(n).unwrap();
                 let fi = if let Some(fi) = at.fi() { fi } else { continue };
+                #[allow(deprecated)]
                 let out = SymbolInformation {
                     name: name.value().to_string(),
                     kind: match scope {
