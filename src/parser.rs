@@ -587,7 +587,10 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
         }
         _ => {
             if let Some(err) = err {
-                p.raise_(err)
+                p.raise(Serror::Unexpected(p.span(), p.peekt(), err));
+                None
+                // NOTE[et]: This causes an infinet loop.
+                // Some(Typ::Error(p.span()))
             } else {
                 None
             }
@@ -650,8 +653,11 @@ fn typ_op<'t>(p: &mut P<'t>) -> Option<TypOp> {
         (Some(T::Op("<=")), _) => None,
         (Some(T::Qual(_)), Some(T::Op(_))) | (Some(T::Op(_)), _) => Some(TypOp::Op(qop(p)?)),
         _ => {
-            typ_atom(&mut p.fork(), None)?;
-            Some(TypOp::App)
+            if matches!(typ_atom(&mut p.fork(), None)?, Typ::Error(_)) {
+                None
+            } else {
+                Some(TypOp::App)
+            }
         }
     }
 }
@@ -829,8 +835,11 @@ fn expr_op<'t>(p: &mut P<'t>) -> Option<ExprOp> {
             Some(ExprOp::Infix(e))
         }
         _ => {
-            let _ = expr_atom(p, None)?;
-            Some(ExprOp::App)
+            if matches!(expr_atom(p, None)?, Expr::Error(_)) {
+                None
+            } else {
+                Some(ExprOp::App)
+            }
         }
     }
 }
@@ -900,7 +909,11 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr, prec: usize) -> Option<Expr> {
             rhs = pratt_expr(p, rhs, next)?;
             assert_ne!(i, p.i, "STUCK EXPR!");
         }
+        let should_break = matches!(rhs, Expr::Error(_));
         lhs = expr_mrg(outer_lookahead, lhs, rhs);
+        if should_break { 
+            break
+        }
     }
     Some(lhs)
 }
@@ -1022,10 +1035,11 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr> {
         }
         _ => {
             // Not a valid start of an expression - but that isn't nessecarily an error
-            if let Some(err) = err {
-                return p.raise_(err);
+            return if let Some(err) = err {
+                p.raise(Serror::Unexpected(p.span(), p.peekt(), err));
+                Some(Expr::Error(p.span()))
             } else {
-                return None;
+                None
             }
         }
     };
