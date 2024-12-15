@@ -111,14 +111,15 @@ pub type Pos = (usize, usize);
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Sort {
     Def,
+    Def2,
     Ref,
     Import,
     Export,
 }
 
 impl Sort {
-    pub fn is_import_or_export(&self) -> bool {
-        matches!(self, Sort::Import | Sort::Export)
+    pub fn is_import_or_export_or_redef(&self) -> bool {
+        matches!(self, Sort::Import | Sort::Export | Sort::Def2)
     }
 }
 
@@ -182,6 +183,8 @@ impl<'s> N<'s> {
                         v.get().lo(),
                         s.lo(),
                     ));
+                } else {
+                    self.add_usage(name, s, Sort::Def2);
                 }
             }
         }

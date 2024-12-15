@@ -186,7 +186,7 @@ impl LanguageServer for Backend {
                     .get(&name)?
                     .iter()
                     .filter_map(|(s, sort): &(ast::Span, nr::Sort)| {
-                        if sort.is_import_or_export() {
+                        if sort.is_import_or_export_or_redef() {
                             return None;
                         }
                         let url = self.fi_to_url.get(&s.fi()?)?;
@@ -379,7 +379,7 @@ impl LanguageServer for Backend {
                 params.text_document_position.position,
             )?;
             let mut edits = HashMap::new();
-            for (at, _) in self.usages.get(&name.1)?.get(&name)?.iter() {
+            for at in self.usages.get(&name.1)?.get(&name)?.iter().map(|(at, _)| *at).collect::<BTreeSet<_>>().into_iter() {
                 let url = self
                     .fi_to_url
                     .get(&if let Some(fi) = at.fi() { fi } else { continue })
