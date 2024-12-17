@@ -678,8 +678,8 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
-    async fn log(&self, _s: String) {
-        // self.client.log_message(MessageType::ERROR, s).await;
+    async fn log(&self, s: String) {
+        self.client.log_message(MessageType::INFO, s).await;
     }
 
     async fn load_workspace(&self) -> Option<()> {
@@ -740,9 +740,7 @@ impl Backend {
                         .await;
                 }
             }
-            self.client
-                .log_message(MessageType::INFO, &"========".to_string())
-                .await;
+            self.log("========".into()).await;
 
             // NOTE: Not adding them to the name lookup
             fn h(s: &'static str) -> ast::Ud {
@@ -1074,8 +1072,7 @@ impl Backend {
         let source = params.text;
         let version = params.version;
 
-        self.client
-            .log_message(MessageType::INFO, format!("!! {:?} CHANGE! {:?}", params.version, params.uri.to_string()))
+        self.log(format!("!! {:?} CHANGE! {:?}", params.version, params.uri.to_string()))
             .await;
 
 
@@ -1104,9 +1101,7 @@ impl Backend {
             return;
         }
 
-        self.client
-            .log_message(MessageType::INFO, format!("!! {:?} AA! {:?}", params.version, params.uri.to_string()))
-            .await;
+        self.log(format!("!! {:?} AA! {:?}", params.version, params.uri.to_string())).await;
 
 
         // I have to copy it! :(
@@ -1114,19 +1109,16 @@ impl Backend {
         self.fi_to_url.insert(fi, uri.clone());
         let (m, fi) = self.parse(fi, source);
 
-        self.client
-            .log_message(MessageType::INFO, format!("!! {:?} BB! {:?}", params.version, params.uri.to_string()))
+        self.log(format!("!! {:?} BB! {:?}", params.version, params.uri.to_string()))
             .await;
 
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
-            self.client
-                .log_message(MessageType::INFO, format!("!! {:?} PRE RESOLVE! {:?}", params.version, params.uri.to_string()))
+            self .log(format!("!! {:?} PRE RESOLVE! {:?}", params.version, params.uri.to_string()))
                 .await;
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
-                self.client
-                    .log_message(MessageType::INFO, format!("!! {:?} POST RESOLVE! {:?}", params.version, params.uri.to_string()))
+                self.log(format!("!! {:?} POST RESOLVE! {:?}", params.version, params.uri.to_string()))
                     .await;
 
 
@@ -1147,8 +1139,7 @@ impl Backend {
         } else {
             self.show_errors(fi, params.version).await;
         }
-        self.client
-            .log_message(MessageType::INFO, format!("!! {:?} FINISHED! {:?}", params.version, params.uri.to_string()))
+        self.log(format!("!! {:?} FINISHED! {:?}", params.version, params.uri.to_string()))
             .await;
     }
 }
