@@ -29,6 +29,7 @@ struct Backend {
 
     fi_to_url: DashMap<ast::Fi, Url>,
     fi_to_ud: DashMap<ast::Fi, ast::Ud>,
+    fi_to_source: DashMap<ast::Fi, String>,
     url_to_fi: DashMap<Url, ast::Fi>,
     fi_to_version: DashMap<ast::Fi, Option<i32>>,
     ud_to_fi: DashMap<ast::Ud, ast::Fi>,
@@ -68,6 +69,13 @@ impl Backend {
 
 }
 
+fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
+    let (line_offset, _ ) = source.match_indices("\n").nth(line.saturating_sub(1))?;
+    let end = line_offset + 1 + offset;
+    let start = source[..end].rfind(char::is_whitespace)?;
+    Some(&source[start..end])
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
@@ -85,7 +93,13 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     },
                 )),
-                completion_provider: None,
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![".".to_string()]),
+                    work_done_progress_options: Default::default(),
+                    all_commit_characters: None,
+                    completion_item: None,
+                }),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["load_workspace".to_string(), "random_command".to_string()],
                     work_done_progress_options: Default::default(),
@@ -321,56 +335,62 @@ impl LanguageServer for Backend {
         Ok(Some(DocumentSymbolResponse::Flat(symbols)))
     }
 
-    /*
-        async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-            let uri = params.text_document_position.text_document.uri;
-            let position = params.text_document_position.position;
-            let completions = || -> Option<Vec<CompletionItem>> {
-                let rope = self.document_map.get(&uri.to_string())?;
-                let ast = self.ast_map.get(&uri.to_string())?;
-                let char = rope.try_line_to_char(position.line as usize).ok()?;
-                let offset = char + position.character as usize;
-                let completions = completion(&ast, offset);
-                let mut ret = Vec::with_capacity(completions.len());
-                for (_, item) in completions {
-                    match item {
-                        nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
-                            ret.push(CompletionItem {
-                                label: var.clone(),
-                                insert_text: Some(var.clone()),
-                                kind: Some(CompletionItemKind::VARIABLE),
-                                detail: Some(var),
-                                ..Default::default()
-                            });
-                        }
-                        nrs_language_server::completion::ImCompleteCompletionItem::Function(
-                            name,
-                            args,
-                        ) => {
-                            ret.push(CompletionItem {
-                                label: name.clone(),
-                                kind: Some(CompletionItemKind::FUNCTION),
-                                detail: Some(name.clone()),
-                                insert_text: Some(format!(
-                                    "{}({})",
-                                    name,
-                                    args.iter()
-                                        .enumerate()
-                                        .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
-                                        .collect::<Vec<_>>()
-                                        .join(",")
-                                )),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                ..Default::default()
-                            });
-                        }
-                    }
-                }
-                Some(ret)
-            }();
-            Ok(completions.map(CompletionResponse::Array))
-        }
-    */
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        eprintln!("COMPLETE");
+        let completions = || -> Option<Vec<CompletionItem>> {
+            let fi = self.url_to_fi.get(&uri)?;
+            let source = self.fi_to_source.get(&fi)?;
+            let to_complete = try_line_to_offset(&source, position.line as usize, position.character as usize)?;
+            // let parts = to_complete.split('.').collect();
+            // self.defines
+
+
+            // word.split(".")
+
+//            let offset = char + position.character as usize;
+//            let completions = completion(&ast, offset);
+//            let mut ret = Vec::with_capacity(completions.len());
+//            for (_, item) in completions {
+//                match item {
+//                    nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
+//                        ret.push(CompletionItem {
+//                            label: var.clone(),
+//                            insert_text: Some(var.clone()),
+//                            kind: Some(CompletionItemKind::VARIABLE),
+//                            detail: Some(var),
+//                            ..Default::default()
+//                        });
+//                    }
+//                    nrs_language_server::completion::ImCompleteCompletionItem::Function(
+//                        name,
+//                        args,
+//                    ) => {
+//                        ret.push(CompletionItem {
+//                            label: name.clone(),
+//                            kind: Some(CompletionItemKind::FUNCTION),
+//                            detail: Some(name.clone()),
+//                            insert_text: Some(format!(
+//                                    "{}({})",
+//                                    name,
+//                                    args.iter()
+//                                    .enumerate()
+//                                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+//                                    .collect::<Vec<_>>()
+//                                    .join(",")
+//                            )),
+//                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+//                            ..Default::default()
+//                        });
+//                    }
+//                }
+//            }
+            //Some(ret)
+            None
+        }();
+        Ok(completions.map(CompletionResponse::Array))
+    }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let workspace_edit = (|| {
@@ -646,6 +666,7 @@ impl Backend {
     async fn load_workspace(&self) -> Option<()> {
         self.log("LOAD_WORKSPACE - START".into()).await;
         let folders = self.client.workspace_folders().await.ok()??;
+
         for folder in folders {
             use glob::glob;
             let mut deps: Vec<(ast::Ud, ast::Fi, BTreeSet<ast::Ud>, ast::Module)> = Vec::new();
@@ -658,12 +679,15 @@ impl Backend {
                 let path = path.as_ref().ok()?;
                 let x = (|| {
                     let source = std::fs::read_to_string(path.clone()).ok()?;
-                    let url = Url::parse(&format!(
+                    let uri = Url::parse(&format!(
                         "file://{}",
                         &path.clone().into_os_string().into_string().ok()?
                     ))
                     .ok()?;
-                    let (m, fi) = self.parse(url, None, &source);
+                    let fi = self.find_fi(uri.clone());
+                    self.fi_to_source.insert(fi, source.to_string());
+                    self.fi_to_url.insert(fi, uri.clone());
+                    let (m, fi) = self.parse(fi, &source);
                     let m = m?;
                     let (me, imports) = {
                         let header = m.0.clone()?;
@@ -905,7 +929,7 @@ impl Backend {
             if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
                 let version = self.fi_to_version.get(&fi).unwrap();
                 let _ = self.resolve_module(&m, *fi, *version);
-                self.show_errors(*fi, *version).await;
+                if self.got_refresh(*fi, *version) { return; }
                 if self
                     .exports
                     .get(&x)
@@ -968,21 +992,9 @@ impl Backend {
 
     fn parse(
         &self,
-        uri: Url,
-        version: Option<i32>,
+        fi: ast::Fi,
         source: &'_ str,
     ) -> (Option<ast::Module>, ast::Fi) {
-        // TODO: How to handle two files with the same module name?
-        let fi = match self.url_to_fi.entry(uri.clone()) {
-            dashmap::Entry::Occupied(v) => *v.get(),
-            dashmap::Entry::Vacant(v) => {
-                let fi = ast::Fi(sungod::Ra::ggen::<usize>());
-                v.insert(fi);
-                fi
-            }
-        };
-        self.fi_to_version.insert(fi, version);
-        self.fi_to_url.insert(fi, uri.clone());
 
         let l = lexer::lex(source, fi);
         let mut p = parser::P::new(&l, &self.names);
@@ -1006,7 +1018,7 @@ impl Backend {
                     };
                     let span = err.span();
 
-                    create_diagnostic(
+                    create_error(
                         Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
                         "Syntax".into(),
                         message,
@@ -1018,32 +1030,62 @@ impl Backend {
         (m, fi)
     }
 
+    fn find_fi(&self, uri: Url) -> ast::Fi {
+        match self.url_to_fi.entry(uri.clone()) {
+            dashmap::Entry::Occupied(v) => *v.get(),
+            dashmap::Entry::Vacant(v) => {
+                let fi = ast::Fi(sungod::Ra::ggen::<usize>());
+                v.insert(fi);
+                fi
+            }
+        }
+    }
+
     async fn on_change(&self, params: TextDocumentItem<'_>) {
+        let uri = params.uri.clone();
+        let source = params.text;
+        let version = params.version;
+
         self.client
             .log_message(MessageType::INFO, format!("!! {:?} CHANGE! {:?}", params.version, params.uri.to_string()))
             .await;
-        let (m, fi) = self.parse(params.uri.clone(), params.version, params.text);
 
-        if self.got_refresh(fi, params.version) {
+        let fi = self.find_fi(uri.clone());
+        // TODO: How to handle two files with the same module name?
+        match self.fi_to_version.entry(fi) {
+            dashmap::Entry::Occupied(mut o) => {
+                if o.get().is_some() && o.get() > &version {
+                    return
+                }
+                o.insert(version);
+            }
+            dashmap::Entry::Vacant(v) => {
+                v.insert(version);
+            }
+        }
+        let lock = self.locked.write();
+        if self.got_refresh(fi, version) {
             return;
         }
 
-        self.client
-            .log_message(MessageType::INFO, format!("!! {:?} PARSED! {:?}", params.version, params.uri.to_string()))
-            .await;
+        // I have to copy it! :(
+        self.fi_to_source.insert(fi, source.to_string());
+        self.fi_to_url.insert(fi, uri.clone());
+        let (m, fi) = self.parse(fi, source);
+
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
+            drop(lock);
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
-                self.client
-                    .log_message(MessageType::INFO, format!("!! {:?} RESOLVED! {:?}", params.version, params.uri.to_string()))
-                    .await;
-                if self.got_refresh(fi, params.version) {
+                let lock = self.locked.write();
+                if self.got_refresh(fi, version) {
                     return;
                 }
                 self.modules.insert(me, m);
                 self.fi_to_ud.insert(fi, me);
                 self.ud_to_fi.insert(me, fi);
+                drop(lock);
 
                 if exports_changed {
                     self.log("CASCADE CHANGE - START".into()).await;
@@ -1056,6 +1098,7 @@ impl Backend {
                 self.show_errors(fi, params.version).await;
             }
         } else {
+            drop(lock);
             self.show_errors(fi, params.version).await;
         }
         self.client
@@ -1093,6 +1136,7 @@ async fn main() {
 
         fi_to_url: DashMap::new(),
         fi_to_ud: DashMap::new(),
+        fi_to_source: DashMap::new(),
         ud_to_fi: DashMap::new(),
         url_to_fi: DashMap::new(),
         fi_to_version: DashMap::new(),
