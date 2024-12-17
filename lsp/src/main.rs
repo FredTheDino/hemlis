@@ -687,6 +687,7 @@ impl Backend {
                     let fi = self.find_fi(uri.clone());
                     self.fi_to_source.insert(fi, source.to_string());
                     self.fi_to_url.insert(fi, uri.clone());
+                    self.fi_to_version.insert(fi, None);
                     let (m, fi) = self.parse(fi, &source);
                     let m = m?;
                     let (me, imports) = {
@@ -955,12 +956,6 @@ impl Backend {
         if self.got_refresh(fi, version) {
             return;
         }
-        if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
-            self.client
-                .log_message(MessageType::INFO, "Blocking with showing errors")
-                .await;
-            return;
-        }
         if let Some(url) = self.fi_to_url.get(&fi) {
             self.client
                 .publish_diagnostics(
@@ -1042,6 +1037,12 @@ impl Backend {
     }
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
+        if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
+            self.client
+                .log_message(MessageType::INFO, "Blocking since not started")
+                .await;
+            return;
+        }
         let uri = params.uri.clone();
         let source = params.text;
         let version = params.version;
@@ -1075,9 +1076,12 @@ impl Backend {
 
 
         // TODO: We could exit earlier if we have the same syntactical structure here
+        drop(lock);
         if let Some(m) = m {
-            drop(lock);
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
+                if self.got_refresh(fi, version) {
+                    return;
+                }
                 let lock = self.locked.write();
                 if self.got_refresh(fi, version) {
                     return;
@@ -1098,7 +1102,6 @@ impl Backend {
                 self.show_errors(fi, params.version).await;
             }
         } else {
-            drop(lock);
             self.show_errors(fi, params.version).await;
         }
         self.client
