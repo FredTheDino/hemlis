@@ -123,7 +123,6 @@ kw!(kw_at, T::At);
 kw!(kw_pipe, T::Pipe);
 kw!(kw_dot, T::Op("."));
 kw!(kw_eq, T::Equals);
-kw!(kw_dotdot, T::Op(".."));
 kw!(kw_underscore, T::Lower("_"));
 kw!(kw_minus, T::Op("-"));
 kw!(kw_backslash, T::Slash);
@@ -437,16 +436,13 @@ fn export<'t>(p: &mut P<'t>) -> Option<Export> {
 
 fn data_members<'t>(p: &mut P<'t>) -> Option<DataMember> {
     if next_is!(T::Symbol("(..)"))(p) {
+        let s = p.span();
         p.skip();
-        return Some(DataMember::All);
+        return Some(DataMember::All(s));
     }
 
     kw_lp(p)?;
     let out = match p.peek().0 {
-        Some(T::Op("..")) => {
-            kw_dotdot(p);
-            DataMember::All
-        }
         Some(T::RightParen) => DataMember::Some(Vec::new()),
         Some(_) => DataMember::Some(sep_until(
             p,
@@ -1745,8 +1741,9 @@ impl<'s> P<'s> {
 
     fn intern(&self, s: &'_ str) -> Ud {
         let mut hasher = DefaultHasher::new();
+        let is_lowercase = s.starts_with("_");
         s.hash(&mut hasher);
-        let ud = Ud(hasher.finish() as usize);
+        let ud = Ud(hasher.finish() as usize, is_lowercase);
         // NOTE: This is faster than a normal insert and avoids all possibilities of deadlocks
         // while maintaining data-correctness.
         if let Some(dashmap::Entry::Vacant(e)) = self.names.try_entry(ud) {

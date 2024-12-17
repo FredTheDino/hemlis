@@ -18,7 +18,7 @@ pub enum Span {
 // strong and follows the `Avalance Effect`.
 // https://www.geeksforgeeks.org/avalanche-effect-in-cryptography/
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct Ud(pub usize);
+pub struct Ud(pub usize, pub bool);
 
 impl Span {
     pub fn zero() -> Self {
@@ -271,7 +271,7 @@ pub struct Module(pub Option<Header>, pub Vec<Decl>);
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum DataMember {
-    All,
+    All(Span),
     Some(Vec<ProperName>),
 }
 

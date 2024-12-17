@@ -105,7 +105,7 @@ pub enum NRerrors {
     CannotImportSelf(ast::Span),
     CouldNotFindImport(ast::Ud, ast::Span),
     //
-    Unused(ast::Span),
+    Unused(String, ast::Span),
 }
 
 pub type Pos = (usize, usize);
@@ -120,8 +120,12 @@ pub enum Sort {
 }
 
 impl Sort {
-    pub fn is_import_or_export_or_redef(&self) -> bool {
-        matches!(self, Sort::Import | Sort::Export | Sort::Def2)
+    pub fn is_def_or_ref(&self) -> bool {
+        matches!(self, Sort::Def | Sort::Ref)
+    }
+
+    pub fn is_ref(&self) -> bool {
+        matches!(self, Sort::Ref)
     }
 }
 
@@ -130,7 +134,7 @@ pub struct N<'s> {
     pub me: ast::Ud,
 
     pub global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
-    pub global_usages: BTreeSet<(Name, ast::Span, Sort)>,
+    pub global_usages: BTreeMap<Name, BTreeSet<(ast::Span, Sort)>>,
 
     pub usages: BTreeMap<Name, BTreeSet<(ast::Span, Sort)>>,
 
@@ -153,7 +157,7 @@ impl<'s> N<'s> {
             usages: BTreeMap::new(),
 
             global_exports,
-            global_usages: BTreeSet::new(),
+            global_usages: BTreeMap::new(),
 
             errors: Vec::new(),
             resolved: BTreeMap::new(),
@@ -165,6 +169,18 @@ impl<'s> N<'s> {
         }
     }
 
+    fn is_used(&self, name: &Name) -> bool {
+        (if let Some(usages) = self.usages.get(name) {
+            usages.iter().any(|(_, sort)| sort.is_ref())
+        } else {
+            false
+        }) || (if let Some(usages) = self.global_usages.get(name) {
+            usages.iter().any(|(_, sort)| sort.is_ref())
+        } else {
+            false
+        })
+    }
+
     fn check_imports(
         &mut self,
         ast::ImportDecl {
@@ -174,13 +190,23 @@ impl<'s> N<'s> {
             to,
         }: &ast::ImportDecl,
     ) {
+        let from_name = Name(Scope::Module, from.0.0, from.0.0, Visibility::Public);
+        if let Some(usages) = self.global_usages.get(&from_name) {
+            if usages.iter().any(|(_, sort)| sort == &Sort::Export) {
+                return;
+            }
+        }
         if let Some(to) = to {
             let n = to.0 .0;
             let s = to.0 .1;
-            let name = Name(Scope::Namespace, self.me, n, Visibility::Public);
-            if let Some(usages) = self.usages.get(&name) {
-                if !usages.iter().any(|(_, sort)| sort != &Sort::Import) {
-                    self.errors.push(NRerrors::Unused(s));
+            let to_name = Name(Scope::Namespace, self.me, n, Visibility::Public);
+            if let Some(usages) = self.usages.get(&to_name) {
+                if usages.iter().any(|(_, sort)| sort == &Sort::Export) {
+                    return;
+                }
+                if usages.iter().all(|(_, sort)| sort == &Sort::Import) {
+                    self.errors
+                        .push(NRerrors::Unused("Namespace is not used".into(), s));
                 }
             }
         }
@@ -188,37 +214,91 @@ impl<'s> N<'s> {
         if !names.is_empty() {
             let valid: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
 
-            let mut check_out_exports =
-                |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
-                    if let out @ Some(_) = valid.iter().find_map(|n| match n {
+            for import in names {
+                let is_used = |scope: Scope, x: ast::Ud| -> bool {
+                    valid.iter().any(|n| match n {
                         Export::Just(name)
                         | Export::ConstructorsSome(name, _)
                         | Export::ConstructorsAll(name, _)
                             if name.is(scope, x) =>
                         {
-                            if let Some(usages) = self.usages.get(name) {
-                                if !usages.iter().any(|(_, sort)| sort != &Sort::Import) {
-                                    self.errors.push(NRerrors::Unused(s));
-                                }
-                            }
-                            Some(n)
+                            self.is_used(name)
                         }
-                        _ => None,
-                    }) {
-                        out.cloned()
-                    } else {
-                        None
-                    }
+                        _ => false,
+                    })
                 };
-
-            for import in names {
                 match import {
-                    ast::Import::Value(name) => todo!(),
-                    ast::Import::Symbol(symbol) => todo!(),
-                    ast::Import::Typ(proper_name) => todo!(),
-                    ast::Import::TypDat(proper_name, data_member) => todo!(),
-                    ast::Import::TypSymbol(symbol) => todo!(),
-                    ast::Import::Class(proper_name) => todo!(),
+                    ast::Import::Value(ast::Name(ast::S(x, s)))
+                    | ast::Import::Symbol(ast::Symbol(ast::S(x, s))) => {
+                        if !is_used(Term, *x) {
+                            self.errors
+                                .push(NRerrors::Unused("Term is unused".into(), *s));
+                        }
+                    }
+                    ast::Import::TypSymbol(ast::Symbol(ast::S(x, s)))
+                    | ast::Import::Typ(ast::ProperName(ast::S(x, s))) => {
+                        if !is_used(Type, *x) {
+                            self.errors
+                                .push(NRerrors::Unused("Type is unused".into(), *s));
+                        }
+                    }
+                    ast::Import::Class(ast::ProperName(ast::S(x, s))) => {
+                        if !is_used(Class, *x) {
+                            self.errors
+                                .push(NRerrors::Unused("Class is unused".into(), *s));
+                        }
+                    }
+                    ast::Import::TypDat(proper_name, data_member) => {
+                        if let Some((ty_unused, fields)) = valid.iter().find_map(|n| match n {
+                            Export::ConstructorsSome(name, fields)
+                            | Export::ConstructorsAll(name, fields)
+                                if name.is(Type, proper_name.0 .0) =>
+                            {
+                                Some((!self.is_used(name), fields))
+                            }
+                            _ => None,
+                        }) {
+                            match data_member {
+                                ast::DataMember::All(s) => {
+                                    let all_unused = fields.iter().all(|name| !self.is_used(name));
+                                    if all_unused && !ty_unused {
+                                        self.errors.push(NRerrors::Unused(
+                                            "All constructors are unused".into(),
+                                            *s,
+                                        ));
+                                    } else if all_unused && ty_unused {
+                                        self.errors.push(NRerrors::Unused(
+                                            "Type and constructors are unused".into(),
+                                            proper_name.0 .1.merge(*s),
+                                        ));
+                                    }
+                                }
+                                ast::DataMember::Some(mem) => {
+                                    let mut all_unused = true;
+                                    for m in mem {
+                                        if let Some(name) =
+                                            fields.iter().find(|name| name.name() == m.0 .0)
+                                        {
+                                            if self.is_used(name) {
+                                                all_unused = false;
+                                            } else {
+                                                self.errors.push(NRerrors::Unused(
+                                                    "Constructor is unused".into(),
+                                                    m.0 .1,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    if all_unused && ty_unused {
+                                        self.errors.push(NRerrors::Unused(
+                                            "Type and imported constructors are unused".into(),
+                                            proper_name.0 .1,
+                                        ));
+                                    }
+                                }
+                            };
+                        }
+                    }
                 }
             }
         }
@@ -230,17 +310,20 @@ impl<'s> N<'s> {
 
     fn pop(&mut self, Sf(l): Sf) {
         for n in self.locals.iter().skip(l) {
-            if self
-                .usages
-                .get(n)
-                .unwrap()
-                .iter()
-                .filter_map(|(x, s)| if *s == Sort::Ref { Some(x) } else { None })
-                .collect::<BTreeSet<_>>()
-                .is_empty()
+            if n.scope() != Scope::Type
+                && !n.name().1
+                && self
+                    .usages
+                    .get(n)
+                    .unwrap()
+                    .iter()
+                    .filter_map(|(x, s)| if s.is_ref() { Some(x) } else { None })
+                    .collect::<BTreeSet<_>>()
+                    .is_empty()
             {
                 let at = self.defines.get(n).unwrap();
-                self.errors.push(NRerrors::Unused(*at));
+                self.errors
+                    .push(NRerrors::Unused("Local is unused".into(), *at));
             }
         }
         self.locals.truncate(l)
@@ -283,7 +366,10 @@ impl<'s> N<'s> {
         if name.1 == self.me {
             self.usages.entry(name).or_default().insert((s, sort));
         } else {
-            self.global_usages.insert((name, s, sort));
+            self.global_usages
+                .entry(name)
+                .or_default()
+                .insert((s, sort));
         }
     }
 
@@ -406,7 +492,7 @@ impl<'s> N<'s> {
                     Some(ms) => ms.clone(),
                 };
                 let out = match ds {
-                    ast::DataMember::All => ConstructorsAll(x, ms.iter().copied().collect()),
+                    ast::DataMember::All(_) => ConstructorsAll(x, ms.iter().copied().collect()),
                     ast::DataMember::Some(ns) => ConstructorsSome(
                         x,
                         ns.iter()
@@ -433,7 +519,11 @@ impl<'s> N<'s> {
             }
             ast::Export::Module(v) => {
                 if let Some(ns) = self.imports.get(&Some(v.0 .0)).cloned() {
-                    self.resolve(Namespace, None, v.0);
+                    self.add_usage(
+                        Name(Namespace, self.me, v.0 .0, Visibility::Public),
+                        v.0 .1,
+                        Sort::Export,
+                    );
                     self.exports
                         .append(&mut ns.values().flatten().cloned().collect());
                 } else {
@@ -535,7 +625,7 @@ impl<'s> N<'s> {
                         ast::Import::Symbol(x) => (Term, x.0),
                         ast::Import::Typ(x) => (Type, x.0),
                         // NOTE[et]: It's bug compatible with purs to not hide the members
-                        ast::Import::TypDat(x, ast::DataMember::All) => (Type, x.0),
+                        ast::Import::TypDat(x, ast::DataMember::All(_)) => (Type, x.0),
                         // These are not references in hiding since they don't do anything.
                         ast::Import::TypDat(x, ast::DataMember::Some(_)) => (Type, x.0),
                         ast::Import::TypSymbol(x) => (Type, x.0),
@@ -612,7 +702,7 @@ impl<'s> N<'s> {
             ast::Import::TypSymbol(ast::Symbol(ast::S(x, s)))
             | ast::Import::Typ(ast::ProperName(ast::S(x, s))) => export_as(Type, *x, *s)?,
             ast::Import::Class(ast::ProperName(ast::S(x, s))) => export_as(Class, *x, *s)?,
-            ast::Import::TypDat(x, ast::DataMember::All) => {
+            ast::Import::TypDat(x, ast::DataMember::All(_)) => {
                 if let Some(out) = valid.iter().find_map(|n| match n {
                     out
                     @ (Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _))
@@ -1388,6 +1478,9 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
             }
         } else {
             n.export_self();
+        }
+        for i in h.2.iter() {
+            n.check_imports(i);
         }
 
         Some(h.0 .0 .0)

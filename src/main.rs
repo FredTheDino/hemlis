@@ -86,17 +86,17 @@ pub fn build_builtins() -> (
 
     let mut hasher = DefaultHasher::new();
     "Prim".hash(&mut hasher);
-    let prim = ast::Ud(hasher.finish() as usize);
+    let prim = ast::Ud(hasher.finish() as usize, false);
 
     let h = |a: Scope, n: &'static str, s: &'static str| -> (Scope, ast::Ud, ast::Ud) {
         let mut hasher = DefaultHasher::new();
         s.hash(&mut hasher);
-        let s_ud = ast::Ud(hasher.finish() as usize);
+        let s_ud = ast::Ud(hasher.finish() as usize, false);
         names.insert(s_ud, s.into());
 
         let mut hasher = DefaultHasher::new();
         n.hash(&mut hasher);
-        let n_ud = ast::Ud(hasher.finish() as usize);
+        let n_ud = ast::Ud(hasher.finish() as usize, false);
         names.insert(n_ud, n.into());
         (a, n_ud, s_ud)
     };
@@ -241,13 +241,15 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
             errors.append(&mut n.errors);
             exports.insert(*me, n.exports);
             imports.insert(*me, n.imports);
-            for (name, span, sort) in n.global_usages.iter() {
-                usages
-                    .entry(name.module())
-                    .or_insert(BTreeMap::new())
-                    .entry(*name)
-                    .or_insert(BTreeSet::new())
-                    .insert((*span, *sort));
+            for (name, x) in n.global_usages.iter() {
+                for (span, sort) in x.iter() {
+                    usages
+                        .entry(name.module())
+                        .or_insert(BTreeMap::new())
+                        .entry(*name)
+                        .or_insert(BTreeSet::new())
+                        .insert((*span, *sort));
+                }
             }
             usages.insert(*me, n.usages);
             resolved.insert(*me, n.resolved);

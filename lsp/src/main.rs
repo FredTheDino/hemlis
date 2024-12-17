@@ -73,12 +73,12 @@ impl Backend {
 
 }
 
-fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
-    let (line_offset, _ ) = source.match_indices("\n").nth(line.saturating_sub(1))?;
-    let end = line_offset + 1 + offset;
-    let start = source[..end].rfind(char::is_whitespace)?;
-    Some(&source[start..end])
-}
+// fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
+//     let (line_offset, _ ) = source.match_indices("\n").nth(line.saturating_sub(1))?;
+//     let end = line_offset + 1 + offset;
+//     let start = source[..end].rfind(char::is_whitespace)?;
+//     Some(&source[start..end])
+// }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -207,7 +207,7 @@ impl LanguageServer for Backend {
                     .get(&name)?
                     .iter()
                     .filter_map(|(s, sort): &(ast::Span, nr::Sort)| {
-                        if sort.is_import_or_export_or_redef() {
+                        if !sort.is_def_or_ref() {
                             return None;
                         }
                         let url = self.fi_to_url.try_get(&s.fi()?).try_unwrap()?;
@@ -345,62 +345,62 @@ impl LanguageServer for Backend {
         Ok(Some(DocumentSymbolResponse::Flat(symbols)))
     }
 
-    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let uri = params.text_document_position.text_document.uri;
-        let position = params.text_document_position.position;
-        eprintln!("COMPLETE");
-        let completions = || -> Option<Vec<CompletionItem>> {
-            let fi = self.url_to_fi.try_get(&uri).try_unwrap()?;
-            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-            let to_complete = try_line_to_offset(&source, position.line as usize, position.character as usize)?;
-            // let parts = to_complete.split('.').collect();
-            // self.defines
-
-
-            // word.split(".")
-
-//            let offset = char + position.character as usize;
-//            let completions = completion(&ast, offset);
-//            let mut ret = Vec::with_capacity(completions.len());
-//            for (_, item) in completions {
-//                match item {
-//                    nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
-//                        ret.push(CompletionItem {
-//                            label: var.clone(),
-//                            insert_text: Some(var.clone()),
-//                            kind: Some(CompletionItemKind::VARIABLE),
-//                            detail: Some(var),
-//                            ..Default::default()
-//                        });
-//                    }
-//                    nrs_language_server::completion::ImCompleteCompletionItem::Function(
-//                        name,
-//                        args,
-//                    ) => {
-//                        ret.push(CompletionItem {
-//                            label: name.clone(),
-//                            kind: Some(CompletionItemKind::FUNCTION),
-//                            detail: Some(name.clone()),
-//                            insert_text: Some(format!(
-//                                    "{}({})",
-//                                    name,
-//                                    args.iter()
-//                                    .enumerate()
-//                                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
-//                                    .collect::<Vec<_>>()
-//                                    .join(",")
-//                            )),
-//                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-//                            ..Default::default()
-//                        });
-//                    }
-//                }
+//    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+//        let uri = params.text_document_position.text_document.uri;
+//        let position = params.text_document_position.position;
+//        eprintln!("COMPLETE");
+//        let completions = || -> Option<Vec<CompletionItem>> {
+//            let fi = self.url_to_fi.try_get(&uri).try_unwrap()?;
+//            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
+//            let to_complete = try_line_to_offset(&source, position.line as usize, position.character as usize)?;
+//            // let parts = to_complete.split('.').collect();
+//            // self.defines
+//
+//
+//            // word.split(".")
+//
+// //            let offset = char + position.character as usize;
+// //            let completions = completion(&ast, offset);
+// //            let mut ret = Vec::with_capacity(completions.len());
+// //            for (_, item) in completions {
+// //                match item {
+// //                    nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
+// //                        ret.push(CompletionItem {
+// //                            label: var.clone(),
+// //                            insert_text: Some(var.clone()),
+// //                            kind: Some(CompletionItemKind::VARIABLE),
+// //                            detail: Some(var),
+// //                            ..Default::default()
+// //                        });
+// //                    }
+// //                    nrs_language_server::completion::ImCompleteCompletionItem::Function(
+// //                        name,
+// //                        args,
+// //                    ) => {
+// //                        ret.push(CompletionItem {
+// //                            label: name.clone(),
+// //                            kind: Some(CompletionItemKind::FUNCTION),
+// //                            detail: Some(name.clone()),
+// //                            insert_text: Some(format!(
+// //                                    "{}({})",
+// //                                    name,
+// //                                    args.iter()
+// //                                    .enumerate()
+// //                                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
+// //                                    .collect::<Vec<_>>()
+// //                                    .join(",")
+// //                            )),
+// //                            insert_text_format: Some(InsertTextFormat::SNIPPET),
+// //                            ..Default::default()
+// //                        });
+// //                    }
+// //                }
 //            }
-            //Some(ret)
-            None
-        }();
-        Ok(completions.map(CompletionResponse::Array))
-    }
+//            //Some(ret)
+//            None
+//        }();
+//        Ok(completions.map(CompletionResponse::Array))
+//    }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let workspace_edit = (|| {
@@ -529,7 +529,7 @@ pub fn nrerror_turn_into_diagnostic(
                 "{:?} {}\nFailed to resolve",
                 scope,
                 match (
-                    names.try_get(&ns.unwrap_or(ast::Ud(0))).try_unwrap().map(|x| x.clone()),
+                    names.try_get(&ns.unwrap_or(ast::Ud(0, false))).try_unwrap().map(|x| x.clone()),
                     names.try_get(&n).try_unwrap().map(|x| x.clone())
                 ) {
                     (None, Some(name)) => name,
@@ -556,7 +556,7 @@ pub fn nrerror_turn_into_diagnostic(
                                 .map(|x| x.clone())
                                 .unwrap_or_else(|| "?".into()),
                             names
-                                .try_get(m)
+                                .try_get(n)
                                 .try_unwrap()
                                 .map(|x| x.clone())
                                 .unwrap_or_else(|| "?".into()),
@@ -651,10 +651,10 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::Unused(s) => create_warning(
+        NRerrors::Unused(info, s) => create_warning(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
             "Unused".into(),
-            "Unused".into(),
+            info,
             Vec::new(),
         ),
     }
@@ -746,7 +746,7 @@ impl Backend {
             fn h(s: &'static str) -> ast::Ud {
                 let mut hasher = DefaultHasher::new();
                 s.hash(&mut hasher);
-                ast::Ud(hasher.finish() as usize)
+                ast::Ud(hasher.finish() as usize, s.starts_with("_"))
             }
 
             let mut done: BTreeSet<_> = [
@@ -861,7 +861,7 @@ impl Backend {
         }
 
         {
-            let new = global_usages;
+            let new = global_usages.into_iter().flat_map(|(name, xx)| xx.into_iter().map(move |(pos, sort)| (name, pos, sort))).collect::<BTreeSet<_>>();
             let old = self
                 .previouse_global_usages
                 .insert(fi, new.clone())
