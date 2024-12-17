@@ -499,7 +499,7 @@ impl<'s> N<'s> {
         // NOTE: I've decided the export isn't a usage - it's annoying to see references that
         // aren't really used.
         let name = Name(Module, from.0 .0, from.0 .0, Visibility::Public);
-        self.add_usage(name, from.0 .1, Sort::Import);
+        self.add_usage(name, from.0 .1, Sort::Ref);
         let import_name = to.map(|x| x.0 .0);
         self.imports
             .entry(import_name)
