@@ -190,7 +190,7 @@ impl<'s> N<'s> {
             to,
         }: &ast::ImportDecl,
     ) {
-        let from_name = Name(Scope::Module, from.0.0, from.0.0, Visibility::Public);
+        let from_name = Name(Scope::Module, from.0 .0, from.0 .0, Visibility::Public);
         if let Some(usages) = self.global_usages.get(&from_name) {
             if usages.iter().any(|(_, sort)| sort == &Sort::Export) {
                 return;
@@ -844,12 +844,12 @@ impl<'s> N<'s> {
     fn decl_body(&mut self, d: &ast::Decl) {
         // TODO: Kind signatures
         match d {
-            ast::Decl::DataKind(_, _) => (),
+            ast::Decl::DataKind(_, k) => {
+                self.typ(k);
+            }
             ast::Decl::Data(_, xs, cs) => {
                 let sf = self.push();
-                for x in xs.iter() {
-                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
+                self.typ_var_bindings(xs);
                 for c in cs {
                     for t in c.1.iter() {
                         self.typ(t);
@@ -857,30 +857,30 @@ impl<'s> N<'s> {
                 }
                 self.pop(sf);
             }
-            ast::Decl::TypeKind(_, _) => (),
+            ast::Decl::TypeKind(_, k) => {
+                self.typ(k);
+            }
             ast::Decl::Type(_, xs, t) => {
                 let sf = self.push();
-                for x in xs.iter() {
-                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
+                self.typ_var_bindings(xs);
                 self.typ(t);
                 self.pop(sf);
             }
-            ast::Decl::NewTypeKind(_, _) => (),
+            ast::Decl::NewTypeKind(_, k) => {
+                self.typ(k);
+            }
             ast::Decl::NewType(_, xs, _, t) => {
                 let sf = self.push();
-                for x in xs.iter() {
-                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
+                self.typ_var_bindings(xs);
                 self.typ(t);
                 self.pop(sf);
             }
-            ast::Decl::ClassKind(_, _) => (),
+            ast::Decl::ClassKind(_, k) => {
+                self.typ(k);
+            }
             ast::Decl::Class(cs, _, xs, deps, mem) => {
                 let sf = self.push();
-                for x in xs.iter() {
-                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
+                self.typ_var_bindings(xs);
                 for ast::FunDep(a, b) in deps.iter().flatten() {
                     for n in a.iter().chain(b.iter()) {
                         self.resolve(Type, None, n.0);
@@ -1341,14 +1341,11 @@ impl<'s> N<'s> {
             }
             ast::Typ::Forall(xs, t) => {
                 let sf = self.push();
-                for x in xs.iter() {
-                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
-                }
+                self.typ_var_bindings(xs);
                 self.typ_define_vars(t);
                 self.pop(sf);
             }
-            ast::Typ::Kinded(t, _t) => {
-                // Not doing Kinds for now
+            ast::Typ::Kinded(t, _) => {
                 self.typ_define_vars(t);
             }
             ast::Typ::Arr(a, b) => {
@@ -1406,9 +1403,13 @@ impl<'s> N<'s> {
                 self.typ(t);
                 // self.pop(sf);
             }
-            ast::Typ::Kinded(t, _t) => {
+            ast::Typ::Kinded(t, k) => {
                 // Not doing Kinds for now
                 self.typ(t);
+
+                let sf = self.push();
+                self.typ(k);
+                self.pop(sf);
             }
             ast::Typ::Arr(a, b) => {
                 self.typ(a);
@@ -1431,6 +1432,15 @@ impl<'s> N<'s> {
                 self.typ(a);
             }
             ast::Typ::Error(_) => {}
+        }
+    }
+
+    fn typ_var_bindings(&mut self, xs: &[ast::TypVarBinding]) {
+        for ast::TypVarBinding(x, k, _) in xs {
+            self.def_local(Type, x.0 .0, x.0 .1);
+            if let Some(k) = k {
+                self.typ(k);
+            }
         }
     }
 }
