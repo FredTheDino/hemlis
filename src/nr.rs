@@ -261,12 +261,18 @@ impl<'s> N<'s> {
                             match data_member {
                                 ast::DataMember::All(s) => {
                                     let all_unused = fields.iter().all(|name| !self.is_used(name));
-                                    if all_unused && !ty_unused {
-                                        self.errors.push(NRerrors::Unused(
-                                            "All constructors are unused".into(),
-                                            *s,
-                                        ));
-                                    } else if all_unused && ty_unused {
+                                    // NOTE: This case cannot be handled by simple
+                                    // syntactical-analysis alone. We need to know about different
+                                    // kinds of requirements from e.g. `class Newtype` which
+                                    // requires the constructors to be in scope.
+                                    //
+                                    // if all_unused && !ty_unused {
+                                    //     self.errors.push(NRerrors::Unused(
+                                    //         "All constructors are unused".into(),
+                                    //         *s,
+                                    //     ));
+                                    // } else 
+                                    if all_unused && ty_unused {
                                         self.errors.push(NRerrors::Unused(
                                             "Type and constructors are unused".into(),
                                             proper_name.0 .1.merge(*s),
