@@ -19,6 +19,7 @@ f =
 
 -- + args: --tree --names --resolve
 -- + expected stdout:
+-- + Unused("Local is unused", Known(Fi(0), (15, 4), (15, 5)))
 -- + TREE: A
 -- + Module
 -- +  Header
@@ -159,7 +160,7 @@ f =
 -- +    Term A readJSON Public: ["(Known(Fi(0), (11, 0), (11, 8)), Def)"]
 -- +    Term A f Public: ["(Known(Fi(0), (13, 0), (13, 1)), Def)"]
 -- +    Term A a Private((15, 4)): ["(Known(Fi(0), (15, 4), (15, 5)), Def)"]
--- +    Term A a Public: ["(Known(Fi(0), (8, 0), (8, 1)), Def)", "(Known(Fi(0), (9, 0), (9, 1)), Def)", "(Known(Fi(0), (9, 7), (9, 8)), Ref)", "(Known(Fi(0), (9, 21), (9, 22)), Ref)"]
+-- +    Term A a Public: ["(Known(Fi(0), (8, 0), (8, 1)), Def)", "(Known(Fi(0), (9, 0), (9, 1)), Def)", "(Known(Fi(0), (9, 0), (9, 1)), Def2)", "(Known(Fi(0), (9, 7), (9, 8)), Ref)", "(Known(Fi(0), (9, 21), (9, 22)), Ref)"]
 -- +    Term A r Private((6, 10)): ["(Known(Fi(0), (6, 10), (6, 11)), Def)", "(Known(Fi(0), (6, 26), (6, 27)), Ref)"]
 -- +    Term A C Public: ["(Known(Fi(0), (2, 13), (2, 14)), Def)"]
 -- +    Term A QQ Public: ["(Known(Fi(0), (4, 15), (4, 17)), Def)", "(Known(Fi(0), (9, 4), (9, 6)), Ref)"]

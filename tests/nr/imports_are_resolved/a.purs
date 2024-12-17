@@ -4,10 +4,11 @@ b = 1
 
 -- + args: --names --xx --resolve tests/nr/imports_are_resolved/a.purs tests/nr/imports_are_resolved/b.purs_import
 -- + expected stdout:
+-- + Unused("Term is unused", Known(Fi(1), (2, 10), (2, 11)))
 -- + NAMES
 -- + > A
 -- +    Term A b Public: ["(Known(Fi(1), (2, 10), (2, 11)), Import)", "(Known(Fi(2), (2, 0), (2, 1)), Def)"]
--- +    Module A A Public: ["(Known(Fi(1), (2, 7), (2, 8)), Import)", "(Known(Fi(2), (0, 7), (0, 8)), Def)"]
+-- +    Module A A Public: ["(Known(Fi(1), (2, 7), (2, 8)), Ref)", "(Known(Fi(2), (0, 7), (0, 8)), Def)"]
 -- + > B
 -- +    Module B B Public: ["(Known(Fi(1), (0, 7), (0, 8)), Def)"]
 -- + RESOLVED

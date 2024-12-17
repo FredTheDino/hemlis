@@ -1,0 +1,6 @@
+module C (eq, Bool, class Eq) where
+
+data Bool
+
+class Eq a where
+  eq :: a -> a -> Bool

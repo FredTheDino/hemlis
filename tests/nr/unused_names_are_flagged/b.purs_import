@@ -1,0 +1,13 @@
+module B where
+
+data A = AA | AB
+data B = BA | BB
+-- fiz = b
+
+foo =
+  let
+    x = 1
+    _allow = 1
+    { y } = foo
+  in
+   x 1
