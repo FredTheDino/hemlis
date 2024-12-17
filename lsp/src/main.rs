@@ -52,9 +52,9 @@ struct Backend {
 
 impl Backend {
     fn resolve_name(&self, url: &Url, pos: Position) -> Option<Name> {
-        let m = self.fi_to_ud.get(&*self.url_to_fi.get(url)?)?;
+        let m = self.fi_to_ud.try_get(&*self.url_to_fi.try_get(url).try_unwrap()?).try_unwrap()?;
         let pos = (pos.line as usize, (pos.character + 1) as usize);
-        let lut = self.resolved.get(&m)?;
+        let lut = self.resolved.try_get(&m).try_unwrap()?;
         let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
         let ((lo, hi), name) = cur.peek_prev()?;
         if !(*lo <= pos && pos <= *hi) {
@@ -64,7 +64,11 @@ impl Backend {
     }
 
     fn got_refresh(&self, fi: ast::Fi, version: Option<i32>) -> bool {
-        self.fi_to_version.get(&fi).map(|x| *x.value()) != Some(version)
+        match self.fi_to_version.try_get(&fi) {
+            dashmap::try_result::TryResult::Present(x) => x.value() != &version,
+            dashmap::try_result::TryResult::Absent => false,
+            dashmap::try_result::TryResult::Locked => false,
+        }
     }
 
 }
@@ -123,21 +127,23 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::INFO, hemlis_lib::version()).await;
-        self.client.log_message(MessageType::INFO, "Scanning...".to_string()).await;
-        self.load_workspace().await;
+        {
+            self.client.log_message(MessageType::INFO, hemlis_lib::version()).await;
+            self.client.log_message(MessageType::INFO, "Scanning...".to_string()).await;
+            self.load_workspace().await;
+            self.client
+                .log_message(MessageType::INFO, "Done scanning!".to_string())
+                .await;
+            let mut futures = Vec::new();
+            for i in self.fi_to_url.iter() {
+                futures.push(self.show_errors(*i.key(), None));
+            }
+            join_all(futures).await;
+        }
         {
             let mut write = self.has_started.write().unwrap();
             *write = true;
         }
-        self.client
-            .log_message(MessageType::INFO, "Done scanning!".to_string())
-            .await;
-        let mut futures = Vec::new();
-        for i in self.fi_to_url.iter() {
-            futures.push(self.show_errors(*i.key(), None));
-        }
-        join_all(futures).await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -175,8 +181,8 @@ impl LanguageServer for Backend {
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
             )?;
-            let def_at = self.defines.get(&name)?;
-            let uri = self.fi_to_url.get(&def_at.fi()?)?.clone();
+            let def_at = self.defines.try_get(&name).try_unwrap()?;
+            let uri = self.fi_to_url.try_get(&def_at.fi()?).try_unwrap()?.clone();
             Some(GotoDefinitionResponse::Scalar(Location {
                 uri,
                 range: Range {
@@ -196,14 +202,15 @@ impl LanguageServer for Backend {
             )?;
             Some(
                 self.usages
-                    .get(&name.1)?
+                    .try_get(&name.1)
+                    .try_unwrap()?
                     .get(&name)?
                     .iter()
                     .filter_map(|(s, sort): &(ast::Span, nr::Sort)| {
                         if sort.is_import_or_export_or_redef() {
                             return None;
                         }
-                        let url = self.fi_to_url.get(&s.fi()?)?;
+                        let url = self.fi_to_url.try_get(&s.fi()?).try_unwrap()?;
                         let lo = pos_from_tup(s.lo());
                         let hi = pos_from_tup(s.hi());
 
@@ -229,8 +236,8 @@ impl LanguageServer for Backend {
                 if *vis != Visibility::Public {
                     continue;
                 }
-                let n = self.names.get(n).unwrap();
-                let ns = self.names.get(ns).unwrap();
+                let n = self.names.try_get(n).try_unwrap().unwrap();
+                let ns = self.names.try_get(ns).try_unwrap().unwrap();
                 if Some(fi) != at.fi().as_ref() {
                     continue;
                 };
@@ -263,7 +270,7 @@ impl LanguageServer for Backend {
                     deprecated: None,
 
                     location: {
-                        let url = self.fi_to_url.get(fi).unwrap().clone();
+                        let url = self.fi_to_url.try_get(fi).unwrap().clone();
                         let lo = pos_from_tup(at.lo());
                         let hi = pos_from_tup(at.hi());
 
@@ -285,21 +292,24 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let mut symbols = Vec::new();
-        let fi_inner = if let Some(fi) = self.url_to_fi.get(&params.text_document.uri) {
+        let fi_inner = if let Some(fi) = self.url_to_fi.try_get(&params.text_document.uri).try_unwrap() {
             *fi
         } else {
             return Err(Error::new(ErrorCode::ServerError(1)));
         };
-        if let Some(names) = self.previouse_defines.get(&fi_inner) {
+        if let Some(names) = self.previouse_defines.try_get(&fi_inner).try_unwrap() {
             for (Name(scope, _, n, vis), at) in names.iter() {
                 if *vis != Visibility::Public {
                     continue;
                 }
-                let name = self.names.get(n).unwrap();
                 let fi = if let Some(fi) = at.fi() { fi } else { continue };
+                let name = match self.names.try_get(n).try_unwrap() {
+                    Some(n) => n.clone(),
+                    None => continue,
+                };
                 #[allow(deprecated)]
                 let out = SymbolInformation {
-                    name: name.value().to_string(),
+                    name: name.clone(),
                     kind: match scope {
                         Scope::Kind => SymbolKind::INTERFACE,
                         Scope::Type if name.starts_with(|c| matches!(c, 'a'..='z' | '_')) => {
@@ -318,7 +328,7 @@ impl LanguageServer for Backend {
                     deprecated: None,
 
                     location: {
-                        let url = self.fi_to_url.get(&fi).unwrap().clone();
+                        let url = self.fi_to_url.try_get(&fi).unwrap().clone();
                         let lo = pos_from_tup(at.lo());
                         let hi = pos_from_tup(at.hi());
 
@@ -340,8 +350,8 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
         eprintln!("COMPLETE");
         let completions = || -> Option<Vec<CompletionItem>> {
-            let fi = self.url_to_fi.get(&uri)?;
-            let source = self.fi_to_source.get(&fi)?;
+            let fi = self.url_to_fi.try_get(&uri).try_unwrap()?;
+            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
             let to_complete = try_line_to_offset(&source, position.line as usize, position.character as usize)?;
             // let parts = to_complete.split('.').collect();
             // self.defines
@@ -399,11 +409,11 @@ impl LanguageServer for Backend {
                 params.text_document_position.position,
             )?;
             let mut edits = HashMap::new();
-            for at in self.usages.get(&name.1)?.get(&name)?.iter().map(|(at, _)| *at).collect::<BTreeSet<_>>().into_iter() {
+            for at in self.usages.try_get(&name.1).try_unwrap()?.get(&name)?.iter().map(|(at, _)| *at).collect::<BTreeSet<_>>().into_iter() {
                 let url = self
                     .fi_to_url
-                    .get(&if let Some(fi) = at.fi() { fi } else { continue })
-                    .unwrap()
+                    .try_get(&if let Some(fi) = at.fi() { fi } else { continue })
+                    .try_unwrap()?
                     .clone();
                 let lo = pos_from_tup(at.lo());
                 let hi = pos_from_tup(at.hi());
@@ -519,8 +529,8 @@ pub fn nrerror_turn_into_diagnostic(
                 "{:?} {}\nFailed to resolve",
                 scope,
                 match (
-                    names.get(&ns.unwrap_or(ast::Ud(0))).map(|x| x.clone()),
-                    names.get(&n).map(|x| x.clone())
+                    names.try_get(&ns.unwrap_or(ast::Ud(0))).try_unwrap().map(|x| x.clone()),
+                    names.try_get(&n).try_unwrap().map(|x| x.clone())
                 ) {
                     (None, Some(name)) => name,
                     (Some(ns), Some(name)) => format!("{}.{}", ns, name),
@@ -541,11 +551,13 @@ pub fn nrerror_turn_into_diagnostic(
                             "{:?} {}.{} {:?}",
                             s,
                             names
-                                .get(m)
+                                .try_get(m)
+                                .try_unwrap()
                                 .map(|x| x.clone())
                                 .unwrap_or_else(|| "?".into()),
                             names
-                                .get(n)
+                                .try_get(m)
+                                .try_unwrap()
                                 .map(|x| x.clone())
                                 .unwrap_or_else(|| "?".into()),
                             x,
@@ -563,7 +575,8 @@ pub fn nrerror_turn_into_diagnostic(
                 "{:?} {:?} is defined multiple times",
                 scope,
                 names
-                    .get(&i)
+                    .try_get(&i)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into())
             ),
@@ -575,11 +588,13 @@ pub fn nrerror_turn_into_diagnostic(
             format!(
                 "{} does not have a constructors {}",
                 names
-                    .get(&d.2)
+                    .try_get(&d.2)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
                 names
-                    .get(&m.0 .0)
+                    .try_get(&m.0 .0)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into())
             ),
@@ -591,7 +606,8 @@ pub fn nrerror_turn_into_diagnostic(
             format!(
                 "{} does not have constructors",
                 names
-                    .get(&m.2)
+                    .try_get(&m.2)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
@@ -604,11 +620,13 @@ pub fn nrerror_turn_into_diagnostic(
                 "{:?} {}.{} is not exported or does not exist",
                 scope,
                 names
-                    .get(&m)
+                    .try_get(&m)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
                 names
-                    .get(&ud)
+                    .try_get(&ud)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
@@ -626,7 +644,8 @@ pub fn nrerror_turn_into_diagnostic(
             format!(
                 "Could not find this import {}",
                 names
-                    .get(&n)
+                    .try_get(&n)
+                    .try_unwrap()
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
@@ -684,7 +703,7 @@ impl Backend {
                         &path.clone().into_os_string().into_string().ok()?
                     ))
                     .ok()?;
-                    let fi = self.find_fi(uri.clone());
+                    let fi = self.find_fi(uri.clone()).unwrap();
                     self.fi_to_source.insert(fi, source.to_string());
                     self.fi_to_url.insert(fi, uri.clone());
                     self.fi_to_version.insert(fi, None);
@@ -797,6 +816,10 @@ impl Backend {
         if self.got_refresh(fi, version) {
             return None;
         }
+
+        self.modules.insert(me, m.clone());
+        self.fi_to_ud.insert(fi, me);
+        self.ud_to_fi.insert(me, fi);
 
         self.name_resolution_errors.insert(
             fi,
@@ -914,7 +937,8 @@ impl Backend {
         let mut checked = BTreeSet::new();
         let mut to_check: Vec<ast::Ud> = self
             .importers
-            .get(&me)
+            .try_get(&me)
+            .try_unwrap()
             .iter()
             .flat_map(|x| x.iter())
             .copied()
@@ -927,13 +951,15 @@ impl Backend {
                 continue;
             }
             checked.insert(x);
-            if let (Some(m), Some(fi)) = (self.modules.get(&x), self.ud_to_fi.get(&x)) {
-                let version = self.fi_to_version.get(&fi).unwrap();
+            if let (Some(m), Some(fi), Some(version)) = (self.modules.try_get(&x).try_unwrap(), self.ud_to_fi.try_get(&x).try_unwrap(), 
+                self.fi_to_version.try_get(&fi).try_unwrap()
+                ) {
                 let _ = self.resolve_module(&m, *fi, *version);
                 if self.got_refresh(*fi, *version) { return; }
                 if self
                     .exports
-                    .get(&x)
+                    .try_get(&x)
+                    .try_unwrap()
                     .map(|ex| ex.iter().any(|x| x.contains(name)))
                     .unwrap_or(false)
                 {
@@ -941,7 +967,8 @@ impl Backend {
                     to_check.append(
                         &mut self
                             .importers
-                            .get(&x)
+                            .try_get(&x)
+                            .try_unwrap()
                             .iter()
                             .flat_map(|x| x.iter())
                             .copied()
@@ -956,32 +983,30 @@ impl Backend {
         if self.got_refresh(fi, version) {
             return;
         }
-        if let Some(url) = self.fi_to_url.get(&fi) {
+        if let Some(url) = self.fi_to_url.try_get(&fi).try_unwrap() {
             self.client
                 .publish_diagnostics(
                     url.clone(),
                     [
-                        if let Some(x) = self.syntax_errors.get(&fi) {
+                        if let Some(x) = self.syntax_errors.try_get(&fi).try_unwrap() {
                             x.value().clone()
                         } else {
                             Vec::new()
                         },
-                        if let Some(x) = self.name_resolution_errors.get(&fi) {
+                        if let Some(x) = self.name_resolution_errors.try_get(&fi).try_unwrap() {
                             x.value().clone()
                         } else {
                             Vec::new()
                         },
                     ]
                     .concat(),
-                    if let Some(v) = self.fi_to_version.get(&fi) {
+                    if let Some(v) = self.fi_to_version.try_get(&fi).try_unwrap() {
                         *v
                     } else {
                         None
                     },
                 )
                 .await
-        } else {
-            panic!()
         }
     }
 
@@ -1025,18 +1050,20 @@ impl Backend {
         (m, fi)
     }
 
-    fn find_fi(&self, uri: Url) -> ast::Fi {
-        match self.url_to_fi.entry(uri.clone()) {
-            dashmap::Entry::Occupied(v) => *v.get(),
-            dashmap::Entry::Vacant(v) => {
+    fn find_fi(&self, uri: Url) -> Option<ast::Fi> {
+        match self.url_to_fi.try_entry(uri.clone()) {
+            Some(dashmap::Entry::Occupied(v)) => Some(*v.get()),
+            Some(dashmap::Entry::Vacant(v)) => {
                 let fi = ast::Fi(sungod::Ra::ggen::<usize>());
                 v.insert(fi);
-                fi
+                Some(fi)
             }
+            None => None,
         }
     }
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
+
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             self.client
                 .log_message(MessageType::INFO, "Blocking since not started")
@@ -1051,45 +1078,61 @@ impl Backend {
             .log_message(MessageType::INFO, format!("!! {:?} CHANGE! {:?}", params.version, params.uri.to_string()))
             .await;
 
-        let fi = self.find_fi(uri.clone());
+
+        let fi = loop {
+            if let Some(fi) = self.find_fi(uri.clone()) {
+                break fi;
+            }
+            self.client
+                .log_message(MessageType::ERROR, "FAILED TO GENERATE FI")
+                .await;
+        };
         // TODO: How to handle two files with the same module name?
-        match self.fi_to_version.entry(fi) {
-            dashmap::Entry::Occupied(mut o) => {
+        match self.fi_to_version.try_entry(fi) {
+            Some(dashmap::Entry::Occupied(mut o)) => {
                 if o.get().is_some() && o.get() > &version {
                     return
                 }
                 o.insert(version);
             }
-            dashmap::Entry::Vacant(v) => {
+            Some(dashmap::Entry::Vacant(v)) => {
                 v.insert(version);
             }
+            None => return,
         }
-        let lock = self.locked.write();
         if self.got_refresh(fi, version) {
             return;
         }
+
+        self.client
+            .log_message(MessageType::INFO, format!("!! {:?} AA! {:?}", params.version, params.uri.to_string()))
+            .await;
+
 
         // I have to copy it! :(
         self.fi_to_source.insert(fi, source.to_string());
         self.fi_to_url.insert(fi, uri.clone());
         let (m, fi) = self.parse(fi, source);
 
+        self.client
+            .log_message(MessageType::INFO, format!("!! {:?} BB! {:?}", params.version, params.uri.to_string()))
+            .await;
+
 
         // TODO: We could exit earlier if we have the same syntactical structure here
-        drop(lock);
         if let Some(m) = m {
+            self.client
+                .log_message(MessageType::INFO, format!("!! {:?} PRE RESOLVE! {:?}", params.version, params.uri.to_string()))
+                .await;
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
+                self.client
+                    .log_message(MessageType::INFO, format!("!! {:?} POST RESOLVE! {:?}", params.version, params.uri.to_string()))
+                    .await;
+
+
                 if self.got_refresh(fi, version) {
                     return;
                 }
-                let lock = self.locked.write();
-                if self.got_refresh(fi, version) {
-                    return;
-                }
-                self.modules.insert(me, m);
-                self.fi_to_ud.insert(fi, me);
-                self.ud_to_fi.insert(me, fi);
-                drop(lock);
 
                 if exports_changed {
                     self.log("CASCADE CHANGE - START".into()).await;
