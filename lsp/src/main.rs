@@ -432,7 +432,7 @@ impl LanguageServer for Backend {
     }
 }
 
-fn create_diagnostic(
+fn create_error(
     range: Range,
     code: String,
     message: String,
@@ -459,12 +459,40 @@ fn create_diagnostic(
     )
 }
 
+fn create_warning(
+    range: Range,
+    code: String,
+    message: String,
+    related: Vec<(String, Location)>,
+) -> tower_lsp::lsp_types::Diagnostic {
+    Diagnostic::new(
+        range,
+        Some(DiagnosticSeverity::WARNING),
+        Some(NumberOrString::String(code)),
+        Some("hemlis".into()),
+        message,
+        {
+            let related: Vec<_> = related
+                .into_iter()
+                .map(|(message, location)| DiagnosticRelatedInformation { message, location })
+                .collect();
+            if related.is_empty() {
+                None
+            } else {
+                Some(related)
+            }
+        },
+        None,
+    )
+}
+
+
 pub fn nrerror_turn_into_diagnostic(
     error: NRerrors,
     names: &DashMap<ast::Ud, String>,
 ) -> tower_lsp::lsp_types::Diagnostic {
     match error {
-        NRerrors::Unknown(scope, ns, n, span) => create_diagnostic(
+        NRerrors::Unknown(scope, ns, n, span) => create_error(
             Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
             "Unknown".into(),
             format!(
@@ -481,7 +509,7 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::NameConflict(ns, span) => create_diagnostic(
+        NRerrors::NameConflict(ns, span) => create_error(
             Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
             "NameConflict".into(),
             format!(
@@ -508,7 +536,7 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => create_diagnostic(
+        NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => create_error(
             Range::new(pos_from_tup(second), pos_from_tup(second)),
             "MultipleDefinitions".into(),
             format!(
@@ -521,7 +549,7 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::NotAConstructor(d, m) => create_diagnostic(
+        NRerrors::NotAConstructor(d, m) => create_error(
             Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
             "NotAConstructor".into(),
             format!(
@@ -537,7 +565,7 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::NoConstructors(m, s) => create_diagnostic(
+        NRerrors::NoConstructors(m, s) => create_error(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
             "NoConstructors".into(),
             format!(
@@ -549,7 +577,7 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => create_diagnostic(
+        NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => create_error(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
             "NotExportedOrDoesNotExist".into(),
             format!(
@@ -566,13 +594,13 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::CannotImportSelf(s) => create_diagnostic(
+        NRerrors::CannotImportSelf(s) => create_error(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
             "CannotImportSelf".into(),
             "A module cannot import itself".to_string(),
             Vec::new(),
         ),
-        NRerrors::CouldNotFindImport(n, s) => create_diagnostic(
+        NRerrors::CouldNotFindImport(n, s) => create_error(
             Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
             "CouldNotFindImport".into(),
             format!(
@@ -582,6 +610,12 @@ pub fn nrerror_turn_into_diagnostic(
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into()),
             ),
+            Vec::new(),
+        ),
+        NRerrors::Unused(s) => create_warning(
+            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            "Unused".into(),
+            "Unused".into(),
             Vec::new(),
         ),
     }

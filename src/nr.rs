@@ -104,6 +104,8 @@ pub enum NRerrors {
     NotExportedOrDoesNotExist(ast::Ud, Scope, ast::Ud, ast::Span),
     CannotImportSelf(ast::Span),
     CouldNotFindImport(ast::Ud, ast::Span),
+    //
+    Unused(ast::Span),
 }
 
 pub type Pos = (usize, usize);
@@ -163,11 +165,84 @@ impl<'s> N<'s> {
         }
     }
 
+    fn check_imports(
+        &mut self,
+        ast::ImportDecl {
+            from,
+            hiding: _,
+            names,
+            to,
+        }: &ast::ImportDecl,
+    ) {
+        if let Some(to) = to {
+            let n = to.0 .0;
+            let s = to.0 .1;
+            let name = Name(Scope::Namespace, self.me, n, Visibility::Public);
+            if let Some(usages) = self.usages.get(&name) {
+                if !usages.iter().any(|(_, sort)| sort != &Sort::Import) {
+                    self.errors.push(NRerrors::Unused(s));
+                }
+            }
+        }
+
+        if !names.is_empty() {
+            let valid: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
+
+            let mut check_out_exports =
+                |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
+                    if let out @ Some(_) = valid.iter().find_map(|n| match n {
+                        Export::Just(name)
+                        | Export::ConstructorsSome(name, _)
+                        | Export::ConstructorsAll(name, _)
+                            if name.is(scope, x) =>
+                        {
+                            if let Some(usages) = self.usages.get(name) {
+                                if !usages.iter().any(|(_, sort)| sort != &Sort::Import) {
+                                    self.errors.push(NRerrors::Unused(s));
+                                }
+                            }
+                            Some(n)
+                        }
+                        _ => None,
+                    }) {
+                        out.cloned()
+                    } else {
+                        None
+                    }
+                };
+
+            for import in names {
+                match import {
+                    ast::Import::Value(name) => todo!(),
+                    ast::Import::Symbol(symbol) => todo!(),
+                    ast::Import::Typ(proper_name) => todo!(),
+                    ast::Import::TypDat(proper_name, data_member) => todo!(),
+                    ast::Import::TypSymbol(symbol) => todo!(),
+                    ast::Import::Class(proper_name) => todo!(),
+                }
+            }
+        }
+    }
+
     fn push(&mut self) -> Sf {
         Sf(self.locals.len())
     }
 
     fn pop(&mut self, Sf(l): Sf) {
+        for n in self.locals.iter().skip(l) {
+            if self
+                .usages
+                .get(n)
+                .unwrap()
+                .iter()
+                .filter_map(|(x, s)| if *s == Sort::Ref { Some(x) } else { None })
+                .collect::<BTreeSet<_>>()
+                .is_empty()
+            {
+                let at = self.defines.get(n).unwrap();
+                self.errors.push(NRerrors::Unused(*at));
+            }
+        }
         self.locals.truncate(l)
     }
 
@@ -513,7 +588,9 @@ impl<'s> N<'s> {
     fn import_part(&mut self, i: &ast::Import, from: ast::Ud, valid: &[Export]) -> Option<Export> {
         let mut export_as = |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
             if let out @ Some(_) = valid.iter().find_map(|n| match n {
-                Export::Just(name) | Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _)
+                Export::Just(name)
+                | Export::ConstructorsSome(name, _)
+                | Export::ConstructorsAll(name, _)
                     if name.is(scope, x) =>
                 {
                     self.add_usage(*name, s, Sort::Import);
@@ -1059,14 +1136,18 @@ impl<'s> N<'s> {
             if k.is_none() {
                 continue;
             }
-            for v in vs {
+            for (i, v) in vs.iter().enumerate() {
                 match v {
                     ast::LetBinding::Sig(name, t) => {
-                        self.resolve(Term, None, name.0);
+                        if i != 0 {
+                            self.resolve(Term, None, name.0);
+                        }
                         self.typ(t);
                     }
                     ast::LetBinding::Name(name, bs, e) => {
-                        self.resolve(Term, None, name.0);
+                        if i != 0 {
+                            self.resolve(Term, None, name.0);
+                        }
                         let sf = self.push();
                         for b in bs.iter() {
                             self.binder(b);
