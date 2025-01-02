@@ -1,4 +1,4 @@
-use crate::ast;
+use crate::ast::{self, Ast};
 use dashmap::DashMap;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,7 +22,7 @@ impl Name {
         format!("{:?} {}.{}", ss, f(mm), f(uu))
     }
 
-    fn scope(&self) -> Scope {
+    pub fn scope(&self) -> Scope {
         self.0
     }
 
@@ -145,7 +145,7 @@ pub struct N<'s> {
 
     pub constructors: BTreeMap<Name, BTreeSet<Name>>,
 
-    pub defines: BTreeMap<Name, ast::Span>,
+    pub defines: BTreeMap<Name, (ast::Span, Option<ast::Span>)>,
     pub locals: Vec<Name>,
     pub imports: BTreeMap<Option<ast::Ud>, BTreeMap<ast::Ud, Vec<Export>>>,
 }
@@ -271,7 +271,7 @@ impl<'s> N<'s> {
                                     //         "All constructors are unused".into(),
                                     //         *s,
                                     //     ));
-                                    // } else 
+                                    // } else
                                     if all_unused && ty_unused {
                                         self.errors.push(NRerrors::Unused(
                                             "Type and constructors are unused".into(),
@@ -314,7 +314,7 @@ impl<'s> N<'s> {
         Sf(self.locals.len())
     }
 
-    fn pop(&mut self, Sf(l): Sf) {
+    fn pop(&mut self, Sf(l): Sf, end: ast::Span) {
         for n in self.locals.iter().skip(l) {
             if n.scope() != Scope::Type
                 && !n.name().1
@@ -327,9 +327,11 @@ impl<'s> N<'s> {
                     .collect::<BTreeSet<_>>()
                     .is_empty()
             {
-                let at = self.defines.get(n).unwrap();
+                let at = self.defines.get(n).unwrap().0;
+                let out = self.defines.get_mut(n).unwrap();
+                *out = (at, Some(ast::Span::from_to(at, end)));
                 self.errors
-                    .push(NRerrors::Unused("Local is unused".into(), *at));
+                    .push(NRerrors::Unused("Local is unused".into(), at));
             }
         }
         self.locals.truncate(l)
@@ -338,13 +340,13 @@ impl<'s> N<'s> {
     fn def(&mut self, s: ast::Span, name: Name, ignore_error: bool) {
         match self.defines.entry(name) {
             std::collections::btree_map::Entry::Vacant(v) => {
-                v.insert(s);
+                v.insert((s, None));
             }
             std::collections::btree_map::Entry::Occupied(v) => {
                 if !ignore_error {
                     self.errors.push(NRerrors::MultipleDefinitions(
                         *v.key(),
-                        v.get().lo(),
+                        v.get().0.lo(),
                         s.lo(),
                     ));
                 } else {
@@ -861,7 +863,7 @@ impl<'s> N<'s> {
                         self.typ(t);
                     }
                 }
-                self.pop(sf);
+                self.pop(sf, cs.span());
             }
             ast::Decl::TypeKind(_, k) => {
                 self.typ(k);
@@ -870,7 +872,7 @@ impl<'s> N<'s> {
                 let sf = self.push();
                 self.typ_var_bindings(xs);
                 self.typ(t);
-                self.pop(sf);
+                self.pop(sf, t.span());
             }
             ast::Decl::NewTypeKind(_, k) => {
                 self.typ(k);
@@ -879,7 +881,7 @@ impl<'s> N<'s> {
                 let sf = self.push();
                 self.typ_var_bindings(xs);
                 self.typ(t);
-                self.pop(sf);
+                self.pop(sf, t.span());
             }
             ast::Decl::ClassKind(_, k) => {
                 self.typ(k);
@@ -898,9 +900,9 @@ impl<'s> N<'s> {
                 for ast::ClassMember(_, typ) in mem.iter() {
                     let sf = self.push();
                     self.typ(typ);
-                    self.pop(sf);
+                    self.pop(sf, typ.span());
                 }
-                self.pop(sf);
+                self.pop(sf, mem.span());
             }
             ast::Decl::Instance(_, head, bindings) => {
                 let sf = self.push();
@@ -911,19 +913,19 @@ impl<'s> N<'s> {
                     for b in bs.iter() {
                         self.inst_binding(b, u);
                     }
-                    self.pop(sf);
+                    self.pop(sf, bs.span());
                 }
-                self.pop(sf);
+                self.pop(sf, bindings.span());
             }
             ast::Decl::Derive(_, head) => {
                 let sf = self.push();
                 let _u = self.inst_head(head);
-                self.pop(sf);
+                self.pop(sf, head.span());
             }
             ast::Decl::Foreign(_, t) => {
                 let sf = self.push();
                 self.typ(t);
-                self.pop(sf);
+                self.pop(sf, t.span());
             }
             ast::Decl::ForeignData(_, _) => {}
             ast::Decl::Role(d, _) => {
@@ -935,7 +937,7 @@ impl<'s> N<'s> {
             ast::Decl::FixityTyp(_, _, t, _) => {
                 let sf = self.push();
                 self.typ(t);
-                self.pop(sf);
+                self.pop(sf, t.span());
             }
             ast::Decl::Sig(_, t) => {
                 // This is handled accross definitions since signatures need to have their
@@ -950,12 +952,12 @@ impl<'s> N<'s> {
                     self.binder(b);
                 }
                 self.guarded_expr(e);
-                self.pop(sf);
+                self.pop(sf, e.span());
             }
         }
     }
 
-    fn inst_head(&mut self, ast::InstHead(cs, d, ts): &ast::InstHead) -> Option<Name> {
+    fn inst_head(&mut self, a @ ast::InstHead(cs, d, ts): &ast::InstHead) -> Option<Name> {
         for t in ts.iter() {
             self.typ_define_vars(t);
         }
@@ -968,7 +970,7 @@ impl<'s> N<'s> {
         for t in ts.iter() {
             self.typ(t);
         }
-        self.pop(sf);
+        self.pop(sf, a.span());
         for c in cs.iter().flatten() {
             self.constraint(c);
         }
@@ -988,7 +990,7 @@ impl<'s> N<'s> {
                     self.binder(b);
                 }
                 self.guarded_expr(e);
-                self.pop(sf);
+                self.pop(sf, b.span());
                 l
             }
         };
@@ -1017,7 +1019,7 @@ impl<'s> N<'s> {
                         }
                     }
                     self.expr(e);
-                    self.pop(sf);
+                    self.pop(sf, e.span());
                 }
             }
         }
@@ -1029,7 +1031,7 @@ impl<'s> N<'s> {
                 let sf = self.push();
                 self.typ(t);
                 self.expr(e);
-                self.pop(sf);
+                self.pop(sf, e.span());
             }
             ast::Expr::Op(a, o, b) => {
                 self.expr(a);
@@ -1052,7 +1054,7 @@ impl<'s> N<'s> {
                 self.expr(e);
                 let sf = self.push();
                 self.typ(t);
-                self.pop(sf);
+                self.pop(sf, t.span());
             }
             ast::Expr::IfThenElse(_, a, tru, fal) => {
                 self.expr(a);
@@ -1080,7 +1082,7 @@ impl<'s> N<'s> {
                         }
                     }
                 }
-                self.pop(sf);
+                self.pop(sf, stmts.span());
             }
             ast::Expr::Ado(qual, stmts, ret) => {
                 if let Some(qual) = qual {
@@ -1109,7 +1111,7 @@ impl<'s> N<'s> {
                     }
                 }
                 self.expr(ret);
-                self.pop(sf);
+                self.pop(sf, ret.span());
             }
             ast::Expr::Lambda(_, bs, e) => {
                 let sf = self.push();
@@ -1117,13 +1119,13 @@ impl<'s> N<'s> {
                     self.binder(b);
                 }
                 self.expr(e);
-                self.pop(sf);
+                self.pop(sf, e.span());
             }
             ast::Expr::Where(_, e, ls) | ast::Expr::Let(_, ls, e) => {
                 let sf = self.push();
                 self.let_binders(ls);
                 self.expr(e);
-                self.pop(sf);
+                self.pop(sf, e.span());
             }
             ast::Expr::Case(_, es, cs) => {
                 for e in es.iter() {
@@ -1135,7 +1137,7 @@ impl<'s> N<'s> {
                         self.binder(b);
                     }
                     self.guarded_expr(e);
-                    self.pop(sf);
+                    self.pop(sf, e.span());
                 }
             }
             ast::Expr::Array(_, es, _) => {
@@ -1249,7 +1251,7 @@ impl<'s> N<'s> {
                             self.binder(b);
                         }
                         self.guarded_expr(e);
-                        self.pop(sf);
+                        self.pop(sf, e.span());
                     }
                     ast::LetBinding::Pattern(_, _) => {}
                 }
@@ -1349,7 +1351,7 @@ impl<'s> N<'s> {
                 let sf = self.push();
                 self.typ_var_bindings(xs);
                 self.typ_define_vars(t);
-                self.pop(sf);
+                self.pop(sf, t.span());
             }
             ast::Typ::Kinded(t, _) => {
                 self.typ_define_vars(t);
@@ -1415,7 +1417,7 @@ impl<'s> N<'s> {
 
                 let sf = self.push();
                 self.typ(k);
-                self.pop(sf);
+                self.pop(sf, k.span());
             }
             ast::Typ::Arr(a, b) => {
                 self.typ(a);
@@ -1485,7 +1487,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
             for d in ds.iter() {
                 n.decl_body(d);
             }
-            n.pop(sf);
+            n.pop(sf, ds.span());
         }
 
         if let Some(exports) = &h.1 {

@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     env,
     fs::{self},
-    hash::{DefaultHasher, Hash, Hasher},
 };
 
 use ast::Ast;
@@ -84,19 +83,13 @@ pub fn build_builtins() -> (
     use nr::Scope::*;
     let names = DashMap::new();
 
-    let mut hasher = DefaultHasher::new();
-    "Prim".hash(&mut hasher);
-    let prim = ast::Ud(hasher.finish() as usize, false);
+    let prim = ast::Ud::new("Prim");
 
     let h = |a: Scope, n: &'static str, s: &'static str| -> (Scope, ast::Ud, ast::Ud) {
-        let mut hasher = DefaultHasher::new();
-        s.hash(&mut hasher);
-        let s_ud = ast::Ud(hasher.finish() as usize, false);
+        let s_ud = ast::Ud::new(s);
         names.insert(s_ud, s.into());
 
-        let mut hasher = DefaultHasher::new();
-        n.hash(&mut hasher);
-        let n_ud = ast::Ud(hasher.finish() as usize, false);
+        let n_ud = ast::Ud::new(n);
         names.insert(n_ud, n.into());
         (a, n_ud, s_ud)
     };

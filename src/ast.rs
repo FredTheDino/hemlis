@@ -1,6 +1,9 @@
 #![allow(unused)]
 
-use std::io::Write;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    io::Write,
+};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub struct Fi(pub usize);
@@ -10,15 +13,6 @@ pub enum Span {
     Known(Fi, (usize, usize), (usize, usize)),
     Zero,
 }
-
-// NOTE: I've assumed we don't have hash-collisions - given that a hit has a ~2^64 chance of
-// happening - I judge we're more likely to be hindered by the limit on 2^32 lines in a
-// document before we start to see collisions.
-// Since most of the strings are small - we are close to optimal if it is cryptographically
-// strong and follows the `Avalance Effect`.
-// https://www.geeksforgeeks.org/avalanche-effect-in-cryptography/
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct Ud(pub usize, pub bool);
 
 impl Span {
     pub fn zero() -> Self {
@@ -66,6 +60,33 @@ impl Span {
             Span::Known(_, _, hi) => *hi,
             Span::Zero => (0, 0),
         }
+    }
+
+    pub fn from_to(lo: Span, hi: Span) -> Span {
+        assert!(lo.fi() == hi.fi() && hi.fi().is_some());
+        Span::Known(lo.fi().unwrap(), lo.lo(), hi.hi())
+    }
+
+    pub fn lines(&self) -> (usize, usize) {
+        (self.lo().0, self.hi().0)
+    }
+}
+
+// NOTE: I've assumed we don't have hash-collisions - given that a hit has a ~2^64 chance of
+// happening - I judge we're more likely to be hindered by the limit on 2^32 lines in a
+// document before we start to see collisions.
+// Since most of the strings are small - we are close to optimal if it is cryptographically
+// strong and follows the `Avalance Effect`.
+// https://www.geeksforgeeks.org/avalanche-effect-in-cryptography/
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+pub struct Ud(pub usize, pub bool);
+
+impl Ud {
+    pub fn new(s: &str) -> Ud {
+        let mut hasher = DefaultHasher::new();
+        let is_lowercase = s.starts_with("_");
+        s.hash(&mut hasher);
+        Ud(hasher.finish() as usize, is_lowercase)
     }
 }
 
@@ -132,6 +153,22 @@ where
 
     fn span(&self) -> Span {
         self.1
+    }
+}
+
+impl<T> Ast for &Vec<&T>
+where
+    T: Ast,
+{
+    fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
+        for i in self.iter() {
+            i.show(indent + 1, w)?;
+        }
+        Ok(())
+    }
+
+    fn span(&self) -> Span {
+        self.iter().fold(Span::zero(), |a, b| a.merge(b.span()))
     }
 }
 

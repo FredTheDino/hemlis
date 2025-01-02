@@ -17,6 +17,14 @@ use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+macro_rules! or_ {
+    ($e:expr, $b:block) => {
+        if let Some(x) = $e {
+            x
+        } else $b
+    }
+}
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
@@ -35,10 +43,14 @@ struct Backend {
     ud_to_fi: DashMap<ast::Ud, ast::Fi>,
 
     importers: DashMap<ast::Ud, BTreeSet<ast::Ud>>,
-    imports: DashMap<ast::Ud, BTreeSet<Export>>,
+    imports: DashMap<ast::Ud, BTreeMap<Option<ast::Ud>, Vec<Export>>>,
 
     previouse_global_usages: DashMap<ast::Fi, BTreeSet<(Name, ast::Span, nr::Sort)>>,
     previouse_defines: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
+
+    // The option here should always be Some - but `None` lets us do a better partition search
+    // here.
+    available_locals: DashMap<ast::Fi, BTreeSet<(usize, usize, Option<Name>)>>,
 
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
@@ -52,7 +64,10 @@ struct Backend {
 
 impl Backend {
     fn resolve_name(&self, url: &Url, pos: Position) -> Option<Name> {
-        let m = self.fi_to_ud.try_get(&*self.url_to_fi.try_get(url).try_unwrap()?).try_unwrap()?;
+        let m = self
+            .fi_to_ud
+            .try_get(&*self.url_to_fi.try_get(url).try_unwrap()?)
+            .try_unwrap()?;
         let pos = (pos.line as usize, (pos.character + 1) as usize);
         let lut = self.resolved.try_get(&m).try_unwrap()?;
         let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
@@ -70,15 +85,16 @@ impl Backend {
             dashmap::try_result::TryResult::Locked => false,
         }
     }
-
 }
 
-// fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
-//     let (line_offset, _ ) = source.match_indices("\n").nth(line.saturating_sub(1))?;
-//     let end = line_offset + 1 + offset;
-//     let start = source[..end].rfind(char::is_whitespace)?;
-//     Some(&source[start..end])
-// }
+fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
+    let mut it = source.match_indices("\n");
+    let (line_start, _) = it.nth(line.saturating_sub(1))?;
+    let (line_end, _) = it.next()?;
+    let end = (line_start + 1 + offset).max(line_end);
+    let start = source[..end].rfind(char::is_whitespace)?;
+    Some(&source[start + 1..end])
+}
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -128,8 +144,12 @@ impl LanguageServer for Backend {
 
     async fn initialized(&self, _: InitializedParams) {
         {
-            self.client.log_message(MessageType::INFO, hemlis_lib::version()).await;
-            self.client.log_message(MessageType::INFO, "Scanning...".to_string()).await;
+            self.client
+                .log_message(MessageType::INFO, hemlis_lib::version())
+                .await;
+            self.client
+                .log_message(MessageType::INFO, "Scanning...".to_string())
+                .await;
             self.load_workspace().await;
             self.client
                 .log_message(MessageType::INFO, "Done scanning!".to_string())
@@ -266,7 +286,7 @@ impl LanguageServer for Backend {
                         Scope::Namespace => SymbolKind::NAMESPACE,
                     },
                     tags: None,
-                    
+
                     deprecated: None,
 
                     location: {
@@ -292,7 +312,11 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> Result<Option<DocumentSymbolResponse>> {
         let mut symbols = Vec::new();
-        let fi_inner = if let Some(fi) = self.url_to_fi.try_get(&params.text_document.uri).try_unwrap() {
+        let fi_inner = if let Some(fi) = self
+            .url_to_fi
+            .try_get(&params.text_document.uri)
+            .try_unwrap()
+        {
             *fi
         } else {
             return Err(Error::new(ErrorCode::ServerError(1)));
@@ -345,62 +369,97 @@ impl LanguageServer for Backend {
         Ok(Some(DocumentSymbolResponse::Flat(symbols)))
     }
 
-//    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-//        let uri = params.text_document_position.text_document.uri;
-//        let position = params.text_document_position.position;
-//        eprintln!("COMPLETE");
-//        let completions = || -> Option<Vec<CompletionItem>> {
-//            let fi = self.url_to_fi.try_get(&uri).try_unwrap()?;
-//            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-//            let to_complete = try_line_to_offset(&source, position.line as usize, position.character as usize)?;
-//            // let parts = to_complete.split('.').collect();
-//            // self.defines
-//
-//
-//            // word.split(".")
-//
-// //            let offset = char + position.character as usize;
-// //            let completions = completion(&ast, offset);
-// //            let mut ret = Vec::with_capacity(completions.len());
-// //            for (_, item) in completions {
-// //                match item {
-// //                    nrs_language_server::completion::ImCompleteCompletionItem::Variable(var) => {
-// //                        ret.push(CompletionItem {
-// //                            label: var.clone(),
-// //                            insert_text: Some(var.clone()),
-// //                            kind: Some(CompletionItemKind::VARIABLE),
-// //                            detail: Some(var),
-// //                            ..Default::default()
-// //                        });
-// //                    }
-// //                    nrs_language_server::completion::ImCompleteCompletionItem::Function(
-// //                        name,
-// //                        args,
-// //                    ) => {
-// //                        ret.push(CompletionItem {
-// //                            label: name.clone(),
-// //                            kind: Some(CompletionItemKind::FUNCTION),
-// //                            detail: Some(name.clone()),
-// //                            insert_text: Some(format!(
-// //                                    "{}({})",
-// //                                    name,
-// //                                    args.iter()
-// //                                    .enumerate()
-// //                                    .map(|(index, item)| { format!("${{{}:{}}}", index + 1, item) })
-// //                                    .collect::<Vec<_>>()
-// //                                    .join(",")
-// //                            )),
-// //                            insert_text_format: Some(InsertTextFormat::SNIPPET),
-// //                            ..Default::default()
-// //                        });
-// //                    }
-// //                }
-//            }
-//            //Some(ret)
-//            None
-//        }();
-//        Ok(completions.map(CompletionResponse::Array))
-//    }
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let completions = || -> Option<Vec<CompletionItem>> {
+            let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
+            let me = *self.fi_to_ud.try_get(&fi).try_unwrap()?;
+            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
+            let line = position.line as usize;
+            let to_complete =
+                try_line_to_offset(&source, line, position.character as usize)?.to_string();
+            drop(source);
+
+            let maybe_first_letter = to_complete.chars().nth(0);
+
+            let mut out = Vec::new();
+            // Locals
+            let lut = self.available_locals.try_get(&fi).try_unwrap()?;
+            let mut cur = lut.lower_bound(Bound::Included(&(0, line, None)));
+            while let Some((l, h, n)) = cur.peek_next() {
+                let n = n.expect("This option is only for searching!");
+                if !(*l <= line && line <= *h) {
+                    break;
+                }
+
+                let name = or_!(self.names.try_get(&n.name()).try_unwrap(), { continue });
+                if maybe_first_letter.is_none() || name.starts_with(maybe_first_letter.unwrap()) {
+                    out.push(CompletionItem::new_simple(
+                        name.value().to_string(),
+                        format!("{:?}", n.scope()),
+                    ));
+                }
+
+                cur.next();
+            }
+
+            // Imported
+            let (namespace, var) = if let Some(last) = to_complete.rfind('.') {
+                (
+                    Some(ast::Ud::new(to_complete[..last - 1].into())),
+                    to_complete[last..].into(),
+                )
+            } else {
+                (None, to_complete.clone())
+            };
+            if let Some(imports) = self
+                .imports
+                .try_get(&me)
+                .try_unwrap()
+                .and_then(|x| x.get(&namespace).cloned())
+            {
+                for n in imports.iter().flat_map(|x| x.to_names()) {
+                    if let Some(name) = self.names.try_get(&n.name()).try_unwrap() {
+                        if name.value().starts_with(&var) {
+                            out.push(CompletionItem::new_simple(
+                                name.value().to_string(),
+                                format!("{:?}", n.scope()),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Defines
+            for x in self.defines.iter() {
+                let n = x.key();
+                if n.module() != me {
+                    continue;
+                }
+                let module = or_!(self.names.try_get(&n.module()).try_unwrap(), { continue });
+                let name = or_!(self.names.try_get(&n.name()).try_unwrap(), { continue });
+                if maybe_first_letter.is_none()
+                    || module.starts_with(maybe_first_letter.unwrap())
+                    || name.starts_with(maybe_first_letter.unwrap())
+                {
+                    out.push(CompletionItem::new_simple(
+                        format!("{}.{}", module.value(), name.value()),
+                        format!("{:?}", n.scope()),
+                    ));
+                }
+            }
+
+            Some(out)
+            // self.defines
+            //
+            // - Find the word under the cursor
+            // - Are we completing a Module - what modules are in scope?
+            // - Are we completing a variable - what variables are in scope?
+            // - Are we ccompleting an import - what imports match?
+        }();
+        Ok(completions.map(CompletionResponse::Array))
+    }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let workspace_edit = (|| {
@@ -409,7 +468,16 @@ impl LanguageServer for Backend {
                 params.text_document_position.position,
             )?;
             let mut edits = HashMap::new();
-            for at in self.usages.try_get(&name.1).try_unwrap()?.get(&name)?.iter().map(|(at, _)| *at).collect::<BTreeSet<_>>().into_iter() {
+            for at in self
+                .usages
+                .try_get(&name.1)
+                .try_unwrap()?
+                .get(&name)?
+                .iter()
+                .map(|(at, _)| *at)
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+            {
                 let url = self
                     .fi_to_url
                     .try_get(&if let Some(fi) = at.fi() { fi } else { continue })
@@ -516,7 +584,6 @@ fn create_warning(
     )
 }
 
-
 pub fn nrerror_turn_into_diagnostic(
     error: NRerrors,
     names: &DashMap<ast::Ud, String>,
@@ -529,7 +596,10 @@ pub fn nrerror_turn_into_diagnostic(
                 "{:?} {}\nFailed to resolve",
                 scope,
                 match (
-                    names.try_get(&ns.unwrap_or(ast::Ud(0, false))).try_unwrap().map(|x| x.clone()),
+                    names
+                        .try_get(&ns.unwrap_or(ast::Ud(0, false)))
+                        .try_unwrap()
+                        .map(|x| x.clone()),
                     names.try_get(&n).try_unwrap().map(|x| x.clone())
                 ) {
                     (None, Some(name)) => name,
@@ -781,7 +851,9 @@ impl Backend {
                 }
                 let mut futures = Vec::new();
                 for (_, fi, _, m) in todo.iter() {
-                    futures.push(async { self.resolve_module(m, *fi, None); });
+                    futures.push(async {
+                        self.resolve_module(m, *fi, None);
+                    });
                 }
                 join_all(futures).await;
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
@@ -791,7 +863,12 @@ impl Backend {
         Some(())
     }
 
-    fn resolve_module(&self, m: &ast::Module, fi: ast::Fi, version: Option<i32>) -> Option<(bool, ast::Ud)> {
+    fn resolve_module(
+        &self,
+        m: &ast::Module,
+        fi: ast::Fi,
+        version: Option<i32>,
+    ) -> Option<(bool, ast::Ud)> {
         let me = m.0.as_ref()?.0 .0 .0;
         let mut n = nr::N::new(me, &self.exports);
         nr::resolve_names(&mut n, self.prim, m);
@@ -844,7 +921,20 @@ impl Backend {
         }
 
         {
-            let new = defines.into_iter().collect::<BTreeSet<_>>();
+            let defined_scopes = defines
+                .iter()
+                .filter_map(|(a, (_, available_in))| {
+                    available_in.map(|x| (x.lines().0, x.lines().1, Some(*a)))
+                })
+                .collect::<BTreeSet<_>>();
+            self.available_locals.insert(fi, defined_scopes);
+        }
+
+        {
+            let new = defines
+                .into_iter()
+                .map(|(a, (at, _))| (a, at))
+                .collect::<BTreeSet<_>>();
             let old = self
                 .previouse_defines
                 .insert(fi, new.clone())
@@ -861,7 +951,10 @@ impl Backend {
         }
 
         {
-            let new = global_usages.into_iter().flat_map(|(name, xx)| xx.into_iter().map(move |(pos, sort)| (name, pos, sort))).collect::<BTreeSet<_>>();
+            let new = global_usages
+                .into_iter()
+                .flat_map(|(name, xx)| xx.into_iter().map(move |(pos, sort)| (name, pos, sort)))
+                .collect::<BTreeSet<_>>();
             let old = self
                 .previouse_global_usages
                 .insert(fi, new.clone())
@@ -892,23 +985,28 @@ impl Backend {
         };
 
         {
-            let new_imports: BTreeSet<_> = n
+            let new_imports: BTreeMap<_, _> = n
                 .imports
-                .values()
-                .flat_map(|x| x.values().flatten())
-                .cloned()
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().flat_map(|(_, x)| x).collect::<Vec<_>>()))
                 .collect();
             let old_imports = self
                 .imports
                 .insert(me, new_imports.clone())
-                .unwrap_or_else(BTreeSet::new);
+                .unwrap_or_else(BTreeMap::new);
             let new_imports = new_imports
-                .iter()
-                .flat_map(|x| x.to_names().into_iter().map(|x| x.module()))
+                .values()
+                .flat_map(|x| {
+                    x.iter()
+                        .flat_map(|x| x.to_names().into_iter().map(|x| x.module()))
+                })
                 .collect::<BTreeSet<ast::Ud>>();
             let old_imports = old_imports
-                .iter()
-                .flat_map(|x| x.to_names().into_iter().map(|x| x.module()))
+                .values()
+                .flat_map(|x| {
+                    x.iter()
+                        .flat_map(|x| x.to_names().into_iter().map(|x| x.module()))
+                })
                 .collect::<BTreeSet<ast::Ud>>();
             for x in old_imports.difference(&new_imports) {
                 self.importers
@@ -949,11 +1047,15 @@ impl Backend {
                 continue;
             }
             checked.insert(x);
-            if let (Some(m), Some(fi), Some(version)) = (self.modules.try_get(&x).try_unwrap(), self.ud_to_fi.try_get(&x).try_unwrap(), 
-                self.fi_to_version.try_get(&fi).try_unwrap()
-                ) {
+            if let (Some(m), Some(fi), Some(version)) = (
+                self.modules.try_get(&x).try_unwrap(),
+                self.ud_to_fi.try_get(&x).try_unwrap(),
+                self.fi_to_version.try_get(&fi).try_unwrap(),
+            ) {
                 let _ = self.resolve_module(&m, *fi, *version);
-                if self.got_refresh(*fi, *version) { return; }
+                if self.got_refresh(*fi, *version) {
+                    return;
+                }
                 if self
                     .exports
                     .try_get(&x)
@@ -1008,12 +1110,7 @@ impl Backend {
         }
     }
 
-    fn parse(
-        &self,
-        fi: ast::Fi,
-        source: &'_ str,
-    ) -> (Option<ast::Module>, ast::Fi) {
-
+    fn parse(&self, fi: ast::Fi, source: &'_ str) -> (Option<ast::Module>, ast::Fi) {
         let l = lexer::lex(source, fi);
         let mut p = parser::P::new(&l, &self.names);
         let m = parser::module(&mut p);
@@ -1061,7 +1158,6 @@ impl Backend {
     }
 
     async fn on_change(&self, params: TextDocumentItem<'_>) {
-
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             self.client
                 .log_message(MessageType::INFO, "Blocking since not started")
@@ -1072,9 +1168,12 @@ impl Backend {
         let source = params.text;
         let version = params.version;
 
-        self.log(format!("!! {:?} CHANGE! {:?}", params.version, params.uri.to_string()))
-            .await;
-
+        self.log(format!(
+            "!! {:?} CHANGE! {:?}",
+            params.version,
+            params.uri.to_string()
+        ))
+        .await;
 
         let fi = loop {
             if let Some(fi) = self.find_fi(uri.clone()) {
@@ -1088,7 +1187,7 @@ impl Backend {
         match self.fi_to_version.try_entry(fi) {
             Some(dashmap::Entry::Occupied(mut o)) => {
                 if o.get().is_some() && o.get() > &version {
-                    return
+                    return;
                 }
                 o.insert(version);
             }
@@ -1101,26 +1200,40 @@ impl Backend {
             return;
         }
 
-        self.log(format!("!! {:?} AA! {:?}", params.version, params.uri.to_string())).await;
-
+        self.log(format!(
+            "!! {:?} AA! {:?}",
+            params.version,
+            params.uri.to_string()
+        ))
+        .await;
 
         // I have to copy it! :(
         self.fi_to_source.insert(fi, source.to_string());
         self.fi_to_url.insert(fi, uri.clone());
         let (m, fi) = self.parse(fi, source);
 
-        self.log(format!("!! {:?} BB! {:?}", params.version, params.uri.to_string()))
-            .await;
-
+        self.log(format!(
+            "!! {:?} BB! {:?}",
+            params.version,
+            params.uri.to_string()
+        ))
+        .await;
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
-            self .log(format!("!! {:?} PRE RESOLVE! {:?}", params.version, params.uri.to_string()))
-                .await;
+            self.log(format!(
+                "!! {:?} PRE RESOLVE! {:?}",
+                params.version,
+                params.uri.to_string()
+            ))
+            .await;
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
-                self.log(format!("!! {:?} POST RESOLVE! {:?}", params.version, params.uri.to_string()))
-                    .await;
-
+                self.log(format!(
+                    "!! {:?} POST RESOLVE! {:?}",
+                    params.version,
+                    params.uri.to_string()
+                ))
+                .await;
 
                 if self.got_refresh(fi, version) {
                     return;
@@ -1139,8 +1252,12 @@ impl Backend {
         } else {
             self.show_errors(fi, params.version).await;
         }
-        self.log(format!("!! {:?} FINISHED! {:?}", params.version, params.uri.to_string()))
-            .await;
+        self.log(format!(
+            "!! {:?} FINISHED! {:?}",
+            params.version,
+            params.uri.to_string()
+        ))
+        .await;
     }
 }
 
@@ -1180,6 +1297,8 @@ async fn main() {
 
         importers: DashMap::new(),
         imports: DashMap::new(),
+
+        available_locals: DashMap::new(),
 
         previouse_defines: DashMap::new(),
         previouse_global_usages: DashMap::new(),

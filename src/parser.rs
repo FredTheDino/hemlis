@@ -1,9 +1,5 @@
 #![allow(clippy::needless_lifetimes)]
 
-use std::hash::DefaultHasher;
-use std::hash::Hash as _;
-use std::hash::Hasher as _;
-
 use dashmap::DashMap;
 
 use crate::ast::*;
@@ -907,8 +903,8 @@ fn pratt_expr<'t>(p: &mut P<'t>, mut lhs: Expr, prec: usize) -> Option<Expr> {
         }
         let should_break = matches!(rhs, Expr::Error(_));
         lhs = expr_mrg(outer_lookahead, lhs, rhs);
-        if should_break { 
-            break
+        if should_break {
+            break;
         }
     }
     Some(lhs)
@@ -1036,7 +1032,7 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr> {
                 Some(Expr::Error(p.span()))
             } else {
                 None
-            }
+            };
         }
     };
     let mut e = if let Some(e) = e {
@@ -1740,10 +1736,7 @@ impl<'s> P<'s> {
     }
 
     fn intern(&self, s: &'_ str) -> Ud {
-        let mut hasher = DefaultHasher::new();
-        let is_lowercase = s.starts_with("_");
-        s.hash(&mut hasher);
-        let ud = Ud(hasher.finish() as usize, is_lowercase);
+        let ud = Ud::new(s);
         // NOTE: This is faster than a normal insert and avoids all possibilities of deadlocks
         // while maintaining data-correctness.
         if let Some(dashmap::Entry::Vacant(e)) = self.names.try_entry(ud) {
