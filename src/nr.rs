@@ -1471,7 +1471,11 @@ impl<'s> N<'s> {
     }
 
     fn label(&mut self, f: ast::Label) {
-        self.add_usage(Name(Scope::Label, ast::Ud::zero(), f.0.0, Visibility::Public), f.0.1, Sort::Ref)
+        self.add_usage(
+            Name(Scope::Label, ast::Ud::zero(), f.0 .0, Visibility::Public),
+            f.0 .1,
+            Sort::Ref,
+        )
     }
 }
 

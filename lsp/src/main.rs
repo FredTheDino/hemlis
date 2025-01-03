@@ -248,18 +248,27 @@ impl LanguageServer for Backend {
                 }))
             } else {
                 eprintln!("FOREIGN?");
-                let fi = *self.url_to_fi.try_get(&params.text_document_position_params.text_document.uri).try_unwrap()?;
+                let fi = *self
+                    .url_to_fi
+                    .try_get(&params.text_document_position_params.text_document.uri)
+                    .try_unwrap()?;
                 eprintln!("A001");
                 let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
                 eprintln!("A002");
                 let position = params.text_document_position_params.position;
                 eprintln!("A003");
-                let word_under_cursor = try_find_word(&source, position.line as usize, position.character as usize)?;
+                let word_under_cursor =
+                    try_find_word(&source, position.line as usize, position.character as usize)?;
                 eprintln!("A004 {}", word_under_cursor);
                 if word_under_cursor != "foreign" {
                     return None;
                 };
-                let mut uri = params.text_document_position_params.text_document.uri.to_file_path().ok()?;
+                let mut uri = params
+                    .text_document_position_params
+                    .text_document
+                    .uri
+                    .to_file_path()
+                    .ok()?;
                 uri.set_extension("erl");
                 Some(GotoDefinitionResponse::Scalar(Location {
                     uri: Url::from_file_path(uri).ok()?,
@@ -424,7 +433,8 @@ impl LanguageServer for Backend {
             let me = *self.fi_to_ud.try_get(&fi).try_unwrap()?;
             let line = position.line as usize;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-            let to_complete = try_find_word(&source, line, position.character as usize)?.to_string();
+            let to_complete =
+                try_find_word(&source, line, position.character as usize)?.to_string();
             drop(source);
 
             let maybe_first_letter = to_complete.chars().nth(0);
@@ -470,7 +480,9 @@ impl LanguageServer for Backend {
                         break;
                     }
 
-                    if maybe_first_letter.is_none() || n.name().starts_with(maybe_first_letter.unwrap()) {
+                    if maybe_first_letter.is_none()
+                        || n.name().starts_with(maybe_first_letter.unwrap())
+                    {
                         let name = self.name(&n.name());
                         out.push(CompletionItem::new_simple(
                             name.to_string(),
@@ -483,13 +495,17 @@ impl LanguageServer for Backend {
 
                 // Defines
                 let lock = self.locked.write();
-                let defines: Vec<_> = self.defines.iter().filter_map(|x| {
-                    let k = x.key();
-                    if k.module() != me {
-                        return None;
-                    }
-                    Some(*k)
-                }).collect();
+                let defines: Vec<_> = self
+                    .defines
+                    .iter()
+                    .filter_map(|x| {
+                        let k = x.key();
+                        if k.module() != me {
+                            return None;
+                        }
+                        Some(*k)
+                    })
+                    .collect();
                 drop(lock);
                 for n in defines.iter() {
                     if n.module() != me {
