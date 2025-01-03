@@ -322,7 +322,7 @@ impl<'s> N<'s> {
     fn pop(&mut self, Sf(l): Sf, end: ast::Span) {
         for n in self.locals.iter().skip(l) {
             if n.scope() != Scope::Type
-                && !n.name().1
+                && !n.name().starts_with_underscore()
                 && self
                     .usages
                     .get(n)

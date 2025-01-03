@@ -116,13 +116,14 @@ impl Backend {
     }
 }
 
-fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
+fn try_find_word(source: &str, line: usize, offset: usize) -> Option<&str> {
     let mut it = source.match_indices("\n");
     let (line_start, _) = it.nth(line.saturating_sub(1))?;
     let (line_end, _) = it.next()?;
-    let end = (line_start + 1 + offset as usize).max(line_end);
-    let start = source[..end].rfind(char::is_whitespace)?;
-    Some(&source[start + 1..end])
+    let at = (line_start + 1 + offset as usize).min(line_end);
+    let start = source[..at].rfind(char::is_whitespace)?;
+    let end = source[at..].find(char::is_whitespace)?;
+    Some(&source[start + 1..end + at])
 }
 
 #[tower_lsp::async_trait]
@@ -235,16 +236,36 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let definition = || -> Option<GotoDefinitionResponse> {
-            let name = self.resolve_name(
+            if let Some(name) = self.resolve_name(
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
-            )?;
-            let def_at = self.defines.try_get(&name).try_unwrap()?;
-            let uri = self.fi_to_url.try_get(&def_at.fi()?).try_unwrap()?.clone();
-            Some(GotoDefinitionResponse::Scalar(Location {
-                uri,
-                range: span_to_range(def_at.value()),
-            }))
+            ) {
+                let def_at = self.defines.try_get(&name).try_unwrap()?;
+                let uri = self.fi_to_url.try_get(&def_at.fi()?).try_unwrap()?.clone();
+                Some(GotoDefinitionResponse::Scalar(Location {
+                    uri,
+                    range: span_to_range(def_at.value()),
+                }))
+            } else {
+                eprintln!("FOREIGN?");
+                let fi = *self.url_to_fi.try_get(&params.text_document_position_params.text_document.uri).try_unwrap()?;
+                eprintln!("A001");
+                let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
+                eprintln!("A002");
+                let position = params.text_document_position_params.position;
+                eprintln!("A003");
+                let word_under_cursor = try_find_word(&source, position.line as usize, position.character as usize)?;
+                eprintln!("A004 {}", word_under_cursor);
+                if word_under_cursor != "foreign" {
+                    return None;
+                };
+                let mut uri = params.text_document_position_params.text_document.uri.to_file_path().ok()?;
+                uri.set_extension("erl");
+                Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: Url::from_file_path(uri).ok()?,
+                    range: range((0, 0), (0, 0)),
+                }))
+            }
         }();
         Ok(definition)
     }
@@ -399,40 +420,20 @@ impl LanguageServer for Backend {
         let completions = || -> Option<Vec<CompletionItem>> {
             let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
             let me = *self.fi_to_ud.try_get(&fi).try_unwrap()?;
-            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
             let line = position.line as usize;
-            let to_complete =
-                try_line_to_offset(&source, line, position.character as usize)?.to_string();
+            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
+            let to_complete = try_find_word(&source, line, position.character as usize)?.to_string();
             drop(source);
 
             let maybe_first_letter = to_complete.chars().nth(0);
 
             let mut out = Vec::new();
-            // Locals
-            let lut = self.available_locals.try_get(&fi).try_unwrap()?;
-            let mut cur = lut.lower_bound(Bound::Included(&((0, line), None)));
-            while let Some(((l, h), n)) = cur.peek_next() {
-                let n = n.expect("This option is only for searching!");
-                if !(*l <= line && line <= *h) {
-                    break;
-                }
-
-                let name = self.name(&n.name());
-                if maybe_first_letter.is_none() || name.starts_with(maybe_first_letter.unwrap()) {
-                    out.push(CompletionItem::new_simple(
-                        name.to_string(),
-                        format!("{:?}", n.scope()),
-                    ));
-                }
-
-                cur.next();
-            }
 
             // Imported
             let (namespace, var) = if let Some(last) = to_complete.rfind('.') {
                 (
-                    Some(ast::Ud::new(to_complete[..last - 1].into())),
-                    to_complete[last..].into(),
+                    Some(ast::Ud::new(to_complete[..last].into())),
+                    to_complete[last + 1..].into(),
                 )
             } else {
                 (None, to_complete.clone())
@@ -444,42 +445,68 @@ impl LanguageServer for Backend {
                 .and_then(|x| x.get(&namespace).cloned())
             {
                 for n in imports.iter().flat_map(|x| x.to_names()) {
+                    if n.scope() == Scope::Namespace {
+                        continue;
+                    }
                     let name = self.name(&n.name());
                     if name.starts_with(&var) {
                         out.push(CompletionItem::new_simple(
                             name.to_string(),
-                            format!("{:?}", n.scope()),
+                            format!("Imported {:?}", n.scope()),
                         ));
                     }
                 }
             }
 
-            // Defines
-            for x in self.defines.iter() {
-                let n = x.key();
-                if n.module() != me {
-                    continue;
+            if namespace.is_none() {
+                // Locals
+                let lut = self.available_locals.try_get(&fi).try_unwrap()?;
+                let mut cur = lut.lower_bound(Bound::Included(&((0, line), None)));
+                while let Some(((l, h), n)) = cur.peek_next() {
+                    let n = n.expect("This option is only for searching!");
+                    if !(*l <= line && line <= *h) {
+                        break;
+                    }
+
+                    if maybe_first_letter.is_none() || n.name().starts_with(maybe_first_letter.unwrap()) {
+                        let name = self.name(&n.name());
+                        out.push(CompletionItem::new_simple(
+                            name.to_string(),
+                            format!("Local {:?}", n.scope()),
+                        ));
+                    }
+
+                    cur.next();
                 }
-                let module = self.name(&n.module());
-                let name = self.name(&n.name());
-                if maybe_first_letter.is_none()
-                    || module.starts_with(maybe_first_letter.unwrap())
-                    || name.starts_with(maybe_first_letter.unwrap())
-                {
-                    out.push(CompletionItem::new_simple(
-                        format!("{}.{}", module, name),
-                        format!("{:?}", n.scope()),
-                    ));
+
+                // Defines
+                let lock = self.locked.write();
+                let defines: Vec<_> = self.defines.iter().filter_map(|x| {
+                    let k = x.key();
+                    if k.module() != me {
+                        return None;
+                    }
+                    Some(*k)
+                }).collect();
+                drop(lock);
+                for n in defines.iter() {
+                    if n.module() != me {
+                        continue;
+                    }
+                    if maybe_first_letter.is_none()
+                        || n.name().starts_with(maybe_first_letter.unwrap())
+                    {
+                        // TODO: If this is nice - and people want more - I can add more info here when
+                        // they know what they want.
+                        let name = self.name(&n.name());
+                        out.push(CompletionItem::new_simple(
+                            format!("{}", name),
+                            format!("Define {:?}", n.scope()),
+                        ));
+                    }
                 }
             }
-
             Some(out)
-            // self.defines
-            //
-            // - Find the word under the cursor
-            // - Are we completing a Module - what modules are in scope?
-            // - Are we completing a variable - what variables are in scope?
-            // - Are we ccompleting an import - what imports match?
         }();
         Ok(completions.map(CompletionResponse::Array))
     }
@@ -909,7 +936,7 @@ fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
 fn format_name(ns: Option<ast::Ud>, n: ast::Ud, names: &DashMap<ast::Ud, String>) -> String {
     match (
         names
-            .try_get(&ns.unwrap_or(ast::Ud(0, false)))
+            .try_get(&ns.unwrap_or(ast::Ud(0, '_')))
             .try_unwrap()
             .map(|x| x.clone()),
         names.try_get(&n).try_unwrap().map(|x| x.clone()),
@@ -920,38 +947,36 @@ fn format_name(ns: Option<ast::Ud>, n: ast::Ud, names: &DashMap<ast::Ud, String>
     }
 }
 
-/*
-fn as_import(
-    scope: nr::Scope,
-    is_constructor: bool,
-    name: ast::Ud,
-    names: &DashMap<ast::Ud, String>,
-) -> String {
-    assert!(!is_constructor || scope == nr::Scope::Type);
-    let name = if let Some(name) = names.try_get(&name).try_unwrap() {
-        name.value().clone()
-    } else {
-        "?".into()
-    };
-    let first = name.chars().next().unwrap();
-    let is_identifier = char::is_ascii_alphanumeric(&first) || first == '_';
-    match scope {
-        _ if is_constructor => format!("{}(..)", name),
-
-        Scope::Kind | Scope::Type if is_identifier => {
-            format!("{}", name)
-        }
-        Scope::Kind | Scope::Type => {
-            format!("type ({})", name)
-        }
-        Scope::Class => format!("class {}", name),
-        Scope::Namespace | Scope::Module => format!("module {}", name),
-
-        Scope::Term if is_identifier => format!("{}", name),
-        Scope::Term => format!("({})", name),
-    }
-}
-*/
+// fn as_import(
+//     scope: nr::Scope,
+//     is_constructor: bool,
+//     name: ast::Ud,
+//     names: &DashMap<ast::Ud, String>,
+// ) -> String {
+//     assert!(!is_constructor || scope == nr::Scope::Type);
+//     let name = if let Some(name) = names.try_get(&name).try_unwrap() {
+//         name.value().clone()
+//     } else {
+//         "?".into()
+//     };
+//     let first = name.chars().next().unwrap();
+//     let is_identifier = char::is_ascii_alphanumeric(&first) || first == '_';
+//     match scope {
+//         _ if is_constructor => format!("{}(..)", name),
+//
+//         Scope::Kind | Scope::Type if is_identifier => {
+//             format!("{}", name)
+//         }
+//         Scope::Kind | Scope::Type => {
+//             format!("type ({})", name)
+//         }
+//         Scope::Class => format!("class {}", name),
+//         Scope::Namespace | Scope::Module => format!("module {}", name),
+//
+//         Scope::Term if is_identifier => format!("{}", name),
+//         Scope::Term => format!("({})", name),
+//     }
+// }
 
 pub fn nrerror_turn_into_diagnostic(
     error: NRerrors,
@@ -1153,9 +1178,7 @@ impl Backend {
 
             // NOTE: Not adding them to the name lookup
             fn h(s: &'static str) -> ast::Ud {
-                let mut hasher = DefaultHasher::new();
-                s.hash(&mut hasher);
-                ast::Ud(hasher.finish() as usize, s.starts_with("_"))
+                ast::Ud::new(s)
             }
 
             let mut done: BTreeSet<_> = [

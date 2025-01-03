@@ -87,14 +87,21 @@ impl Span {
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
 )]
-pub struct Ud(pub usize, pub bool);
+pub struct Ud(pub usize, pub char);
 
 impl Ud {
     pub fn new(s: &str) -> Ud {
         let mut hasher = DefaultHasher::new();
-        let is_lowercase = s.starts_with("_");
         s.hash(&mut hasher);
-        Ud(hasher.finish() as usize, is_lowercase)
+        Ud(hasher.finish() as usize, s.chars().next().unwrap_or('?'))
+    }
+
+    pub fn starts_with(&self, c: char) -> bool {
+        self.1 == c
+    }
+
+    pub fn starts_with_underscore(&self) -> bool {
+        self.starts_with('_')
     }
 }
 
