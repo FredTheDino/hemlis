@@ -37,21 +37,21 @@ fn range(lo: ast::Pos, hi: ast::Pos) -> Range {
     }
 }
 
-fn range_to_span(fi: ast::Fi, s: Range) -> ast::Span {
-    let Position {
-        line: lo_l,
-        character: lo_c,
-    } = s.start;
-    let Position {
-        line: hi_l,
-        character: hi_c,
-    } = s.end;
-    ast::Span::Known(
-        fi,
-        (lo_l as usize, lo_c as usize),
-        (hi_l as usize, hi_c as usize),
-    )
-}
+// fn range_to_span(fi: ast::Fi, s: Range) -> ast::Span {
+//     let Position {
+//         line: lo_l,
+//         character: lo_c,
+//     } = s.start;
+//     let Position {
+//         line: hi_l,
+//         character: hi_c,
+//     } = s.end;
+//     ast::Span::Known(
+//         fi,
+//         (lo_l as usize, lo_c as usize),
+//         (hi_l as usize, hi_c as usize),
+//     )
+// }
 
 #[derive(Debug)]
 struct Backend {
@@ -445,12 +445,12 @@ impl LanguageServer for Backend {
             {
                 for n in imports.iter().flat_map(|x| x.to_names()) {
                     let name = self.name(&n.name());
-                        if name.starts_with(&var) {
-                            out.push(CompletionItem::new_simple(
-                                name.to_string(),
-                                format!("{:?}", n.scope()),
-                            ));
-                        }
+                    if name.starts_with(&var) {
+                        out.push(CompletionItem::new_simple(
+                            name.to_string(),
+                            format!("{:?}", n.scope()),
+                        ));
+                    }
                 }
             }
 
@@ -557,11 +557,71 @@ impl LanguageServer for Backend {
             match f {
                 Fixable::GuessImports(s, ns, n, at) => {
                     // Assume `n` is spelt correctly
+
                     // 1. Find all possible imports with `n`
                     // 1a. Figure out what edits need to be done
-                    // 2. Find possible imported modules
 
-                    // TODO skipp the names that are imported as something else?
+                    let imported = or_!(self.imports.try_get(&me).try_unwrap(), { continue })
+                        .value()
+                        .clone();
+                    let seen: BTreeSet<nr::Name> = imported
+                        .values()
+                        .flat_map(|x| x.iter().flat_map(|x| x.to_names()))
+                        .collect();
+
+                    let handle = |ns: Option<ast::Ud>, name: &nr::Name, out: &mut Vec<_>| {
+                        out.push(
+                            CodeAction {
+                                title: format!(
+                                    "[QUSE {:?}] Qualified use {} ({})",
+                                    name.scope(),
+                                    format_name(ns, name.name(), &self.names),
+                                    self.name(&name.module()),
+                                ),
+                                kind: Some(CodeActionKind::QUICKFIX),
+                                is_preferred: Some(true),
+                                edit: Some(WorkspaceEdit::new(
+                                    [(
+                                        uri.clone(),
+                                        vec![TextEdit::new(
+                                            range(at.lo(), at.hi()),
+                                            format_name(ns, name.name(), &self.names),
+                                        )],
+                                    )]
+                                    .into(),
+                                )),
+                                ..CodeAction::default()
+                            }
+                            .into(),
+                        );
+                    };
+
+                    for (m, xs) in imported.iter() {
+                        for export in xs.into_iter() {
+                            match export {
+                                Export::ConstructorsSome(name, constructors)
+                                | Export::ConstructorsAll(name, constructors) => {
+                                    if name.name() == *n && name.scope() == *s {
+                                        handle(*m, name, &mut out);
+                                    }
+                                    for c in constructors.iter() {
+                                        if c.name() == *n
+                                            && c.scope() == *s
+                                            && c.scope() == nr::Scope::Term
+                                        {
+                                            handle(*m, name, &mut out);
+                                        }
+                                    }
+                                }
+                                Export::Just(name) => {
+                                    if name.name() == *n && name.scope() == *s {
+                                        handle(*m, name, &mut out);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let lock = self.locked.write();
                     let exports: BTreeMap<ast::Ud, Vec<nr::Export>> = self
                         .exports
@@ -570,108 +630,108 @@ impl LanguageServer for Backend {
                         .collect();
                     drop(lock);
 
-                    let handle =
-                        |name: &nr::Name, is_constructor: bool, out: &mut Vec<_>| {
-                            if let Some(ns) = ns {
-                                out.push(
-                                    CodeAction {
-                                        title: format!(
-                                            "[QIMPORT {:?}] Qualified from {}",
-                                            name.scope(),
-                                            self.name(&name.module())
-                                        ),
-                                        kind: Some(CodeActionKind::QUICKFIX),
-                                        edit: Some(WorkspaceEdit::new(
-                                            [(
-                                                uri.clone(),
-                                                vec![TextEdit::new(
-                                                    range(end_of_imports, end_of_imports),
-                                                    format!(
-                                                        "\nimport {} as {}",
-                                                        self.name (&name.module()),
-                                                        self.name (ns)
-                                                    ),
-                                                )],
-                                            )]
-                                            .into(),
-                                        )),
-                                        ..CodeAction::default()
-                                    }
+                    let handle = |name: &nr::Name, _is_constructor: bool, out: &mut Vec<_>| {
+                        if let Some(ns) = ns {
+                            let ns_name = self.name(ns);
+                            let name_name = self.name(&name.module());
+                            out.push(CodeAction {
+                                title: format!(
+                                    "[QIMPORT {:?}] Qualified from {} as {}",
+                                    name.scope(),
+                                    name_name,
+                                    ns_name
+                                ),
+                                kind: Some(CodeActionKind::QUICKFIX),
+                                is_preferred: Some(
+                                    ns_name.find(&name_name).is_some()
+                                        || name_name.find(&ns_name).is_some(),
+                                ),
+                                edit: Some(WorkspaceEdit::new(
+                                    [(
+                                        uri.clone(),
+                                        vec![TextEdit::new(
+                                            range(end_of_imports, end_of_imports),
+                                            format!(
+                                                "\nimport {} as {}",
+                                                self.name(&name.module()),
+                                                self.name(ns)
+                                            ),
+                                        )],
+                                    )]
                                     .into(),
-                                );
-                            } else {
-                                out.push(
-                                    CodeAction {
-                                        title: format!(
-                                            "[QIMPORT {:?}] Qualified from {}",
-                                            name.scope(),
-                                            self.name(&name.module())
-                                        ),
-                                        kind: Some(CodeActionKind::QUICKFIX),
-                                        edit: Some(WorkspaceEdit::new(
-                                            [(
-                                                uri.clone(),
-                                                vec![
-                                                TextEdit::new(
-                                                    range(end_of_imports, end_of_imports),
-                                                    format!(
-                                                        "\nimport {} as {}",
-                                                        self.name (&name.module()),
-                                                        self.name (&name.module())
-                                                    ),
+                                )),
+                                ..CodeAction::default()
+                            });
+                        } else {
+                            out.push(CodeAction {
+                                title: format!(
+                                    "[QIMPORT {:?}] Qualified from {}",
+                                    name.scope(),
+                                    self.name(&name.module())
+                                ),
+                                kind: Some(CodeActionKind::QUICKFIX),
+                                edit: Some(WorkspaceEdit::new(
+                                    [(
+                                        uri.clone(),
+                                        vec![
+                                            TextEdit::new(
+                                                range(end_of_imports, end_of_imports),
+                                                format!(
+                                                    "\nimport {} as {}",
+                                                    self.name(&name.module()),
+                                                    self.name(&name.module())
                                                 ),
-                                                TextEdit::new(
-                                                    range(at.lo(), at.hi()),
-                                                    format!(
-                                                        "{}.{}",
-                                                        self.name (&name.module()),
-                                                        self.name (&name.name())
-                                                    ),
-                                                )
-
-                                                ],
-                                            )]
-                                            .into(),
-                                        )),
-                                        ..CodeAction::default()
-                                    }
+                                            ),
+                                            TextEdit::new(
+                                                range(at.lo(), at.hi()),
+                                                format!(
+                                                    "{}.{}",
+                                                    self.name(&name.module()),
+                                                    self.name(&name.name())
+                                                ),
+                                            ),
+                                        ],
+                                    )]
                                     .into(),
-                                );
-                                out.push(
-                                    CodeAction {
-                                        title: format!(
-                                            "[SIMPORT {:?}] {}.{}",
-                                            name.scope(),
-                                            self.name (&name.module()),
-                                            self.name (&name.name())
-                                        ),
-                                        kind: Some(CodeActionKind::QUICKFIX),
-                                        edit: Some(WorkspaceEdit::new(
-                                            [(
-                                                uri.clone(),
-                                                vec![TextEdit::new(
-                                                    range(end_of_imports, end_of_imports),
-                                                    format!(
-                                                        "\nimport {} ({})",
-                                                        self.name (&name.module()),
-                                                        as_import(
-                                                            name.scope(),
-                                                            is_constructor,
-                                                            name.name(),
-                                                            &self.names
-                                                        )
-                                                    ),
-                                                )],
-                                            )]
-                                            .into(),
-                                        )),
-                                        ..CodeAction::default()
-                                    }
-                                    .into(),
-                                )
-                            }
-
-                        };
+                                )),
+                                ..CodeAction::default()
+                            });
+                            // TODO: This needs to also find imports if they exist and add it
+                            // to them.
+                            //
+                            // out.push(
+                            //     CodeAction {
+                            //         title: format!(
+                            //             "[SIMPORT {:?}] {}.{}",
+                            //             name.scope(),
+                            //             self.name (&name.module()),
+                            //             self.name (&name.name())
+                            //         ),
+                            //         kind: Some(CodeActionKind::QUICKFIX),
+                            //         edit: Some(WorkspaceEdit::new(
+                            //             [(
+                            //                 uri.clone(),
+                            //                 vec![TextEdit::new(
+                            //                     range(end_of_imports, end_of_imports),
+                            //                     format!(
+                            //                         "\nimport {} ({})",
+                            //                         self.name (&name.module()),
+                            //                         as_import(
+                            //                             name.scope(),
+                            //                             is_constructor,
+                            //                             name.name(),
+                            //                             &self.names
+                            //                         )
+                            //                     ),
+                            //                 )],
+                            //             )]
+                            //             .into(),
+                            //         )),
+                            //         ..CodeAction::default()
+                            //     }
+                            // )
+                        }
+                    };
 
                     for (m, xs) in exports.iter() {
                         if *m == me {
@@ -681,53 +741,54 @@ impl LanguageServer for Backend {
                             match export {
                                 Export::ConstructorsSome(name, constructors)
                                 | Export::ConstructorsAll(name, constructors) => {
-                                    if name.name() == *n && name.scope() == *s {
+                                    if name.name() == *n
+                                        && name.scope() == *s
+                                        && !seen.contains(name)
+                                    {
                                         handle(name, false, &mut out);
                                     }
                                     for c in constructors.iter() {
-                                        if c.name() == *n && c.scope() == *s && c.scope() == nr::Scope::Term {
-                                            handle(
-                                                name,
-                                                true,
-                                                &mut out,
-                                            );
+                                        if c.name() == *n
+                                            && c.scope() == *s
+                                            && c.scope() == nr::Scope::Term
+                                            && !seen.contains(c)
+                                        {
+                                            handle(name, true, &mut out);
                                         }
                                     }
                                 }
                                 Export::Just(name) => {
-                                    if name.name() == *n && name.scope() == *s {
+                                    if name.name() == *n
+                                        && name.scope() == *s
+                                        && !seen.contains(name)
+                                    {
                                         handle(name, false, &mut out);
                                     }
                                 }
                             }
                         }
                     }
-
-                    // 2a. Figure out what edits need to be done
-
-                    // 3. Merge these, and mark one that matches ns and n as default action
                 }
-                Fixable::Delete(at) => out.push(
-                    CodeAction {
-                        title: "Delete".into(),
-                        kind: Some(CodeActionKind::QUICKFIX),
-                        diagnostics: None,
-                        edit: Some(WorkspaceEdit::new(
-                            [(
-                                uri.clone(),
-                                vec![TextEdit::new(span_to_range(&at), "".into())],
-                            )]
-                            .into(),
-                        )),
-                        is_preferred: Some(true),
-                        ..CodeAction::default()
-                    }
-                    .into(),
-                ),
+                Fixable::Delete(at) => out.push(CodeAction {
+                    title: "Delete".into(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: None,
+                    edit: Some(WorkspaceEdit::new(
+                        [(
+                            uri.clone(),
+                            vec![TextEdit::new(span_to_range(&at), "".into())],
+                        )]
+                        .into(),
+                    )),
+                    is_preferred: Some(true),
+                    ..CodeAction::default()
+                }),
             }
         }
-        eprintln!("{} - response length!", out.len());
-        Ok(Some(out))
+        // Place the best matches at the top of the list
+        out.sort_by_key(|x| x.is_preferred);
+        out.reverse();
+        Ok(Some(out.into_iter().map(|x| x.into()).collect()))
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
@@ -826,7 +887,7 @@ fn create_warning(
     )
 }
 
-pub fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
+fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
     match error {
         NRerrors::Unknown(scope, ns, n, s) => {
             vec![(*s, Fixable::GuessImports(*scope, *ns, *n, *s))]
@@ -859,13 +920,13 @@ fn format_name(ns: Option<ast::Ud>, n: ast::Ud, names: &DashMap<ast::Ud, String>
     }
 }
 
+/*
 fn as_import(
     scope: nr::Scope,
     is_constructor: bool,
     name: ast::Ud,
     names: &DashMap<ast::Ud, String>,
 ) -> String {
-    eprintln!("{}, {:?}", is_constructor, scope);
     assert!(!is_constructor || scope == nr::Scope::Type);
     let name = if let Some(name) = names.try_get(&name).try_unwrap() {
         name.value().clone()
@@ -890,6 +951,7 @@ fn as_import(
         Scope::Term => format!("({})", name),
     }
 }
+*/
 
 pub fn nrerror_turn_into_diagnostic(
     error: NRerrors,
@@ -1018,12 +1080,11 @@ struct TextDocumentItem<'a> {
 
 impl Backend {
     fn name(&self, ud: &ast::Ud) -> String {
-
-                                            self.names
-                                                .try_get(ud)
-                                                .try_unwrap()
-                                                .map(|x| x.value().clone())
-                                                .unwrap_or_else(|| "?".into())
+        self.names
+            .try_get(ud)
+            .try_unwrap()
+            .map(|x| x.value().clone())
+            .unwrap_or_else(|| "?".into())
     }
 
     async fn log(&self, s: String) {
