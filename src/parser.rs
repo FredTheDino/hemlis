@@ -467,6 +467,7 @@ fn imports<'t>(p: &mut P<'t>) -> Vec<ImportDecl> {
 }
 
 fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
+    let start = p.span();
     kw_import(p)?;
     let from = mname(p)?;
     // NOTE: import A hiding (a) (a) - is a syntax error
@@ -497,6 +498,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
         None
     };
     Some(ImportDecl {
+        start,
         from,
         hiding,
         names,

@@ -2,13 +2,13 @@ use crate::ast::{self, Ast};
 use dashmap::DashMap;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize)]
 pub enum Visibility {
-    Private((usize, usize)),
+    Private((u32, u32)),
     Public,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive( Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,)]
 pub struct Name(pub Scope, pub ast::Ud, pub ast::Ud, pub Visibility);
 
 impl Name {
@@ -35,7 +35,9 @@ impl Name {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
+)]
 pub enum Scope {
     Kind,
     Type,
@@ -98,7 +100,7 @@ pub struct Sf(usize);
 pub enum NRerrors {
     Unknown(Scope, Option<ast::Ud>, ast::Ud, ast::Span),
     NameConflict(BTreeSet<Name>, ast::Span),
-    MultipleDefinitions(Name, (usize, usize), (usize, usize)),
+    MultipleDefinitions(Name, ast::Span, ast::Span),
     NotAConstructor(Name, ast::ProperName),
     NoConstructors(Name, ast::Span),
     NotExportedOrDoesNotExist(ast::Ud, Scope, ast::Ud, ast::Span),
@@ -108,7 +110,7 @@ pub enum NRerrors {
     Unused(String, ast::Span),
 }
 
-pub type Pos = (usize, usize);
+pub type Pos = (u32, u32);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Sort {
@@ -184,6 +186,7 @@ impl<'s> N<'s> {
     fn check_imports(
         &mut self,
         ast::ImportDecl {
+            start: _,
             from,
             hiding: _,
             names,
@@ -344,11 +347,8 @@ impl<'s> N<'s> {
             }
             std::collections::btree_map::Entry::Occupied(v) => {
                 if !ignore_error {
-                    self.errors.push(NRerrors::MultipleDefinitions(
-                        *v.key(),
-                        v.get().0.lo(),
-                        s.lo(),
-                    ));
+                    self.errors
+                        .push(NRerrors::MultipleDefinitions(*v.key(), v.get().0, s));
                 } else {
                     self.add_usage(name, s, Sort::Def2);
                 }
@@ -587,7 +587,8 @@ impl<'s> N<'s> {
 
     fn import(
         &mut self,
-        ast::ImportDecl {
+        import@ast::ImportDecl {
+            start:_,
             from,
             hiding,
             names,
@@ -608,7 +609,7 @@ impl<'s> N<'s> {
             self.def_global(Namespace, b.0, true);
         }
         if from.0 .0 == self.me {
-            self.errors.push(NRerrors::CannotImportSelf(from.0 .1));
+            self.errors.push(NRerrors::CannotImportSelf(import.span()));
             return;
         }
         if !self.global_exports.contains_key(&from.0 .0) {
@@ -1466,6 +1467,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
         n.def_global(Module, h.0 .0, true);
         // Inject the Prim import
         n.import(&ast::ImportDecl {
+            start: ast::Span::Zero,
             from: ast::MName(ast::S(prim, ast::Span::Zero)),
             hiding: Vec::new(),
             names: Vec::new(),

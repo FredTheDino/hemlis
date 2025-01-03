@@ -25,6 +25,13 @@ macro_rules! or_ {
     }
 }
 
+fn span_to_range(s: &ast::Span) -> Range {
+    Range {
+        start: pos_from_tup(s.lo()),
+        end: pos_from_tup(s.hi()),
+    }
+}
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
@@ -50,7 +57,7 @@ struct Backend {
 
     // The option here should always be Some - but `None` lets us do a better partition search
     // here.
-    available_locals: DashMap<ast::Fi, BTreeSet<(usize, usize, Option<Name>)>>,
+    available_locals: DashMap<ast::Fi, BTreeSet<(u32, u32, Option<Name>)>>,
 
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
@@ -68,7 +75,7 @@ impl Backend {
             .fi_to_ud
             .try_get(&*self.url_to_fi.try_get(url).try_unwrap()?)
             .try_unwrap()?;
-        let pos = (pos.line as usize, (pos.character + 1) as usize);
+        let pos = (pos.line, pos.character + 1);
         let lut = self.resolved.try_get(&m).try_unwrap()?;
         let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
         let ((lo, hi), name) = cur.peek_prev()?;
@@ -87,11 +94,11 @@ impl Backend {
     }
 }
 
-fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
+fn try_line_to_offset(source: &str, line: u32, offset: u32) -> Option<&str> {
     let mut it = source.match_indices("\n");
-    let (line_start, _) = it.nth(line.saturating_sub(1))?;
+    let (line_start, _) = it.nth(line.saturating_sub(1) as usize)?;
     let (line_end, _) = it.next()?;
-    let end = (line_start + 1 + offset).max(line_end);
+    let end = (line_start + 1 + offset as usize).max(line_end);
     let start = source[..end].rfind(char::is_whitespace)?;
     Some(&source[start + 1..end])
 }
@@ -137,6 +144,15 @@ impl LanguageServer for Backend {
                 rename_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(Vec::new()),
+                        work_done_progress_options: (WorkDoneProgressOptions {
+                            work_done_progress: Some(false),
+                        }),
+                        resolve_provider: None,
+                    },
+                )),
                 ..ServerCapabilities::default()
             },
         })
@@ -205,10 +221,7 @@ impl LanguageServer for Backend {
             let uri = self.fi_to_url.try_get(&def_at.fi()?).try_unwrap()?.clone();
             Some(GotoDefinitionResponse::Scalar(Location {
                 uri,
-                range: Range {
-                    start: pos_from_tup(def_at.lo()),
-                    end: pos_from_tup(def_at.hi()),
-                },
+                range: span_to_range(def_at.value()),
             }))
         }();
         Ok(definition)
@@ -231,10 +244,7 @@ impl LanguageServer for Backend {
                             return None;
                         }
                         let url = self.fi_to_url.try_get(&s.fi()?).try_unwrap()?;
-                        let lo = pos_from_tup(s.lo());
-                        let hi = pos_from_tup(s.hi());
-
-                        let range = Range::new(lo, hi);
+                        let range = span_to_range(s);
 
                         Some(Location::new(url.clone(), range))
                     })
@@ -291,11 +301,7 @@ impl LanguageServer for Backend {
 
                     location: {
                         let url = self.fi_to_url.try_get(fi).unwrap().clone();
-                        let lo = pos_from_tup(at.lo());
-                        let hi = pos_from_tup(at.hi());
-
-                        let range = Range::new(lo, hi);
-
+                        let range = span_to_range(at);
                         Location::new(url, range)
                     },
 
@@ -353,11 +359,7 @@ impl LanguageServer for Backend {
 
                     location: {
                         let url = self.fi_to_url.try_get(&fi).unwrap().clone();
-                        let lo = pos_from_tup(at.lo());
-                        let hi = pos_from_tup(at.hi());
-
-                        let range = Range::new(lo, hi);
-
+                        let range = span_to_range(at);
                         Location::new(url, range)
                     },
 
@@ -376,9 +378,9 @@ impl LanguageServer for Backend {
             let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
             let me = *self.fi_to_ud.try_get(&fi).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-            let line = position.line as usize;
+            let line = position.line;
             let to_complete =
-                try_line_to_offset(&source, line, position.character as usize)?.to_string();
+                try_line_to_offset(&source, line, position.character)?.to_string();
             drop(source);
 
             let maybe_first_letter = to_complete.chars().nth(0);
@@ -496,6 +498,50 @@ impl LanguageServer for Backend {
         Ok(workspace_edit)
     }
 
+    async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+        eprintln!("Doing some edits! {:?}", params);
+        let url = params.text_document.uri.clone();
+        let mut out = Vec::new();
+        for diag in params.context.diagnostics.into_iter() {
+            for f in diag
+                .data
+                .clone()
+                .and_then(|x| dbg!(serde_json::from_value::<Vec<Fixable>>(x)).ok())
+                .into_iter()
+                .flatten()
+            {
+                match f {
+                    Fixable::GuessImports(s, ns, n, at) => {
+                        // Assume `n` is spelt correctly
+                        // 1. Find all possible imports with `n`
+                        // 1a. Figure out what edits need to be done
+                        // 2. Find possible imported modules
+                        // 2a. Figure out what edits need to be done
+                        // 3. Merge these, and mark one that matches ns and n as default action
+                    }
+                    Fixable::Delete(at) => out.push(
+                        CodeAction {
+                            title: "Delete".into(),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            diagnostics: Some(vec![diag.clone()]),
+                            edit: Some(WorkspaceEdit::new(
+                                [(
+                                    url.clone(),
+                                    vec![TextEdit::new(span_to_range(&at), "".into())],
+                                )]
+                                .into(),
+                            )),
+                            ..CodeAction::default()
+                        }
+                        .into(),
+                    ),
+                }
+            }
+        }
+        eprintln!("{} - response length!", out.len());
+        Ok(Some(out))
+    }
+
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
 
     async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {}
@@ -530,13 +576,21 @@ impl LanguageServer for Backend {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum Fixable {
+    GuessImports(nr::Scope, Option<ast::Ud>, ast::Ud, ast::Span),
+    Delete(ast::Span),
+}
+
 fn create_error(
-    range: Range,
+    span: ast::Span,
     code: String,
     message: String,
     related: Vec<(String, Location)>,
+    data: Vec<Fixable>,
 ) -> tower_lsp::lsp_types::Diagnostic {
-    Diagnostic::new(
+    let range = Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi()));
+    let mut out = Diagnostic::new(
         range,
         Some(DiagnosticSeverity::ERROR),
         Some(NumberOrString::String(code)),
@@ -554,16 +608,22 @@ fn create_error(
             }
         },
         None,
-    )
+    );
+    if !data.is_empty() {
+        out.data = Some(serde_json::to_value(data).unwrap());
+    }
+    out
 }
 
 fn create_warning(
-    range: Range,
+    span: ast::Span,
     code: String,
     message: String,
     related: Vec<(String, Location)>,
+    data: Vec<Fixable>,
 ) -> tower_lsp::lsp_types::Diagnostic {
-    Diagnostic::new(
+    let range = Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi()));
+    let mut out = Diagnostic::new(
         range,
         Some(DiagnosticSeverity::WARNING),
         Some(NumberOrString::String(code)),
@@ -581,7 +641,11 @@ fn create_warning(
             }
         },
         None,
-    )
+    );
+    if !data.is_empty() {
+        out.data = Some(serde_json::to_value(data).unwrap());
+    }
+    out
 }
 
 pub fn nrerror_turn_into_diagnostic(
@@ -589,8 +653,8 @@ pub fn nrerror_turn_into_diagnostic(
     names: &DashMap<ast::Ud, String>,
 ) -> tower_lsp::lsp_types::Diagnostic {
     match error {
-        NRerrors::Unknown(scope, ns, n, span) => create_error(
-            Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+        NRerrors::Unknown(scope, ns, n, s) => create_error(
+            s,
             "Unknown".into(),
             format!(
                 "{:?} {}\nFailed to resolve",
@@ -608,9 +672,10 @@ pub fn nrerror_turn_into_diagnostic(
                 }
             ),
             Vec::new(),
+            vec![Fixable::GuessImports(scope, ns, n, s)],
         ),
-        NRerrors::NameConflict(ns, span) => create_error(
-            Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
+        NRerrors::NameConflict(ns, s) => create_error(
+            s,
             "NameConflict".into(),
             format!(
                 "This name is imported from {} different modules\n{}",
@@ -637,9 +702,10 @@ pub fn nrerror_turn_into_diagnostic(
                     .join("\n")
             ),
             Vec::new(),
+            Vec::new(),
         ),
         NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => create_error(
-            Range::new(pos_from_tup(second), pos_from_tup(second)),
+            second,
             "MultipleDefinitions".into(),
             format!(
                 "{:?} {:?} is defined multiple times",
@@ -651,9 +717,10 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into())
             ),
             Vec::new(),
+            Vec::new(),
         ),
         NRerrors::NotAConstructor(d, m) => create_error(
-            Range::new(pos_from_tup(m.0 .1.lo()), pos_from_tup(m.0 .1.hi())),
+            m.0 .1,
             "NotAConstructor".into(),
             format!(
                 "{} does not have a constructors {}",
@@ -669,9 +736,10 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into())
             ),
             Vec::new(),
+            Vec::new(),
         ),
         NRerrors::NoConstructors(m, s) => create_error(
-            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            s,
             "NoConstructors".into(),
             format!(
                 "{} does not have constructors",
@@ -682,9 +750,10 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into()),
             ),
             Vec::new(),
+            Vec::new(),
         ),
         NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => create_error(
-            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            s,
             "NotExportedOrDoesNotExist".into(),
             format!(
                 "{:?} {}.{} is not exported or does not exist",
@@ -701,15 +770,17 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into()),
             ),
             Vec::new(),
+            Vec::new(),
         ),
         NRerrors::CannotImportSelf(s) => create_error(
-            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            s,
             "CannotImportSelf".into(),
             "A module cannot import itself".to_string(),
             Vec::new(),
+            vec![(Fixable::Delete(s))],
         ),
         NRerrors::CouldNotFindImport(n, s) => create_error(
-            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
+            s,
             "CouldNotFindImport".into(),
             format!(
                 "Could not find this import {}",
@@ -720,13 +791,12 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into()),
             ),
             Vec::new(),
+            // Typo?
+            vec![],
         ),
-        NRerrors::Unused(info, s) => create_warning(
-            Range::new(pos_from_tup(s.lo()), pos_from_tup(s.hi())),
-            "Unused".into(),
-            info,
-            Vec::new(),
-        ),
+        NRerrors::Unused(info, s) => {
+            create_warning(s, "Unused".into(), info, Vec::new(), Vec::new())
+        }
     }
 }
 
@@ -816,7 +886,7 @@ impl Backend {
             fn h(s: &'static str) -> ast::Ud {
                 let mut hasher = DefaultHasher::new();
                 s.hash(&mut hasher);
-                ast::Ud(hasher.finish() as usize, s.starts_with("_"))
+                ast::Ud(hasher.finish() as u32, s.starts_with("_"))
             }
 
             let mut done: BTreeSet<_> = [
@@ -1132,13 +1202,7 @@ impl Backend {
                         }
                     };
                     let span = err.span();
-
-                    create_error(
-                        Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi())),
-                        "Syntax".into(),
-                        message,
-                        Vec::new(),
-                    )
+                    create_error(span, "Syntax".into(), message, Vec::new(), vec![])
                 })
                 .collect::<Vec<_>>(),
         );
@@ -1149,7 +1213,7 @@ impl Backend {
         match self.url_to_fi.try_entry(uri.clone()) {
             Some(dashmap::Entry::Occupied(v)) => Some(*v.get()),
             Some(dashmap::Entry::Vacant(v)) => {
-                let fi = ast::Fi(sungod::Ra::ggen::<usize>());
+                let fi = ast::Fi(sungod::Ra::ggen::<u32>());
                 v.insert(fi);
                 Some(fi)
             }
@@ -1267,8 +1331,8 @@ fn hash_exports(exports: &[Export]) -> u64 {
     hasher.finish()
 }
 
-fn pos_from_tup((line, col): (usize, usize)) -> Position {
-    Position::new(line as u32, col as u32)
+fn pos_from_tup((line, col): (u32, u32)) -> Position {
+    Position::new(line, col)
 }
 
 #[tokio::main]

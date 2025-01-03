@@ -9,6 +9,7 @@ logos = { version = "0.14.2", features = [] }
 rayon = "1.10.0"
 dashmap = "6.1.0"
 hemlis_macros = { path = "hemlis_macros/" }
+serde = { version = "1.0.215", features = [ "derive" ] }
 
 [dev-dependencies]
 insta = "1.40.0"
@@ -21,4 +22,3 @@ path = "src/main.rs"
 [lib]
 name = "hemlis_lib"
 path = "src/main.rs"
-

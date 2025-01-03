@@ -5,12 +5,16 @@ use std::{
     io::Write,
 };
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct Fi(pub usize);
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
+)]
+pub struct Fi(pub u32);
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
+)]
 pub enum Span {
-    Known(Fi, (usize, usize), (usize, usize)),
+    Known(Fi, (u32, u32), (u32, u32)),
     Zero,
 }
 
@@ -19,11 +23,11 @@ impl Span {
         Span::Zero
     }
 
-    pub fn contains(self, (l, c): (usize, usize)) -> bool {
+    pub fn contains(self, (l, c): (u32, u32)) -> bool {
         self.contains_(l, c)
     }
 
-    pub fn contains_(self, l: usize, c: usize) -> bool {
+    pub fn contains_(self, l: u32, c: u32) -> bool {
         self.lo() <= (l, c) && (l, c) < self.hi()
     }
 
@@ -48,14 +52,14 @@ impl Span {
         }
     }
 
-    pub fn lo(&self) -> (usize, usize) {
+    pub fn lo(&self) -> (u32, u32) {
         match self {
             Span::Known(_, lo, _) => *lo,
             Span::Zero => (0, 0),
         }
     }
 
-    pub fn hi(&self) -> (usize, usize) {
+    pub fn hi(&self) -> (u32, u32) {
         match self {
             Span::Known(_, _, hi) => *hi,
             Span::Zero => (0, 0),
@@ -67,7 +71,7 @@ impl Span {
         Span::Known(lo.fi().unwrap(), lo.lo(), hi.hi())
     }
 
-    pub fn lines(&self) -> (usize, usize) {
+    pub fn lines(&self) -> (u32, u32) {
         (self.lo().0, self.hi().0)
     }
 }
@@ -78,15 +82,17 @@ impl Span {
 // Since most of the strings are small - we are close to optimal if it is cryptographically
 // strong and follows the `Avalance Effect`.
 // https://www.geeksforgeeks.org/avalanche-effect-in-cryptography/
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct Ud(pub usize, pub bool);
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
+)]
+pub struct Ud(pub u32, pub bool);
 
 impl Ud {
     pub fn new(s: &str) -> Ud {
         let mut hasher = DefaultHasher::new();
         let is_lowercase = s.starts_with("_");
         s.hash(&mut hasher);
-        Ud(hasher.finish() as usize, is_lowercase)
+        Ud(hasher.finish() as u32, is_lowercase)
     }
 }
 
@@ -335,6 +341,7 @@ pub enum Import {
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ImportDecl {
+    pub start: Span,
     pub from: MName,
     pub hiding: Vec<Import>,
     pub names: Vec<Import>,

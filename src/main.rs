@@ -177,7 +177,7 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
                 panic!("ERR: {} {:?}", arg, e);
             }
             Ok(src) => {
-                let l = lexer::lex(&src, ast::Fi(i));
+                let l = lexer::lex(&src, ast::Fi(i as u32));
                 let mut p = parser::P::new(&l, &names);
                 if let Some(m) = parser::module(&mut p) {
                     let header = m.0.clone()?;
@@ -358,7 +358,7 @@ fn parse_modules(flags: BTreeSet<Flag>, files: Vec<String>) {
             Ok(src) => {
                 use std::io::BufWriter;
 
-                let l = lexer::lex(&src, ast::Fi(i));
+                let l = lexer::lex(&src, ast::Fi(i as u32));
                 let n = DashMap::new();
                 let mut p = parser::P::new(&l, &n);
 
