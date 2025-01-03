@@ -49,6 +49,7 @@ pub enum Scope {
     Term,
     Module,
     Namespace,
+    Label,
 }
 
 use Scope::*;
@@ -1152,9 +1153,11 @@ impl<'s> N<'s> {
                 for r in rs {
                     match r {
                         ast::RecordLabelExpr::Pun(l) => {
+                            self.label(ast::Label(l.0));
                             self.resolve(Term, None, l.0);
                         }
-                        ast::RecordLabelExpr::Field(_, e) => {
+                        ast::RecordLabelExpr::Field(l, e) => {
+                            self.label(*l);
                             self.expr(e);
                         }
                     }
@@ -1166,8 +1169,11 @@ impl<'s> N<'s> {
                     self.record_update(r);
                 }
             }
-            ast::Expr::Access(e, _) => {
+            ast::Expr::Access(e, ls) => {
                 self.expr(e);
+                for l in ls.iter() {
+                    self.label(*l);
+                }
             }
             ast::Expr::Section(_) => (),
             ast::Expr::Hole(_) => (),
@@ -1304,9 +1310,11 @@ impl<'s> N<'s> {
                 for b in bs.iter() {
                     match b {
                         ast::RecordLabelBinder::Pun(l) => {
+                            self.label(ast::Label(l.0));
                             self.def_local(Term, l.0 .0, l.0 .1);
                         }
-                        ast::RecordLabelBinder::Field(_, b) => {
+                        ast::RecordLabelBinder::Field(l, b) => {
+                            self.label(*l);
                             self.binder(b);
                         }
                     }
@@ -1330,9 +1338,12 @@ impl<'s> N<'s> {
             ast::Typ::Wildcard(_)
             | ast::Typ::Constructor(_)
             | ast::Typ::Symbol(_)
-            | ast::Typ::Str(_)
             | ast::Typ::Int(_, _)
             | ast::Typ::Hole(_) => (),
+
+            ast::Typ::Str(l) => {
+                self.label(ast::Label(l.0));
+            }
 
             ast::Typ::Var(v) => {
                 if self.find_local(Type, v.0 .0).is_none() {
@@ -1343,7 +1354,8 @@ impl<'s> N<'s> {
             }
             ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
                 let rs = &rs.0;
-                for (_, t) in rs.0.iter() {
+                for (f, t) in rs.0.iter() {
+                    self.label(*f);
                     self.typ_define_vars(t);
                 }
                 if let Some(t) = &rs.1 {
@@ -1393,12 +1405,15 @@ impl<'s> N<'s> {
             ast::Typ::Symbol(v) => {
                 self.resolveq(Type, v.0, v.1 .0);
             }
-            ast::Typ::Str(_) => (),
+            ast::Typ::Str(l) => {
+                self.label(ast::Label(l.0));
+            }
             ast::Typ::Int(_, _) => (),
             ast::Typ::Hole(_) => (),
             ast::Typ::Record(rs) | ast::Typ::Row(rs) => {
                 let rs = &rs.0;
-                for (_, t) in rs.0.iter() {
+                for (f, t) in rs.0.iter() {
+                    self.label(*f);
                     self.typ(t);
                 }
                 if let Some(t) = &rs.1 {
@@ -1453,6 +1468,10 @@ impl<'s> N<'s> {
                 self.typ(k);
             }
         }
+    }
+
+    fn label(&mut self, f: ast::Label) {
+        self.add_usage(Name(Scope::Label, ast::Ud::zero(), f.0.0, Visibility::Public), f.0.1, Sort::Ref)
     }
 }
 

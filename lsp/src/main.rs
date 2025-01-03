@@ -337,6 +337,7 @@ impl LanguageServer for Backend {
                         Scope::Term => SymbolKind::FUNCTION,
                         Scope::Module => SymbolKind::MODULE,
                         Scope::Namespace => SymbolKind::NAMESPACE,
+                        Scope::Label => SymbolKind::FIELD,
                     },
                     tags: None,
 
@@ -396,6 +397,7 @@ impl LanguageServer for Backend {
                         Scope::Term => SymbolKind::FUNCTION,
                         Scope::Module => SymbolKind::MODULE,
                         Scope::Namespace => SymbolKind::NAMESPACE,
+                        Scope::Label => SymbolKind::FIELD,
                     },
                     tags: None,
                     deprecated: None,

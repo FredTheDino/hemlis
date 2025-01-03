@@ -17,7 +17,8 @@ fn lex_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> {
             }
             _ => {
                 lex.bump(at + 1);
-                return Some(lex.slice());
+                let s = lex.slice();
+                return Some(&s[1..s.len() - 1]);
             }
         }
     }
@@ -32,7 +33,8 @@ fn lex_raw_string<'t>(lex: &mut logos::Lexer<'t, Token<'t>>) -> Option<&'t str> 
             }
             _ => {
                 lex.bump(at + 3);
-                return Some(lex.slice());
+                let s = lex.slice();
+                return Some(&s[3..s.len() - 3]);
             }
         }
     }

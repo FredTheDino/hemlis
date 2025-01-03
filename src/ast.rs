@@ -96,6 +96,10 @@ impl Ud {
         Ud(hasher.finish() as usize, s.chars().next().unwrap_or('?'))
     }
 
+    pub fn zero() -> Self {
+        Self::new("")
+    }
+
     pub fn starts_with(&self, c: char) -> bool {
         self.1 == c
     }
