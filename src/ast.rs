@@ -8,26 +8,28 @@ use std::{
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
 )]
-pub struct Fi(pub u32);
+pub struct Fi(pub usize);
 
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
 )]
 pub enum Span {
-    Known(Fi, (u32, u32), (u32, u32)),
+    Known(Fi, (usize, usize), (usize, usize)),
     Zero,
 }
+
+pub type Pos = (usize, usize);
 
 impl Span {
     pub fn zero() -> Self {
         Span::Zero
     }
 
-    pub fn contains(self, (l, c): (u32, u32)) -> bool {
+    pub fn contains(self, (l, c): Pos) -> bool {
         self.contains_(l, c)
     }
 
-    pub fn contains_(self, l: u32, c: u32) -> bool {
+    pub fn contains_(self, l: usize, c: usize) -> bool {
         self.lo() <= (l, c) && (l, c) < self.hi()
     }
 
@@ -52,14 +54,14 @@ impl Span {
         }
     }
 
-    pub fn lo(&self) -> (u32, u32) {
+    pub fn lo(&self) -> Pos {
         match self {
             Span::Known(_, lo, _) => *lo,
             Span::Zero => (0, 0),
         }
     }
 
-    pub fn hi(&self) -> (u32, u32) {
+    pub fn hi(&self) -> Pos {
         match self {
             Span::Known(_, _, hi) => *hi,
             Span::Zero => (0, 0),
@@ -71,7 +73,7 @@ impl Span {
         Span::Known(lo.fi().unwrap(), lo.lo(), hi.hi())
     }
 
-    pub fn lines(&self) -> (u32, u32) {
+    pub fn lines(&self) -> (usize, usize) {
         (self.lo().0, self.hi().0)
     }
 }
@@ -85,14 +87,14 @@ impl Span {
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, serde::Deserialize, serde::Serialize,
 )]
-pub struct Ud(pub u32, pub bool);
+pub struct Ud(pub usize, pub bool);
 
 impl Ud {
     pub fn new(s: &str) -> Ud {
         let mut hasher = DefaultHasher::new();
         let is_lowercase = s.starts_with("_");
         s.hash(&mut hasher);
-        Ud(hasher.finish() as u32, is_lowercase)
+        Ud(hasher.finish() as usize, is_lowercase)
     }
 }
 
@@ -307,7 +309,13 @@ pub struct Label(pub S<Ud>);
 pub struct MName(pub S<Ud>);
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Header(pub MName, pub Option<Vec<Export>>, pub Vec<ImportDecl>);
+pub struct Header(
+    pub MName,
+    pub Option<Vec<Export>>,
+    pub Vec<ImportDecl>,
+    pub Span,
+    pub Span,
+);
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Module(pub Option<Header>, pub Vec<Decl>);

@@ -1,15 +1,16 @@
-#![feature(btree_cursors)]
 #![allow(clippy::type_complexity)]
+#![feature(btree_cursors)]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
 use std::sync::RwLock;
 
+use ast::{Ast, Pos};
 use dashmap::DashMap;
 use futures::future::join_all;
 use hemlis_lib::*;
-use nr::{Export, NRerrors, Name, Pos, Scope, Visibility};
+use nr::{Export, NRerrors, Name, Scope, Visibility};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
@@ -26,10 +27,30 @@ macro_rules! or_ {
 }
 
 fn span_to_range(s: &ast::Span) -> Range {
+    range(s.lo(), s.hi())
+}
+
+fn range(lo: ast::Pos, hi: ast::Pos) -> Range {
     Range {
-        start: pos_from_tup(s.lo()),
-        end: pos_from_tup(s.hi()),
+        start: pos_from_tup(lo),
+        end: pos_from_tup(hi),
     }
+}
+
+fn range_to_span(fi: ast::Fi, s: Range) -> ast::Span {
+    let Position {
+        line: lo_l,
+        character: lo_c,
+    } = s.start;
+    let Position {
+        line: hi_l,
+        character: hi_c,
+    } = s.end;
+    ast::Span::Known(
+        fi,
+        (lo_l as usize, lo_c as usize),
+        (hi_l as usize, hi_c as usize),
+    )
 }
 
 #[derive(Debug)]
@@ -57,7 +78,7 @@ struct Backend {
 
     // The option here should always be Some - but `None` lets us do a better partition search
     // here.
-    available_locals: DashMap<ast::Fi, BTreeSet<(u32, u32, Option<Name>)>>,
+    available_locals: DashMap<ast::Fi, BTreeSet<((usize, usize), Option<Name>)>>,
 
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
@@ -67,6 +88,7 @@ struct Backend {
 
     syntax_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
     name_resolution_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
+    fixables: DashMap<ast::Fi, Vec<(ast::Span, Fixable)>>,
 }
 
 impl Backend {
@@ -75,7 +97,7 @@ impl Backend {
             .fi_to_ud
             .try_get(&*self.url_to_fi.try_get(url).try_unwrap()?)
             .try_unwrap()?;
-        let pos = (pos.line, pos.character + 1);
+        let pos = (pos.line as usize, pos.character as usize + 1);
         let lut = self.resolved.try_get(&m).try_unwrap()?;
         let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
         let ((lo, hi), name) = cur.peek_prev()?;
@@ -94,9 +116,9 @@ impl Backend {
     }
 }
 
-fn try_line_to_offset(source: &str, line: u32, offset: u32) -> Option<&str> {
+fn try_line_to_offset(source: &str, line: usize, offset: usize) -> Option<&str> {
     let mut it = source.match_indices("\n");
-    let (line_start, _) = it.nth(line.saturating_sub(1) as usize)?;
+    let (line_start, _) = it.nth(line.saturating_sub(1))?;
     let (line_end, _) = it.next()?;
     let end = (line_start + 1 + offset as usize).max(line_end);
     let start = source[..end].rfind(char::is_whitespace)?;
@@ -266,18 +288,18 @@ impl LanguageServer for Backend {
                 if *vis != Visibility::Public {
                     continue;
                 }
-                let n = self.names.try_get(n).try_unwrap().unwrap();
-                let ns = self.names.try_get(ns).try_unwrap().unwrap();
+                let n = self.name(n);
+                let ns = self.name(ns);
                 if Some(fi) != at.fi().as_ref() {
                     continue;
                 };
-                if !(n.value().starts_with(&params.query)
-                    || ns.value().starts_with(&params.query)
+                if !(n.starts_with(&params.query)
+                    || ns.starts_with(&params.query)
                     || format!("{:?}", scope).starts_with(&params.query))
                 {
                     continue;
                 };
-                let name = format!("{}.{}", ns.value(), n.value());
+                let name = format!("{}.{}", ns, n);
                 #[allow(deprecated)]
                 let out = SymbolInformation {
                     name,
@@ -378,9 +400,9 @@ impl LanguageServer for Backend {
             let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
             let me = *self.fi_to_ud.try_get(&fi).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-            let line = position.line;
+            let line = position.line as usize;
             let to_complete =
-                try_line_to_offset(&source, line, position.character)?.to_string();
+                try_line_to_offset(&source, line, position.character as usize)?.to_string();
             drop(source);
 
             let maybe_first_letter = to_complete.chars().nth(0);
@@ -388,17 +410,17 @@ impl LanguageServer for Backend {
             let mut out = Vec::new();
             // Locals
             let lut = self.available_locals.try_get(&fi).try_unwrap()?;
-            let mut cur = lut.lower_bound(Bound::Included(&(0, line, None)));
-            while let Some((l, h, n)) = cur.peek_next() {
+            let mut cur = lut.lower_bound(Bound::Included(&((0, line), None)));
+            while let Some(((l, h), n)) = cur.peek_next() {
                 let n = n.expect("This option is only for searching!");
                 if !(*l <= line && line <= *h) {
                     break;
                 }
 
-                let name = or_!(self.names.try_get(&n.name()).try_unwrap(), { continue });
+                let name = self.name(&n.name());
                 if maybe_first_letter.is_none() || name.starts_with(maybe_first_letter.unwrap()) {
                     out.push(CompletionItem::new_simple(
-                        name.value().to_string(),
+                        name.to_string(),
                         format!("{:?}", n.scope()),
                     ));
                 }
@@ -422,14 +444,13 @@ impl LanguageServer for Backend {
                 .and_then(|x| x.get(&namespace).cloned())
             {
                 for n in imports.iter().flat_map(|x| x.to_names()) {
-                    if let Some(name) = self.names.try_get(&n.name()).try_unwrap() {
-                        if name.value().starts_with(&var) {
+                    let name = self.name(&n.name());
+                        if name.starts_with(&var) {
                             out.push(CompletionItem::new_simple(
-                                name.value().to_string(),
+                                name.to_string(),
                                 format!("{:?}", n.scope()),
                             ));
                         }
-                    }
                 }
             }
 
@@ -439,14 +460,14 @@ impl LanguageServer for Backend {
                 if n.module() != me {
                     continue;
                 }
-                let module = or_!(self.names.try_get(&n.module()).try_unwrap(), { continue });
-                let name = or_!(self.names.try_get(&n.name()).try_unwrap(), { continue });
+                let module = self.name(&n.module());
+                let name = self.name(&n.name());
                 if maybe_first_letter.is_none()
                     || module.starts_with(maybe_first_letter.unwrap())
                     || name.starts_with(maybe_first_letter.unwrap())
                 {
                     out.push(CompletionItem::new_simple(
-                        format!("{}.{}", module.value(), name.value()),
+                        format!("{}.{}", module, name),
                         format!("{:?}", n.scope()),
                     ));
                 }
@@ -499,43 +520,210 @@ impl LanguageServer for Backend {
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
-        eprintln!("Doing some edits! {:?}", params);
-        let url = params.text_document.uri.clone();
-        let mut out = Vec::new();
-        for diag in params.context.diagnostics.into_iter() {
-            for f in diag
-                .data
-                .clone()
-                .and_then(|x| dbg!(serde_json::from_value::<Vec<Fixable>>(x)).ok())
-                .into_iter()
-                .flatten()
+        let uri = params.text_document.uri.clone();
+        let fi = or_!(self.url_to_fi.try_get(&uri).try_unwrap(), {
+            return Err(Error::new(ErrorCode::ServerError(2)));
+        });
+        let me = *or_!(self.fi_to_ud.try_get(&fi).try_unwrap(), {
+            return Err(Error::new(ErrorCode::ServerError(3)));
+        });
+
+        let (l, c) = or_!(
+            &or_!(&self.modules.try_get(&me).try_unwrap(), {
+                return Err(Error::new(ErrorCode::ServerError(5)));
+            })
+            .value()
+            .0,
             {
-                match f {
-                    Fixable::GuessImports(s, ns, n, at) => {
-                        // Assume `n` is spelt correctly
-                        // 1. Find all possible imports with `n`
-                        // 1a. Figure out what edits need to be done
-                        // 2. Find possible imported modules
-                        // 2a. Figure out what edits need to be done
-                        // 3. Merge these, and mark one that matches ns and n as default action
-                    }
-                    Fixable::Delete(at) => out.push(
-                        CodeAction {
-                            title: "Delete".into(),
-                            kind: Some(CodeActionKind::QUICKFIX),
-                            diagnostics: Some(vec![diag.clone()]),
-                            edit: Some(WorkspaceEdit::new(
-                                [(
-                                    url.clone(),
-                                    vec![TextEdit::new(span_to_range(&at), "".into())],
-                                )]
-                                .into(),
-                            )),
-                            ..CodeAction::default()
+                return Err(Error::new(ErrorCode::ServerError(6)));
+            }
+        )
+        .span()
+        .hi();
+        let end_of_imports = (l, c + 1);
+
+        let mut out = Vec::new();
+        for (s, f) in or_!(self.fixables.try_get(&fi).try_unwrap(), {
+            return Err(Error::new(ErrorCode::ServerError(4)));
+        })
+        .iter()
+        {
+            if !s.contains((
+                params.range.start.line as usize,
+                params.range.start.character as usize,
+            )) {
+                continue;
+            }
+            match f {
+                Fixable::GuessImports(s, ns, n, at) => {
+                    // Assume `n` is spelt correctly
+                    // 1. Find all possible imports with `n`
+                    // 1a. Figure out what edits need to be done
+                    // 2. Find possible imported modules
+
+                    // TODO skipp the names that are imported as something else?
+                    let lock = self.locked.write();
+                    let exports: BTreeMap<ast::Ud, Vec<nr::Export>> = self
+                        .exports
+                        .iter()
+                        .map(|x| (*x.key(), x.value().clone()))
+                        .collect();
+                    drop(lock);
+
+                    let handle =
+                        |name: &nr::Name, is_constructor: bool, out: &mut Vec<_>| {
+                            if let Some(ns) = ns {
+                                out.push(
+                                    CodeAction {
+                                        title: format!(
+                                            "[QIMPORT {:?}] Qualified from {}",
+                                            name.scope(),
+                                            self.name(&name.module())
+                                        ),
+                                        kind: Some(CodeActionKind::QUICKFIX),
+                                        edit: Some(WorkspaceEdit::new(
+                                            [(
+                                                uri.clone(),
+                                                vec![TextEdit::new(
+                                                    range(end_of_imports, end_of_imports),
+                                                    format!(
+                                                        "\nimport {} as {}",
+                                                        self.name (&name.module()),
+                                                        self.name (ns)
+                                                    ),
+                                                )],
+                                            )]
+                                            .into(),
+                                        )),
+                                        ..CodeAction::default()
+                                    }
+                                    .into(),
+                                );
+                            } else {
+                                out.push(
+                                    CodeAction {
+                                        title: format!(
+                                            "[QIMPORT {:?}] Qualified from {}",
+                                            name.scope(),
+                                            self.name(&name.module())
+                                        ),
+                                        kind: Some(CodeActionKind::QUICKFIX),
+                                        edit: Some(WorkspaceEdit::new(
+                                            [(
+                                                uri.clone(),
+                                                vec![
+                                                TextEdit::new(
+                                                    range(end_of_imports, end_of_imports),
+                                                    format!(
+                                                        "\nimport {} as {}",
+                                                        self.name (&name.module()),
+                                                        self.name (&name.module())
+                                                    ),
+                                                ),
+                                                TextEdit::new(
+                                                    range(at.lo(), at.hi()),
+                                                    format!(
+                                                        "{}.{}",
+                                                        self.name (&name.module()),
+                                                        self.name (&name.name())
+                                                    ),
+                                                )
+
+                                                ],
+                                            )]
+                                            .into(),
+                                        )),
+                                        ..CodeAction::default()
+                                    }
+                                    .into(),
+                                );
+                                out.push(
+                                    CodeAction {
+                                        title: format!(
+                                            "[SIMPORT {:?}] {}.{}",
+                                            name.scope(),
+                                            self.name (&name.module()),
+                                            self.name (&name.name())
+                                        ),
+                                        kind: Some(CodeActionKind::QUICKFIX),
+                                        edit: Some(WorkspaceEdit::new(
+                                            [(
+                                                uri.clone(),
+                                                vec![TextEdit::new(
+                                                    range(end_of_imports, end_of_imports),
+                                                    format!(
+                                                        "\nimport {} ({})",
+                                                        self.name (&name.module()),
+                                                        as_import(
+                                                            name.scope(),
+                                                            is_constructor,
+                                                            name.name(),
+                                                            &self.names
+                                                        )
+                                                    ),
+                                                )],
+                                            )]
+                                            .into(),
+                                        )),
+                                        ..CodeAction::default()
+                                    }
+                                    .into(),
+                                )
+                            }
+
+                        };
+
+                    for (m, xs) in exports.iter() {
+                        if *m == me {
+                            continue;
                         }
-                        .into(),
-                    ),
+                        for export in xs.into_iter() {
+                            match export {
+                                Export::ConstructorsSome(name, constructors)
+                                | Export::ConstructorsAll(name, constructors) => {
+                                    if name.name() == *n && name.scope() == *s {
+                                        handle(name, false, &mut out);
+                                    }
+                                    for c in constructors.iter() {
+                                        if c.name() == *n && c.scope() == *s && c.scope() == nr::Scope::Term {
+                                            handle(
+                                                name,
+                                                true,
+                                                &mut out,
+                                            );
+                                        }
+                                    }
+                                }
+                                Export::Just(name) => {
+                                    if name.name() == *n && name.scope() == *s {
+                                        handle(name, false, &mut out);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2a. Figure out what edits need to be done
+
+                    // 3. Merge these, and mark one that matches ns and n as default action
                 }
+                Fixable::Delete(at) => out.push(
+                    CodeAction {
+                        title: "Delete".into(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: None,
+                        edit: Some(WorkspaceEdit::new(
+                            [(
+                                uri.clone(),
+                                vec![TextEdit::new(span_to_range(&at), "".into())],
+                            )]
+                            .into(),
+                        )),
+                        is_preferred: Some(true),
+                        ..CodeAction::default()
+                    }
+                    .into(),
+                ),
             }
         }
         eprintln!("{} - response length!", out.len());
@@ -587,10 +775,9 @@ fn create_error(
     code: String,
     message: String,
     related: Vec<(String, Location)>,
-    data: Vec<Fixable>,
 ) -> tower_lsp::lsp_types::Diagnostic {
     let range = Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi()));
-    let mut out = Diagnostic::new(
+    Diagnostic::new(
         range,
         Some(DiagnosticSeverity::ERROR),
         Some(NumberOrString::String(code)),
@@ -608,11 +795,7 @@ fn create_error(
             }
         },
         None,
-    );
-    if !data.is_empty() {
-        out.data = Some(serde_json::to_value(data).unwrap());
-    }
-    out
+    )
 }
 
 fn create_warning(
@@ -620,10 +803,9 @@ fn create_warning(
     code: String,
     message: String,
     related: Vec<(String, Location)>,
-    data: Vec<Fixable>,
 ) -> tower_lsp::lsp_types::Diagnostic {
     let range = Range::new(pos_from_tup(span.lo()), pos_from_tup(span.hi()));
-    let mut out = Diagnostic::new(
+    Diagnostic::new(
         range,
         Some(DiagnosticSeverity::WARNING),
         Some(NumberOrString::String(code)),
@@ -641,11 +823,72 @@ fn create_warning(
             }
         },
         None,
-    );
-    if !data.is_empty() {
-        out.data = Some(serde_json::to_value(data).unwrap());
+    )
+}
+
+pub fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
+    match error {
+        NRerrors::Unknown(scope, ns, n, s) => {
+            vec![(*s, Fixable::GuessImports(*scope, *ns, *n, *s))]
+        }
+        NRerrors::CannotImportSelf(s) => {
+            vec![(*s, Fixable::Delete(*s))]
+        }
+
+        NRerrors::NameConflict(_, _)
+        | NRerrors::MultipleDefinitions(_, _, _)
+        | NRerrors::NotAConstructor(_, _)
+        | NRerrors::NoConstructors(_, _)
+        | NRerrors::NotExportedOrDoesNotExist(_, _, _, _)
+        | NRerrors::CouldNotFindImport(_, _)
+        | NRerrors::Unused(_, _) => Vec::new(),
     }
-    out
+}
+
+fn format_name(ns: Option<ast::Ud>, n: ast::Ud, names: &DashMap<ast::Ud, String>) -> String {
+    match (
+        names
+            .try_get(&ns.unwrap_or(ast::Ud(0, false)))
+            .try_unwrap()
+            .map(|x| x.clone()),
+        names.try_get(&n).try_unwrap().map(|x| x.clone()),
+    ) {
+        (None, Some(name)) => name,
+        (Some(ns), Some(name)) => format!("{}.{}", ns, name),
+        (_, _) => "!! UNREACHABLE - PLEASE REPORT".into(),
+    }
+}
+
+fn as_import(
+    scope: nr::Scope,
+    is_constructor: bool,
+    name: ast::Ud,
+    names: &DashMap<ast::Ud, String>,
+) -> String {
+    eprintln!("{}, {:?}", is_constructor, scope);
+    assert!(!is_constructor || scope == nr::Scope::Type);
+    let name = if let Some(name) = names.try_get(&name).try_unwrap() {
+        name.value().clone()
+    } else {
+        "?".into()
+    };
+    let first = name.chars().next().unwrap();
+    let is_identifier = char::is_ascii_alphanumeric(&first) || first == '_';
+    match scope {
+        _ if is_constructor => format!("{}(..)", name),
+
+        Scope::Kind | Scope::Type if is_identifier => {
+            format!("{}", name)
+        }
+        Scope::Kind | Scope::Type => {
+            format!("type ({})", name)
+        }
+        Scope::Class => format!("class {}", name),
+        Scope::Namespace | Scope::Module => format!("module {}", name),
+
+        Scope::Term if is_identifier => format!("{}", name),
+        Scope::Term => format!("({})", name),
+    }
 }
 
 pub fn nrerror_turn_into_diagnostic(
@@ -659,20 +902,9 @@ pub fn nrerror_turn_into_diagnostic(
             format!(
                 "{:?} {}\nFailed to resolve",
                 scope,
-                match (
-                    names
-                        .try_get(&ns.unwrap_or(ast::Ud(0, false)))
-                        .try_unwrap()
-                        .map(|x| x.clone()),
-                    names.try_get(&n).try_unwrap().map(|x| x.clone())
-                ) {
-                    (None, Some(name)) => name,
-                    (Some(ns), Some(name)) => format!("{}.{}", ns, name),
-                    (_, _) => "!! UNREACHABLE - PLEASE REPORT".into(),
-                }
+                format_name(ns, n, names)
             ),
             Vec::new(),
-            vec![Fixable::GuessImports(scope, ns, n, s)],
         ),
         NRerrors::NameConflict(ns, s) => create_error(
             s,
@@ -682,26 +914,11 @@ pub fn nrerror_turn_into_diagnostic(
                 ns.len(),
                 ns.iter()
                     .map(|Name(s, m, n, x)| {
-                        format!(
-                            "{:?} {}.{} {:?}",
-                            s,
-                            names
-                                .try_get(m)
-                                .try_unwrap()
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            names
-                                .try_get(n)
-                                .try_unwrap()
-                                .map(|x| x.clone())
-                                .unwrap_or_else(|| "?".into()),
-                            x,
-                        )
+                        format!("{:?} {} {:?}", s, format_name(Some(*m), *n, names), x,)
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
             ),
-            Vec::new(),
             Vec::new(),
         ),
         NRerrors::MultipleDefinitions(Name(scope, _m, i, _), _first, second) => create_error(
@@ -716,7 +933,6 @@ pub fn nrerror_turn_into_diagnostic(
                     .map(|x| x.clone())
                     .unwrap_or_else(|| "?".into())
             ),
-            Vec::new(),
             Vec::new(),
         ),
         NRerrors::NotAConstructor(d, m) => create_error(
@@ -736,7 +952,6 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into())
             ),
             Vec::new(),
-            Vec::new(),
         ),
         NRerrors::NoConstructors(m, s) => create_error(
             s,
@@ -750,26 +965,15 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into()),
             ),
             Vec::new(),
-            Vec::new(),
         ),
         NRerrors::NotExportedOrDoesNotExist(m, scope, ud, s) => create_error(
             s,
             "NotExportedOrDoesNotExist".into(),
             format!(
-                "{:?} {}.{} is not exported or does not exist",
+                "{:?} {} is not exported or does not exist",
                 scope,
-                names
-                    .try_get(&m)
-                    .try_unwrap()
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| "?".into()),
-                names
-                    .try_get(&ud)
-                    .try_unwrap()
-                    .map(|x| x.clone())
-                    .unwrap_or_else(|| "?".into()),
+                format_name(Some(m), ud, names),
             ),
-            Vec::new(),
             Vec::new(),
         ),
         NRerrors::CannotImportSelf(s) => create_error(
@@ -777,7 +981,6 @@ pub fn nrerror_turn_into_diagnostic(
             "CannotImportSelf".into(),
             "A module cannot import itself".to_string(),
             Vec::new(),
-            vec![(Fixable::Delete(s))],
         ),
         NRerrors::CouldNotFindImport(n, s) => create_error(
             s,
@@ -791,12 +994,8 @@ pub fn nrerror_turn_into_diagnostic(
                     .unwrap_or_else(|| "?".into()),
             ),
             Vec::new(),
-            // Typo?
-            vec![],
         ),
-        NRerrors::Unused(info, s) => {
-            create_warning(s, "Unused".into(), info, Vec::new(), Vec::new())
-        }
+        NRerrors::Unused(info, s) => create_warning(s, "Unused".into(), info, Vec::new()),
     }
 }
 
@@ -818,6 +1017,15 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
+    fn name(&self, ud: &ast::Ud) -> String {
+
+                                            self.names
+                                                .try_get(ud)
+                                                .try_unwrap()
+                                                .map(|x| x.value().clone())
+                                                .unwrap_or_else(|| "?".into())
+    }
+
     async fn log(&self, s: String) {
         self.client.log_message(MessageType::INFO, s).await;
     }
@@ -886,7 +1094,7 @@ impl Backend {
             fn h(s: &'static str) -> ast::Ud {
                 let mut hasher = DefaultHasher::new();
                 s.hash(&mut hasher);
-                ast::Ud(hasher.finish() as u32, s.starts_with("_"))
+                ast::Ud(hasher.finish() as usize, s.starts_with("_"))
             }
 
             let mut done: BTreeSet<_> = [
@@ -966,6 +1174,14 @@ impl Backend {
         self.fi_to_ud.insert(fi, me);
         self.ud_to_fi.insert(me, fi);
 
+        self.fixables.insert(
+            fi,
+            errors
+                .iter()
+                .flat_map(nrerror_turn_into_fixables)
+                .collect::<Vec<_>>(),
+        );
+
         self.name_resolution_errors.insert(
             fi,
             errors
@@ -993,9 +1209,7 @@ impl Backend {
         {
             let defined_scopes = defines
                 .iter()
-                .filter_map(|(a, (_, available_in))| {
-                    available_in.map(|x| (x.lines().0, x.lines().1, Some(*a)))
-                })
+                .filter_map(|(a, (_, available_in))| available_in.map(|x| (x.lines(), Some(*a))))
                 .collect::<BTreeSet<_>>();
             self.available_locals.insert(fi, defined_scopes);
         }
@@ -1202,7 +1416,7 @@ impl Backend {
                         }
                     };
                     let span = err.span();
-                    create_error(span, "Syntax".into(), message, Vec::new(), vec![])
+                    create_error(span, "Syntax".into(), message, Vec::new())
                 })
                 .collect::<Vec<_>>(),
         );
@@ -1213,7 +1427,7 @@ impl Backend {
         match self.url_to_fi.try_entry(uri.clone()) {
             Some(dashmap::Entry::Occupied(v)) => Some(*v.get()),
             Some(dashmap::Entry::Vacant(v)) => {
-                let fi = ast::Fi(sungod::Ra::ggen::<u32>());
+                let fi = ast::Fi(sungod::Ra::ggen::<usize>());
                 v.insert(fi);
                 Some(fi)
             }
@@ -1331,8 +1545,11 @@ fn hash_exports(exports: &[Export]) -> u64 {
     hasher.finish()
 }
 
-fn pos_from_tup((line, col): (u32, u32)) -> Position {
-    Position::new(line, col)
+fn pos_from_tup((line, col): ast::Pos) -> Position {
+    Position::new(
+        line.try_into().unwrap_or(u32::MAX),
+        col.try_into().unwrap_or(u32::MAX),
+    )
 }
 
 #[tokio::main]
@@ -1375,6 +1592,7 @@ async fn main() {
 
         syntax_errors: DashMap::new(),
         name_resolution_errors: DashMap::new(),
+        fixables: DashMap::new(),
     })
     .finish();
 

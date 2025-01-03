@@ -231,16 +231,18 @@ fn header<'t>(p: &mut P<'t>) -> Option<Header> {
     while matches!(p.peek().0, Some(T::LayTop)) {
         kw_top(p)?;
     }
+    let m = p.span();
     kw_module(p)?;
     let name = mname(p)?;
     let exports = exports(p);
     p.recover();
+    let w = p.span();
     kw_where(p)?;
     if matches!(p.peekt(), Some(T::LayBegin)) {
         p.skip();
     }
     let imports = imports(p);
-    Some(Header(name, exports, imports))
+    Some(Header(name, exports, imports, m, w))
 }
 
 // TODO: pick the errros from the branch that moved the most consumed tokens

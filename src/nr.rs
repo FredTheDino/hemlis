@@ -1,14 +1,18 @@
-use crate::ast::{self, Ast};
+use crate::ast::{self, Ast, Pos};
 use dashmap::DashMap;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
+)]
 pub enum Visibility {
-    Private((u32, u32)),
+    Private(Pos),
     Public,
 }
 
-#[derive( Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
+)]
 pub struct Name(pub Scope, pub ast::Ud, pub ast::Ud, pub Visibility);
 
 impl Name {
@@ -109,8 +113,6 @@ pub enum NRerrors {
     //
     Unused(String, ast::Span),
 }
-
-pub type Pos = (u32, u32);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Sort {
@@ -587,8 +589,8 @@ impl<'s> N<'s> {
 
     fn import(
         &mut self,
-        import@ast::ImportDecl {
-            start:_,
+        import @ ast::ImportDecl {
+            start: _,
             from,
             hiding,
             names,

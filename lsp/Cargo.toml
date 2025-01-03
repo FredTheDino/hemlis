@@ -10,7 +10,7 @@ hemlis = { path = "../." }
 dashmap = "6.1.0"
 glob = "0.3.1"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0.78", features = ["arbitrary_precision", "float_roundtrip" ] }
+serde_json = { version = "1.0.78", features = [] }
 sungod = { version = "0.3.1", features = ["default_is_random"] }
 tokio = { version = "1.17.0", features = ["full"] }
 tower-lsp = { version = "0.20.0", features = ["proposed"]}
