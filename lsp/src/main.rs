@@ -164,7 +164,12 @@ impl LanguageServer for Backend {
                 semantic_tokens_provider: None,
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: Some(false),
+                    },
+                })),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
@@ -562,6 +567,18 @@ impl LanguageServer for Backend {
             Some(WorkspaceEdit::new(edits))
         })();
         Ok(workspace_edit)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        if let None = self.resolve_name(&params.text_document.uri, params.position) {
+            return Ok(None);
+        }
+        Ok(Some(PrepareRenameResponse::DefaultBehavior {
+            default_behavior: true,
+        }))
     }
 
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
