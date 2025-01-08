@@ -218,7 +218,11 @@ impl<'s> N<'s> {
         }
 
         if !names.is_empty() {
-            let valid: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
+            let valid: Vec<Export> = self
+                .global_exports
+                .get(&from.0 .0)
+                .map(|x| x.value().clone())
+                .unwrap_or_default();
 
             for import in names {
                 let is_used = |scope: Scope, x: ast::Ud| -> bool {
@@ -327,11 +331,13 @@ impl<'s> N<'s> {
                 && self
                     .usages
                     .get(n)
-                    .unwrap()
-                    .iter()
-                    .filter_map(|(x, s)| if s.is_ref() { Some(x) } else { None })
-                    .collect::<BTreeSet<_>>()
-                    .is_empty()
+                    .map(|x| {
+                        x.iter()
+                            .filter_map(|(x, s)| if s.is_ref() { Some(x) } else { None })
+                            .collect::<BTreeSet<_>>()
+                            .is_empty()
+                    })
+                    .unwrap_or(false)
             {
                 let at = self.defines.get(n).unwrap().0;
                 let out = self.defines.get_mut(n).unwrap();
@@ -620,7 +626,11 @@ impl<'s> N<'s> {
                 .push(NRerrors::CouldNotFindImport(from.0 .0, from.0 .1));
             return;
         }
-        let exports: Vec<Export> = self.global_exports.get(&from.0 .0).unwrap().value().clone();
+        let exports: Vec<Export> = self
+            .global_exports
+            .get(&from.0 .0)
+            .map(|x| x.value().clone())
+            .unwrap_or_default();
 
         let valid: BTreeMap<_, _> = exports
             .iter()
