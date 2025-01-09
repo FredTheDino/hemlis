@@ -60,7 +60,7 @@ fn mname(p: &mut P<'_>) -> Option<MName> {
 
 fn qual(p: &mut P<'_>) -> Option<Qual> {
     match p.next() {
-        (Some(T::Qual(x)), s) => Some(Qual(S(p.intern(&x[0..(x.len() - 1)]), s))),
+        (Some(T::Qual(x)), s) => Some(Qual(S(p.intern(&x[0..(x.len() - 1)]), s.trim_end()))),
         _ => p.raise_(stringify!($thing)),
     }
 }

@@ -76,6 +76,13 @@ impl Span {
     pub fn lines(&self) -> (usize, usize) {
         (self.lo().0, self.hi().0)
     }
+
+    pub fn trim_end(&self) -> Span {
+       match self {
+        Span::Known(fi, lo, hi) => Span::Known(*fi, *lo, (hi.0, hi.1 - 1)),
+        Span::Zero => Span::Zero,
+    }
+    }
 }
 
 // NOTE: I've assumed we don't have hash-collisions - given that a hit has a ~2^64 chance of
