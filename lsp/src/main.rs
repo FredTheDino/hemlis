@@ -963,10 +963,9 @@ impl LanguageServer for Backend {
         use std::fmt::Write;
         let mut target = String::new();
 
-        let uri = params.text_document_position_params.text_document.uri;
         (|| {
             let def_at = self.defines.try_get(&name).try_unwrap()?;
-            let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
+            let fi = *self.ud_to_fi.try_get(&name.module()).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
             try_find_comments_before(&source, def_at.lo().0).map(|x| {
                 writeln!(target, "").unwrap();
