@@ -78,10 +78,10 @@ impl Span {
     }
 
     pub fn trim_end(&self) -> Span {
-       match self {
-        Span::Known(fi, lo, hi) => Span::Known(*fi, *lo, (hi.0, hi.1 - 1)),
-        Span::Zero => Span::Zero,
-    }
+        match self {
+            Span::Known(fi, lo, hi) => Span::Known(*fi, *lo, (hi.0, hi.1 - 1)),
+            Span::Zero => Span::Zero,
+        }
     }
 }
 

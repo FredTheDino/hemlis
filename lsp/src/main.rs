@@ -383,7 +383,7 @@ impl LanguageServer for Backend {
         {
             *fi
         } else {
-            return Err(Error::new(ErrorCode::ServerError(1)));
+            return Err(error(line!(), "File not loaded"));
         };
         if let Some(names) = self.previouse_defines.try_get(&fi_inner).try_unwrap() {
             for (Name(scope, _, n, vis), at) in names.iter() {
@@ -535,38 +535,45 @@ impl LanguageServer for Backend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let workspace_edit = (|| {
-            let name = self.resolve_name(
+        let name = self
+            .resolve_name(
                 &params.text_document_position.text_document.uri,
                 params.text_document_position.position,
-            )?;
-            let mut edits = HashMap::new();
-            for at in self
-                .usages
-                .try_get(&name.1)
-                .try_unwrap()?
-                .get(&name)?
-                .iter()
-                .map(|(at, _)| *at)
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-            {
-                let url = self
-                    .fi_to_url
-                    .try_get(&if let Some(fi) = at.fi() { fi } else { continue })
-                    .try_unwrap()?
-                    .clone();
-                let lo = pos_from_tup(at.lo());
-                let hi = pos_from_tup(at.hi());
-                let range = Range::new(lo, hi);
-                edits.entry(url).or_insert(Vec::new()).push(TextEdit {
-                    range,
-                    new_text: params.new_name.clone(),
-                });
-            }
-            Some(WorkspaceEdit::new(edits))
-        })();
-        Ok(workspace_edit)
+            )
+            .ok_or_else(|| error(line!(), "Failed to resolve name"))?;
+
+        // NOTE: We don't validate the name here - so it is possible to end up in a state where the
+        // codebase doesn't parse. I don't see this as a huge loss - since the edit can be undone.
+        let new_text = params.new_name;
+        let mut edits = HashMap::new();
+        for at in self
+            .usages
+            .try_get(&name.1)
+            .try_unwrap()
+            .ok_or_else(|| error(line!(), "Failed to read usages"))?
+            .get(&name)
+            .ok_or_else(|| error(line!(), "Unknown name - how did we get here?"))?
+            .iter()
+            .map(|(at, _)| *at)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+        {
+            let url = self
+                .fi_to_url
+                .try_get(&if let Some(fi) = at.fi() { fi } else { continue })
+                .try_unwrap()
+                .ok_or_else(|| error(line!(), "Unknown file - how did we get here?"))?
+                .clone();
+            let lo = pos_from_tup(at.lo());
+            let hi = pos_from_tup(at.hi());
+            let range = Range::new(lo, hi);
+            edits.entry(url).or_insert(Vec::new()).push(TextEdit {
+                range,
+                new_text: new_text.clone(),
+            });
+        }
+
+        Ok(Some(WorkspaceEdit::new(edits)))
     }
 
     async fn prepare_rename(
@@ -584,20 +591,20 @@ impl LanguageServer for Backend {
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri.clone();
         let fi = or_!(self.url_to_fi.try_get(&uri).try_unwrap(), {
-            return Err(Error::new(ErrorCode::ServerError(2)));
+            return Err(error(line!(), "File not loaded"));
         });
         let me = *or_!(self.fi_to_ud.try_get(&fi).try_unwrap(), {
-            return Err(Error::new(ErrorCode::ServerError(3)));
+            return Err(error(line!(), "File failed to load"));
         });
 
         let (l, c) = or_!(
             &or_!(&self.modules.try_get(&me).try_unwrap(), {
-                return Err(Error::new(ErrorCode::ServerError(5)));
+                return Err(error(line!(), "Module failed to load"));
             })
             .value()
             .0,
             {
-                return Err(Error::new(ErrorCode::ServerError(6)));
+                return Err(error(line!(), "Module failed to load"));
             }
         )
         .span()
@@ -606,7 +613,7 @@ impl LanguageServer for Backend {
 
         let mut out = Vec::new();
         for (s, f) in or_!(self.fixables.try_get(&fi).try_unwrap(), {
-            return Err(Error::new(ErrorCode::ServerError(4)));
+            return Err(error(line!(), "Module failed to load"));
         })
         .iter()
         {
@@ -885,6 +892,12 @@ impl LanguageServer for Backend {
         }
         Ok(None)
     }
+}
+
+fn error(code: u32, message: &str) -> Error {
+    let mut err = Error::new(ErrorCode::ServerError(code.into()));
+    err.message = message.to_string().into();
+    err
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
