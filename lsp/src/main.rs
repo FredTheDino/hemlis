@@ -1,7 +1,6 @@
 #![allow(clippy::type_complexity)]
 #![feature(btree_cursors)]
 
-
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -131,6 +130,39 @@ fn try_find_word(source: &str, line: usize, offset: usize) -> Option<&str> {
     Some(&source[start + 1..end + at])
 }
 
+fn try_find_lines(source: &str, lo: usize, hi: usize) -> Option<&str> {
+    let mut it = source.match_indices("\n");
+    let (line_start, _) = it.nth(lo.saturating_sub(1))?;
+    let (line_end, _) = it.nth(hi - lo)?;
+    Some(&source[line_start + 1..line_end])
+}
+
+fn try_find_comments_before(source: &str, line: usize) -> Option<&str> {
+    let mut it = source.match_indices("\n");
+    let (at, _) = it.nth(line)?;
+    let last = source[..at].rfind("\n")?;
+    let mut first = last;
+    while let Some(better_guess) = (|| {
+        let better_guess = source[..first].rfind("\n")?;
+        let comment_at = source[better_guess..first].find("--")?;
+        if source[better_guess..better_guess+comment_at]
+            .chars()
+            .all(char::is_whitespace)
+        {
+            Some(better_guess)
+        } else {
+            None
+        }
+    })() {
+        first = better_guess;
+    }
+    let first = first;
+    if first == last {
+        None
+    } else {
+        Some(&source[first + 1..last])
+    }
+}
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -150,6 +182,11 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     },
                 )),
+                hover_provider: Some(HoverProviderCapability::Options(HoverOptions {
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: Some(false),
+                    },
+                })),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![".".to_string()]),
@@ -332,8 +369,8 @@ impl LanguageServer for Backend {
                 if *vis != Visibility::Public {
                     continue;
                 }
-                let n = self.name(n);
-                let ns = self.name(ns);
+                let n = self.name_(n);
+                let ns = self.name_(ns);
                 if Some(fi) != at.fi().as_ref() {
                     continue;
                 };
@@ -476,7 +513,7 @@ impl LanguageServer for Backend {
                     if n.scope() == Scope::Namespace {
                         continue;
                     }
-                    let name = self.name(&n.name());
+                    let name = self.name_(&n.name());
                     if name.starts_with(&var) {
                         out.push(CompletionItem::new_simple(
                             name.to_string(),
@@ -499,7 +536,7 @@ impl LanguageServer for Backend {
                     if maybe_first_letter.is_none()
                         || n.name().starts_with(maybe_first_letter.unwrap())
                     {
-                        let name = self.name(&n.name());
+                        let name = self.name_(&n.name());
                         out.push(CompletionItem::new_simple(
                             name.to_string(),
                             format!("Local {:?}", n.scope()),
@@ -532,7 +569,7 @@ impl LanguageServer for Backend {
                     {
                         // TODO: If this is nice - and people want more - I can add more info here when
                         // they know what they want.
-                        let name = self.name(&n.name());
+                        let name = self.name_(&n.name());
                         out.push(CompletionItem::new_simple(
                             format!("{}", name),
                             format!("Define {:?}", n.scope()),
@@ -659,7 +696,7 @@ impl LanguageServer for Backend {
                                     "[QUSE {:?}] Qualified use {} ({})",
                                     name.scope(),
                                     format_name(ns, name.name(), &self.names),
-                                    self.name(&name.module()),
+                                    self.name_(&name.module()),
                                 ),
                                 kind: Some(CodeActionKind::QUICKFIX),
                                 is_preferred: Some(true),
@@ -715,8 +752,8 @@ impl LanguageServer for Backend {
 
                     let handle = |name: &nr::Name, _is_constructor: bool, out: &mut Vec<_>| {
                         if let Some(ns) = ns {
-                            let ns_name = self.name(ns);
-                            let name_name = self.name(&name.module());
+                            let ns_name = self.name_(ns);
+                            let name_name = self.name_(&name.module());
                             out.push(CodeAction {
                                 title: format!(
                                     "[QIMPORT {:?}] Qualified from {} as {}",
@@ -736,8 +773,8 @@ impl LanguageServer for Backend {
                                             range(end_of_imports, end_of_imports),
                                             format!(
                                                 "\nimport {} as {}",
-                                                self.name(&name.module()),
-                                                self.name(ns)
+                                                self.name_(&name.module()),
+                                                self.name_(ns)
                                             ),
                                         )],
                                     )]
@@ -750,7 +787,7 @@ impl LanguageServer for Backend {
                                 title: format!(
                                     "[QIMPORT {:?}] Qualified from {}",
                                     name.scope(),
-                                    self.name(&name.module())
+                                    self.name_(&name.module())
                                 ),
                                 kind: Some(CodeActionKind::QUICKFIX),
                                 edit: Some(WorkspaceEdit::new(
@@ -761,16 +798,16 @@ impl LanguageServer for Backend {
                                                 range(end_of_imports, end_of_imports),
                                                 format!(
                                                     "\nimport {} as {}",
-                                                    self.name(&name.module()),
-                                                    self.name(&name.module())
+                                                    self.name_(&name.module()),
+                                                    self.name_(&name.module())
                                                 ),
                                             ),
                                             TextEdit::new(
                                                 range(at.lo(), at.hi()),
                                                 format!(
                                                     "{}.{}",
-                                                    self.name(&name.module()),
-                                                    self.name(&name.name())
+                                                    self.name_(&name.module()),
+                                                    self.name_(&name.name())
                                                 ),
                                             ),
                                         ],
@@ -909,6 +946,85 @@ impl LanguageServer for Backend {
                 .await;
         }
         Ok(None)
+    }
+
+    #[instrument(skip(self))]
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let name = or_!(
+            self.resolve_name(
+                &params.text_document_position_params.text_document.uri,
+                params.text_document_position_params.position,
+            ),
+            {
+                return Ok(None);
+            }
+        );
+
+        use std::fmt::Write;
+        let mut target = String::new();
+
+        let uri = params.text_document_position_params.text_document.uri;
+        (|| {
+            let def_at = self.defines.try_get(&name).try_unwrap()?;
+            let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
+            let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
+            try_find_comments_before(&source, def_at.lo().0).map(|x| {
+                writeln!(target, "").unwrap();
+                x.split("\n").for_each(|x| {
+                    writeln!(
+                        target,
+                        "{}",
+                        x.trim_start_matches("--")
+                            .trim_start_matches("|")
+                            .trim_start_matches(" |")
+                    )
+                    .unwrap();
+                })
+            });
+            try_find_lines(&source, def_at.lo().0, def_at.hi().0).map(|x| {
+                writeln!(target, "```purs").unwrap();
+                x.split("\n").for_each(|x| {
+                    writeln!(
+                        target,
+                        "{}",
+                        x.trim()
+                            .trim_start_matches("--")
+                            .trim_start_matches("|")
+                            .trim_start_matches(" |")
+                    )
+                    .unwrap();
+                });
+                writeln!(target, "```").unwrap();
+            });
+            Some(())
+        })();
+
+        write!(target, "{:?} {}", name.scope(), self.name_(&name.name())).unwrap();
+        if let Some(module_name) = self.name(&name.module()) {
+            write!(target, " from {}", module_name).unwrap();
+        }
+        write!(target, "\n").unwrap();
+
+        (|| {
+            let num_usages = self
+                .usages
+                .try_get(&name.module())
+                .try_unwrap()?
+                .get(&name)?
+                .iter()
+                .count();
+            writeln!(target, "{} usages", num_usages).unwrap();
+            Some(())
+        })();
+
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: target,
+            }),
+            // This is possible to extract
+            range: None,
+        }))
     }
 }
 
@@ -1172,12 +1288,12 @@ struct TextDocumentItem<'a> {
 }
 
 impl Backend {
-    fn name(&self, ud: &ast::Ud) -> String {
-        self.names
-            .try_get(ud)
-            .try_unwrap()
-            .map(|x| x.value().clone())
-            .unwrap_or_else(|| "?".into())
+    fn name_(&self, ud: &ast::Ud) -> String {
+        self.name(ud).unwrap_or_else(|| "?".into())
+    }
+
+    fn name(&self, ud: &ast::Ud) -> Option<String> {
+        Some(self.names.try_get(ud).try_unwrap()?.value().clone())
     }
 
     async fn log(&self, s: String) {
@@ -1730,7 +1846,8 @@ async fn main() {
         }
     }
     if logging {
-        let log_file_path = std::env::temp_dir().join(format!("hemlis-{}.log", chrono::Local::now().to_rfc3339()));
+        let log_file_path =
+            std::env::temp_dir().join(format!("hemlis-{}.log", chrono::Local::now().to_rfc3339()));
         let log_file = File::create(&log_file_path).unwrap();
         eprintln!("Logging to {:?}", log_file_path);
 
