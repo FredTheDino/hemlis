@@ -110,8 +110,8 @@ impl Backend {
     fn got_refresh(&self, fi: ast::Fi, version: Option<i32>) -> bool {
         match self.fi_to_version.try_get(&fi) {
             dashmap::try_result::TryResult::Present(x) => x.value() != &version,
-            dashmap::try_result::TryResult::Absent => false,
-            dashmap::try_result::TryResult::Locked => false,
+            dashmap::try_result::TryResult::Absent => true,
+            dashmap::try_result::TryResult::Locked => true,
         }
     }
 }
@@ -1456,9 +1456,6 @@ impl Backend {
             .copied()
             .collect();
         while let Some(x) = to_check.pop() {
-            if self.got_refresh(fi, version) {
-                return;
-            }
             if checked.contains(&x) {
                 continue;
             }
@@ -1470,7 +1467,7 @@ impl Backend {
             ) {
                 let _ = self.resolve_module(&m, *fi, *version);
                 if self.got_refresh(*fi, *version) {
-                    return;
+                    continue;
                 }
                 if self
                     .exports
