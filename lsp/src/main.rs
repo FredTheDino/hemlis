@@ -1001,7 +1001,7 @@ impl LanguageServer for Backend {
 
         write!(target, "{:?} {}", name.scope(), self.name_(&name.name())).unwrap();
         if let Some(module_name) = self.name(&name.module()) {
-            write!(target, " from {}", module_name).unwrap();
+            write!(target, ", in {}", module_name).unwrap();
         }
         write!(target, "\n").unwrap();
 
