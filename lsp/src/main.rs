@@ -252,19 +252,14 @@ impl LanguageServer for Backend {
                     range: span_to_range(def_at.value()),
                 }))
             } else {
-                eprintln!("FOREIGN?");
                 let fi = *self
                     .url_to_fi
                     .try_get(&params.text_document_position_params.text_document.uri)
                     .try_unwrap()?;
-                eprintln!("A001");
                 let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-                eprintln!("A002");
                 let position = params.text_document_position_params.position;
-                eprintln!("A003");
                 let word_under_cursor =
                     try_find_word(&source, position.line as usize, position.character as usize)?;
-                eprintln!("A004 {}", word_under_cursor);
                 if word_under_cursor != "foreign" {
                     return None;
                 };
