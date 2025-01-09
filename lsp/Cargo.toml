@@ -15,3 +15,7 @@ sungod = { version = "0.3.1", features = ["default_is_random"] }
 tokio = { version = "1.17.0", features = ["full"] }
 tower-lsp = { version = "0.20.0", features = ["proposed"]}
 futures = "0.3.31"
+tracing = "0.1.41"
+json-subscriber = "0.2.4"
+tracing-subscriber = "0.3.19"
+chrono = "0.4.39"

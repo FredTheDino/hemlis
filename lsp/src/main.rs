@@ -1,7 +1,9 @@
 #![allow(clippy::type_complexity)]
 #![feature(btree_cursors)]
 
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
 use std::sync::RwLock;
@@ -17,6 +19,9 @@ use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tracing::instrument;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 macro_rules! or_ {
     ($e:expr, $b:block) => {
@@ -126,8 +131,10 @@ fn try_find_word(source: &str, line: usize, offset: usize) -> Option<&str> {
     Some(&source[start + 1..end + at])
 }
 
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
+    #[instrument(skip(self))]
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: None,
@@ -214,6 +221,7 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
+    #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         self.on_change(TextDocumentItem {
             uri: params.text_document.uri,
@@ -223,6 +231,7 @@ impl LanguageServer for Backend {
         .await
     }
 
+    #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         self.on_change(TextDocumentItem {
             text: &params.content_changes[0].text,
@@ -232,10 +241,13 @@ impl LanguageServer for Backend {
         .await
     }
 
+    #[instrument(skip(self))]
     async fn did_save(&self, _: DidSaveTextDocumentParams) {}
 
+    #[instrument(skip(self))]
     async fn did_close(&self, _: DidCloseTextDocumentParams) {}
 
+    #[instrument(skip(self))]
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -279,6 +291,7 @@ impl LanguageServer for Backend {
         Ok(definition)
     }
 
+    #[instrument(skip(self))]
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let reference_list = || -> Option<Vec<Location>> {
             let name = self.resolve_name(
@@ -306,6 +319,7 @@ impl LanguageServer for Backend {
         Ok(reference_list)
     }
 
+    #[instrument(skip(self))]
     async fn symbol(
         &self,
         params: WorkspaceSymbolParams,
@@ -366,6 +380,7 @@ impl LanguageServer for Backend {
         Ok(Some(symbols))
     }
 
+    #[instrument(skip(self))]
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,
@@ -425,6 +440,7 @@ impl LanguageServer for Backend {
         Ok(Some(DocumentSymbolResponse::Flat(symbols)))
     }
 
+    #[instrument(skip(self))]
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
@@ -529,6 +545,7 @@ impl LanguageServer for Backend {
         Ok(completions.map(CompletionResponse::Array))
     }
 
+    #[instrument(skip(self))]
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let name = self
             .resolve_name(
@@ -571,6 +588,7 @@ impl LanguageServer for Backend {
         Ok(Some(WorkspaceEdit::new(edits)))
     }
 
+    #[instrument(skip(self))]
     async fn prepare_rename(
         &self,
         params: TextDocumentPositionParams,
@@ -583,6 +601,7 @@ impl LanguageServer for Backend {
         }))
     }
 
+    #[instrument(skip(self))]
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri.clone();
         let fi = or_!(self.url_to_fi.try_get(&uri).try_unwrap(), {
@@ -855,10 +874,13 @@ impl LanguageServer for Backend {
         Ok(Some(out.into_iter().map(|x| x.into()).collect()))
     }
 
+    #[instrument(skip(self))]
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {}
 
+    #[instrument(skip(self))]
     async fn did_change_workspace_folders(&self, _: DidChangeWorkspaceFoldersParams) {}
 
+    #[instrument(skip(self))]
     async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
         self.client
             .log_message(
@@ -868,6 +890,7 @@ impl LanguageServer for Backend {
             .await;
     }
 
+    #[instrument(skip(self))]
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
         if params.command == "load_workspace" {
             self.client
@@ -1140,6 +1163,8 @@ impl Notification for CustomNotification {
     type Params = InlayHintParams;
     const METHOD: &'static str = "custom/notification";
 }
+
+#[derive(Debug)]
 struct TextDocumentItem<'a> {
     uri: Url,
     text: &'a str,
@@ -1159,6 +1184,7 @@ impl Backend {
         self.client.log_message(MessageType::INFO, s).await;
     }
 
+    #[instrument(skip(self))]
     async fn load_workspace(&self) -> Option<()> {
         self.log("LOAD_WORKSPACE - START".into()).await;
         let folders = self.client.workspace_folders().await.ok()??;
@@ -1268,6 +1294,7 @@ impl Backend {
         Some(())
     }
 
+    #[instrument(skip(self, m))]
     fn resolve_module(
         &self,
         m: &ast::Module,
@@ -1436,6 +1463,7 @@ impl Backend {
         Some((exports_changed, n.me))
     }
 
+    #[instrument(skip(self))]
     async fn resolve_cascading(&self, me: ast::Ud, fi: ast::Fi, version: Option<i32>) {
         // TODO: This can be way way smarter, currently it only runs on changed exports.
         // Some exteions include: Lineage tracking - saying letting me know what parts actually
@@ -1487,6 +1515,7 @@ impl Backend {
         }
     }
 
+    #[instrument(skip(self))]
     async fn show_errors(&self, fi: ast::Fi, version: Option<i32>) {
         if self.got_refresh(fi, version) {
             return;
@@ -1518,6 +1547,7 @@ impl Backend {
         }
     }
 
+    #[instrument(skip(self, source))]
     fn parse(&self, fi: ast::Fi, source: &'_ str) -> (Option<ast::Module>, ast::Fi) {
         let l = lexer::lex(source, fi);
         let mut p = parser::P::new(&l, &self.names);
@@ -1547,6 +1577,7 @@ impl Backend {
         (m, fi)
     }
 
+    #[instrument(skip(self))]
     fn find_fi(&self, uri: Url) -> Option<ast::Fi> {
         match self.url_to_fi.try_entry(uri.clone()) {
             Some(dashmap::Entry::Occupied(v)) => Some(*v.get()),
@@ -1559,6 +1590,7 @@ impl Backend {
         }
     }
 
+    #[instrument(skip(self))]
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             self.client
@@ -1681,7 +1713,38 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    println!("{}", hemlis_lib::version());
+    let mut logging = true;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--no-log" => {
+                logging = false;
+            }
+            "--version" | "-v" => {
+                eprintln!("{}", hemlis_lib::version());
+                std::process::exit(0);
+            }
+            x => {
+                eprintln!("Unknown arg: {}", x);
+                std::process::exit(1);
+            }
+        }
+    }
+    if logging {
+        let log_file_path = std::env::temp_dir().join(format!("hemlis-{}.log", chrono::Local::now().to_rfc3339()));
+        let log_file = File::create(&log_file_path).unwrap();
+        eprintln!("Logging to {:?}", log_file_path);
+
+        let json = json_subscriber::layer()
+            .with_current_span(true)
+            .with_span_list(true)
+            .with_writer(log_file);
+
+        tracing_subscriber::registry().with(json).init();
+    } else {
+        eprintln!("Logging is disabled");
+    }
+
+    tracing::info!("{}", hemlis_lib::version());
 
     let (exports, prim, names) = hemlis_lib::build_builtins();
 

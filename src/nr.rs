@@ -1,5 +1,6 @@
 use crate::ast::{self, Ast, Pos};
 use dashmap::DashMap;
+use tracing::instrument;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(
@@ -174,6 +175,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self))]
     fn is_used(&self, name: &Name) -> bool {
         (if let Some(usages) = self.usages.get(name) {
             usages.iter().any(|(_, sort)| sort.is_ref())
@@ -186,6 +188,7 @@ impl<'s> N<'s> {
         })
     }
 
+    #[instrument(skip(self))]
     fn check_imports(
         &mut self,
         ast::ImportDecl {
@@ -320,10 +323,12 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self))]
     fn push(&mut self) -> Sf {
         Sf(self.locals.len())
     }
 
+    #[instrument(skip(self))]
     fn pop(&mut self, Sf(l): Sf, end: ast::Span) {
         for n in self.locals.iter().skip(l) {
             if n.scope() != Scope::Type
@@ -349,6 +354,7 @@ impl<'s> N<'s> {
         self.locals.truncate(l)
     }
 
+    #[instrument(skip(self))]
     fn def(&mut self, s: ast::Span, name: Name, ignore_error: bool) {
         match self.defines.entry(name) {
             std::collections::btree_map::Entry::Vacant(v) => {
@@ -366,11 +372,13 @@ impl<'s> N<'s> {
         self.add_usage(name, s, Sort::Def);
     }
 
+    #[instrument(skip(self))]
     fn def_global(&mut self, scope: Scope, s: ast::S<ast::Ud>, is_redecl: bool) {
         let name = Name(scope, self.me, s.0, Visibility::Public);
         self.def(s.1, name, is_redecl)
     }
 
+    #[instrument(skip(self))]
     fn def_local(&mut self, scope: Scope, u: ast::Ud, s: ast::Span) {
         let name = Name(scope, self.me, u, Visibility::Private(s.lo()));
         self.locals.push(name);
@@ -378,6 +386,7 @@ impl<'s> N<'s> {
         self.def(s, name, false)
     }
 
+    #[instrument(skip(self))]
     fn add_usage(&mut self, name: Name, s: ast::Span, sort: Sort) {
         self.resolved.insert((s.lo(), s.hi()), name);
         if name.1 == self.me {
@@ -390,6 +399,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self))]
     fn resolve(&mut self, scope: Scope, m: Option<ast::Ud>, n: ast::S<ast::Ud>) -> Option<Name> {
         let s = n.1;
         let n = n.0;
@@ -409,6 +419,7 @@ impl<'s> N<'s> {
         unique_matches.first().copied()
     }
 
+    #[instrument(skip(self))]
     fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) -> Option<Name> {
         let m = m.map(|x| {
             self.resolve(Namespace, None, x.0);
@@ -417,6 +428,7 @@ impl<'s> N<'s> {
         self.resolve(scope, m, n)
     }
 
+    #[instrument(skip(self))]
     fn find_local(&self, ss: Scope, n: ast::Ud) -> Option<Name> {
         self.locals
             .iter()
@@ -424,6 +436,7 @@ impl<'s> N<'s> {
             .copied()
     }
 
+    #[instrument(skip(self))]
     // For `A.B.C.foo` does `A.B.C` resolve to the module - or does it resolve to `foo`?
     fn resolve_inner(&self, ss: Scope, m: Option<ast::Ud>, n: ast::Ud) -> BTreeSet<Name> {
         // NOTE: There's a strict hirarcy in purs where names are resolved
@@ -463,6 +476,7 @@ impl<'s> N<'s> {
         .unwrap_or_default()
     }
 
+    #[instrument(skip(self))]
     fn export(&mut self, ex: &ast::Export) {
         use Export::*;
         match ex {
@@ -571,6 +585,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self))]
     fn export_self(&mut self) {
         let cs: BTreeSet<_> = self.constructors.values().flatten().collect();
         for name @ Name(s, m, _, v) in self.defines.keys() {
@@ -594,6 +609,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self))]
     fn import(
         &mut self,
         import @ ast::ImportDecl {
@@ -697,6 +713,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, valid))]
     fn import_part(&mut self, i: &ast::Import, from: ast::Ud, valid: &[Export]) -> Option<Export> {
         let mut export_as = |scope: Scope, x: ast::Ud, s: ast::Span| -> Option<Export> {
             if let out @ Some(_) = valid.iter().find_map(|n| match n {
@@ -782,6 +799,7 @@ impl<'s> N<'s> {
         })
     }
 
+    #[instrument(skip(self, d))]
     // NOTE: This is needs to be split into two passes - one for the initial declarations and
     // one for inner declarations - since there is no order here. One could also push these
     // references first and check them later - saying where the same declaration is used in e.g
@@ -863,6 +881,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, d))]
     fn decl_body(&mut self, d: &ast::Decl) {
         // TODO: Kind signatures
         match d {
@@ -971,6 +990,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, a))]
     fn inst_head(&mut self, a @ ast::InstHead(cs, d, ts): &ast::InstHead) -> Option<Name> {
         for t in ts.iter() {
             self.typ_define_vars(t);
@@ -991,6 +1011,7 @@ impl<'s> N<'s> {
         self.resolveq(Class, d.0, d.1 .0)
     }
 
+    #[instrument(skip(self, b))]
     fn inst_binding(&mut self, b: &ast::InstBinding, u: Option<Name>) {
         // TODO: Check if these names actually are exported from whence they came
         let l = match b {
@@ -1015,6 +1036,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, e))]
     fn guarded_expr(&mut self, e: &ast::GuardedExpr) {
         match e {
             ast::GuardedExpr::Unconditional(e) => self.expr(e),
@@ -1039,6 +1061,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, e))]
     fn expr(&mut self, e: &ast::Expr) {
         match e {
             ast::Expr::Typed(e, t) => {
@@ -1208,6 +1231,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, r))]
     fn record_update(&mut self, r: &ast::RecordUpdate) {
         match r {
             ast::RecordUpdate::Leaf(_, e) => {
@@ -1221,6 +1245,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, ls))]
     fn let_binders(&mut self, ls: &[ast::LetBinding]) {
         let grouped = group_by(ls.iter(), |d: &ast::LetBinding| d.ud());
         for vs in grouped.values() {
@@ -1278,6 +1303,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, b))]
     fn binder(&mut self, b: &ast::Binder) {
         match b {
             ast::Binder::Typed(b, t) => {
@@ -1336,6 +1362,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, ts))]
     fn constraint(&mut self, ast::Constraint(c, ts): &ast::Constraint) {
         self.resolveq(Class, c.0, c.1 .0);
         for t in ts.iter() {
@@ -1343,6 +1370,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, t))]
     fn typ_define_vars(&mut self, t: &ast::Typ) {
         match t {
             ast::Typ::Wildcard(_)
@@ -1403,6 +1431,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, t))]
     fn typ(&mut self, t: &ast::Typ) {
         match t {
             ast::Typ::Wildcard(_) => (),
@@ -1471,6 +1500,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, xs))]
     fn typ_var_bindings(&mut self, xs: &[ast::TypVarBinding]) {
         for ast::TypVarBinding(x, k, _) in xs {
             self.def_local(Type, x.0 .0, x.0 .1);
@@ -1480,6 +1510,7 @@ impl<'s> N<'s> {
         }
     }
 
+    #[instrument(skip(self, f))]
     fn label(&mut self, f: ast::Label) {
         self.add_usage(
             Name(Scope::Label, ast::Ud::zero(), f.0 .0, Visibility::Public),
