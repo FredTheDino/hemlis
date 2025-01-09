@@ -545,7 +545,6 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
             Some(Typ::Symbol(qsymbol(p)?))
         }
 
-        (Some(T::Qual(_)), Some(T::Qual(_))) => unreachable!("Illegal double-qual"),
         (Some(T::String(_) | T::RawString(_)), _) => Some(Typ::Str(string(p)?)),
         (Some(T::Number(n)), _) if n.parse::<i32>().is_ok() => {
             let span = p.span();
@@ -993,9 +992,6 @@ fn expr_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Expr> {
         }
         (Some(T::Symbol(_)), _) | (Some(T::Qual(_)), Some(T::Symbol(_))) => {
             Some(Expr::Symbol(qsymbol(p)?))
-        }
-        (Some(T::Qual(_)), Some(T::Qual(_))) => {
-            unreachable!("Two QUAL after eachother should be impossible - lexer error");
         }
         (Some(T::Char(_)), _) => Some(Expr::Char(char(p)?)),
         (Some(T::String(_) | T::RawString(_)), _) => Some(Expr::Str(string(p)?)),
@@ -2352,6 +2348,17 @@ module H () where
 h = H { tag, attr, children }
 
 h  =HH
+        "
+        ))
+    }
+
+    #[test]
+    fn dubble_quals() {
+        assert_snapshot!(p_module(
+            r"
+module H () where
+
+h = A. B. C.
         "
         ))
     }
