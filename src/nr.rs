@@ -373,9 +373,9 @@ impl<'s> N<'s> {
     }
 
     #[instrument(skip(self))]
-    fn def_global(&mut self, scope: Scope, s: ast::S<ast::Ud>, is_redecl: bool) {
-        let name = Name(scope, self.me, s.0, Visibility::Public);
-        self.def(s.1, name, is_redecl)
+    fn def_global(&mut self, scope: Scope, ud: ast::Ud, span: ast::Span, is_redecl: bool) {
+        let name = Name(scope, self.me, ud, Visibility::Public);
+        self.def(span, name, is_redecl)
     }
 
     #[instrument(skip(self))]
@@ -631,7 +631,7 @@ impl<'s> N<'s> {
             .entry(from.0 .0)
             .or_default();
         if let Some(b) = to {
-            self.def_global(Namespace, b.0, true);
+            self.def_global(Namespace, b.0.0, b.0.1, true);
         }
         if from.0 .0 == self.me {
             self.errors.push(NRerrors::CannotImportSelf(import.span()));
@@ -799,12 +799,12 @@ impl<'s> N<'s> {
         })
     }
 
-    #[instrument(skip(self, d))]
+    #[instrument(skip(self, dec))]
     // NOTE: This is needs to be split into two passes - one for the initial declarations and
     // one for inner declarations - since there is no order here. One could also push these
     // references first and check them later - saying where the same declaration is used in e.g
     // error messages.
-    fn decl_first(&mut self, d: &ast::Decl, is_redecl: bool) {
+    fn decl_first(&mut self, dec: &ast::Decl, is_redecl: bool) {
         // I skipped references in Kinds for now - not because it's hard but because I
         // want a demo ASAP and it has little value.
         //
@@ -812,25 +812,25 @@ impl<'s> N<'s> {
         // don't think this will be that annoying - but it requires more through analysis to
         // resolve. There's also the case with term-definitions where there can be guards - this
         // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
-        match d {
+        match dec {
             ast::Decl::DataKind(d, _) => {
-                self.def_global(Type, d.0, is_redecl);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
             }
             ast::Decl::Data(d, _, cs) => {
-                self.def_global(Type, d.0, is_redecl);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
                 let mut cons = BTreeSet::new();
                 for c in cs {
-                    self.def_global(Term, c.0 .0, false);
+                    self.def_global(Term, c.0 .0.0, c.0.0.1, false);
                     cons.insert(Name(Term, self.me, c.0 .0 .0, Visibility::Public));
                 }
                 self.constructors
                     .insert(Name(Type, self.me, d.0 .0, Visibility::Public), cons);
             }
             ast::Decl::TypeKind(d, _) => {
-                self.def_global(Type, d.0, is_redecl);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
             }
             ast::Decl::Type(d, _, _) => {
-                self.def_global(Type, d.0, is_redecl);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
                 // Bug compatible with the Purs-compiler
                 self.constructors.insert(
                     Name(Type, self.me, d.0 .0, Visibility::Public),
@@ -838,42 +838,42 @@ impl<'s> N<'s> {
                 );
             }
             ast::Decl::NewTypeKind(d, _) => {
-                self.def_global(Type, d.0, is_redecl);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
             }
             ast::Decl::NewType(d, _, c, _) => {
-                self.def_global(Type, d.0, is_redecl);
-                self.def_global(Term, c.0, false);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Term, c.0.0, c.0.1, false);
                 self.constructors.insert(
                     Name(Type, self.me, d.0 .0, Visibility::Public),
                     [Name(Term, self.me, c.0 .0, Visibility::Public)].into(),
                 );
             }
             ast::Decl::ClassKind(d, _) => {
-                self.def_global(Type, d.0, is_redecl);
+                self.def_global(Type, d.0.0, dec.span(), is_redecl);
             }
             ast::Decl::Class(_, d, _, _, mem) => {
-                self.def_global(Class, d.0, is_redecl);
-                for ast::ClassMember(name, _) in mem.iter() {
-                    self.def_global(Term, name.0, false);
+                self.def_global(Class, d.0.0, dec.span(), is_redecl);
+                for mem@ast::ClassMember(name, _) in mem.iter() {
+                    self.def_global(Term, name.0.0, mem.span(), false);
                 }
             }
             ast::Decl::Foreign(d, _) => {
-                self.def_global(Term, d.0, false);
+                self.def_global(Term, d.0.0, dec.span(), false);
             }
             ast::Decl::ForeignData(d, _) => {
-                self.def_global(Type, d.0, false);
+                self.def_global(Type, d.0.0, dec.span(), false);
             }
             ast::Decl::Fixity(_, _, _, o) => {
-                self.def_global(Term, o.0, false);
+                self.def_global(Term, o.0.0, dec.span(), false);
             }
             ast::Decl::FixityTyp(_, _, _, o) => {
-                self.def_global(Type, o.0, false);
+                self.def_global(Type, o.0.0, dec.span(), false);
             }
             ast::Decl::Sig(d, _) => {
-                self.def_global(Term, d.0, false);
+                self.def_global(Term, d.0.0, dec.span(), false);
             }
             ast::Decl::Def(d, _, _) => {
-                self.def_global(Term, d.0, is_redecl);
+                self.def_global(Term, d.0.0, dec.span(), is_redecl);
             }
             ast::Decl::Instance(_, _, _) => (),
             ast::Decl::Derive(_, _) => (),
@@ -1530,7 +1530,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
         n.me = name;
         n.exports
             .push(Export::Just(Name(Module, name, name, Visibility::Public)));
-        n.def_global(Module, h.0 .0, true);
+        n.def_global(Module, h.0 .0.0, h.0.0.1, true);
         // Inject the Prim import
         n.import(&ast::ImportDecl {
             start: ast::Span::Zero,

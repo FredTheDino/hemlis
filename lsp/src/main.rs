@@ -981,15 +981,12 @@ impl LanguageServer for Backend {
                 })
             });
             try_find_lines(&source, def_at.lo().0, def_at.hi().0).map(|x| {
-                writeln!(target, "```purs").unwrap();
+                writeln!(target, "```purescript").unwrap();
                 x.split("\n").for_each(|x| {
                     writeln!(
                         target,
                         "{}",
-                        x.trim()
-                            .trim_start_matches("--")
-                            .trim_start_matches("|")
-                            .trim_start_matches(" |")
+                        x.trim_end()
                     )
                     .unwrap();
                 });
@@ -1005,14 +1002,21 @@ impl LanguageServer for Backend {
         write!(target, "\n").unwrap();
 
         (|| {
-            let num_usages = self
+            let references = self
                 .usages
                 .try_get(&name.module())
                 .try_unwrap()?
                 .get(&name)?
+                .clone()
+                ;
+            let num_references = references
                 .iter()
                 .count();
-            writeln!(target, "{} usages", num_usages).unwrap();
+            let num_usages = references
+                .iter()
+                .filter(|(_, x)| x.is_ref())
+                .count();
+            writeln!(target, "{} references\n{} usages", num_references, num_usages).unwrap();
             Some(())
         })();
 
