@@ -1,6 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![feature(btree_cursors)]
 
+use core::time;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -19,6 +20,7 @@ use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::instrument;
+use tracing_subscriber::filter::FilterFn;
 use tracing_subscriber::{layer::SubscriberExt, prelude::*, util::SubscriberInitExt};
 
 macro_rules! or_ {
@@ -628,6 +630,24 @@ impl LanguageServer for Backend {
                 new_text: new_text.clone(),
             });
         }
+        // At least the neovim client is tricky when doing renames - it applies the edits one after
+        // the other. This makes us validate EACH version of the document as the edits are applied.
+        // If we want to keep the bandwith low the edits do make sense - but given the current
+        // state of the LSP this isn't how it works. 
+        // 
+        // I tried adding a sleep to the sending of messages - but that doesn't really work
+        // apparently.
+        //
+        // At the same time - I can't reasonably assume that all clients work this way. If I did it
+        // could possible be fixed.
+        //
+        // The rust LSP waits a few seconds (or is just really slow).
+
+        tracing::info!("rename suggested with {:?} edits", edits.values().map(|x| x.len()).collect::<Vec<_>>());
+
+        let foo = 1;
+        println!("{foo}");
+
 
         Ok(Some(WorkspaceEdit::new(edits)))
     }
@@ -1436,13 +1456,18 @@ impl Backend {
             ..
         } = n;
 
+
         if self.got_refresh(fi, version) {
+            tracing::info!("EARLY OUT 1 {:?} {:?}", fi, version);
             return None;
         }
+        tracing::info!("GETTING LOCK {:?} {:?}", fi, version);
         let lock = self.locked.write();
         if self.got_refresh(fi, version) {
+            tracing::info!("EARLY OUT 2 {:?} {:?}", fi, version);
             return None;
         }
+        tracing::info!("HOLDING LOCK {:?} {:?}", fi, version);
 
         self.modules.insert(me, m.clone());
         self.fi_to_ud.insert(fi, me);
@@ -1535,11 +1560,13 @@ impl Backend {
 
         let exports_changed = {
             let new_hash = hash_exports(&exports);
-            if let Some(old) = self.exports.insert(me, exports) {
+            let exports_changed = if let Some(old) = self.exports.insert(me, exports) {
                 new_hash != hash_exports(&old)
             } else {
                 true
-            }
+            };
+            tracing::info!("exports_changed={:?} {:?} {:?}", exports_changed, fi, new_hash);
+            exports_changed
         };
 
         {
@@ -1646,6 +1673,7 @@ impl Backend {
             return;
         }
         if let Some(url) = self.fi_to_url.try_get(&fi).try_unwrap() {
+            tracing::info!("PRESENTING DIAGNOSTICS {:?}", url.to_string());
             self.client
                 .publish_diagnostics(
                     url.clone(),
@@ -1715,7 +1743,7 @@ impl Backend {
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, params))]
     async fn on_change(&self, params: TextDocumentItem<'_>) {
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             self.client
@@ -1724,7 +1752,6 @@ impl Backend {
             return;
         }
 
-        panic!("I AM A CRASH!");
         let uri = params.uri.clone();
         let source = params.text;
         let version = params.version;
@@ -1739,6 +1766,7 @@ impl Backend {
                 .log_message(MessageType::ERROR, "FAILED TO GENERATE FI")
                 .await;
         };
+
         // TODO: How to handle two files with the same module name?
         match self.fi_to_version.try_entry(fi) {
             Some(dashmap::Entry::Occupied(mut o)) => {
@@ -1789,18 +1817,14 @@ impl Backend {
                     let _ = self.client.workspace_diagnostic_refresh().await;
                     tracing::info!("CASCADE CHANGE - END");
                 }
-                self.show_errors(fi, params.version).await;
-            } else {
-                self.show_errors(fi, params.version).await;
             }
-        } else {
-            self.show_errors(fi, params.version).await;
         }
         tracing::info!(
             "!! {:?} FINISHED! {:?}",
             params.version,
             params.uri.to_string()
         );
+        self.show_errors(fi, params.version).await;
     }
 }
 
@@ -1850,7 +1874,8 @@ async fn main() {
             .with_thread_ids(true)
             .with_level(true)
             .with_writer(log_file)
-            .with_filter(tracing::level_filters::LevelFilter::TRACE);
+            .with_filter(tracing::level_filters::LevelFilter::TRACE)
+            .with_filter(FilterFn::new(|x| x.target() != "tower_lsp::codec"));
 
         std::panic::set_hook(Box::new(|panic| {
             if let Some(location) = panic.location() {
