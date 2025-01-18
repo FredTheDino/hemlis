@@ -19,8 +19,7 @@ use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::instrument;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{layer::SubscriberExt, prelude::*, util::SubscriberInitExt};
 
 macro_rules! or_ {
     ($e:expr, $b:block) => {
@@ -88,7 +87,7 @@ struct Backend {
     modules: DashMap<ast::Ud, ast::Module>,
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
     defines: DashMap<Name, ast::Span>,
-    usages: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<(ast::Span, nr::Sort)>>>,
+    references: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<(ast::Span, nr::Sort)>>>,
 
     syntax_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
     name_resolution_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
@@ -109,6 +108,21 @@ impl Backend {
             return None;
         }
         Some(*name)
+    }
+
+    fn resolve_name_and_range(&self, url: &Url, pos: Position) -> Option<(Name, Range)> {
+        let m = self
+            .fi_to_ud
+            .try_get(&*self.url_to_fi.try_get(url).try_unwrap()?)
+            .try_unwrap()?;
+        let pos = (pos.line as usize, pos.character as usize + 1);
+        let lut = self.resolved.try_get(&m).try_unwrap()?;
+        let cur = lut.lower_bound(Bound::Included(&(pos, pos)));
+        let ((lo, hi), name) = cur.peek_prev()?;
+        if !(*lo <= pos && pos <= *hi) {
+            return None;
+        }
+        Some((*name, range(*lo, *hi)))
     }
 
     fn got_refresh(&self, fi: ast::Fi, version: Option<i32>) -> bool {
@@ -145,7 +159,7 @@ fn try_find_comments_before(source: &str, line: usize) -> Option<&str> {
     while let Some(better_guess) = (|| {
         let better_guess = source[..first].rfind("\n")?;
         let comment_at = source[better_guess..first].find("--")?;
-        if source[better_guess..better_guess+comment_at]
+        if source[better_guess..better_guess + comment_at]
             .chars()
             .all(char::is_whitespace)
         {
@@ -230,18 +244,13 @@ impl LanguageServer for Backend {
         })
     }
 
+    #[instrument(skip(self))]
     async fn initialized(&self, _: InitializedParams) {
         {
-            self.client
-                .log_message(MessageType::INFO, hemlis_lib::version())
-                .await;
-            self.client
-                .log_message(MessageType::INFO, "Scanning...".to_string())
-                .await;
+            tracing::info!("version {}", hemlis_lib::version());
+            tracing::info!("Scanning...");
             self.load_workspace().await;
-            self.client
-                .log_message(MessageType::INFO, "Done scanning!".to_string())
-                .await;
+            tracing::info!("Done scanning");
             let mut futures = Vec::new();
             for i in self.fi_to_url.iter() {
                 futures.push(self.show_errors(*i.key(), None));
@@ -336,7 +345,7 @@ impl LanguageServer for Backend {
                 params.text_document_position.position,
             )?;
             Some(
-                self.usages
+                self.references
                     .try_get(&name.1)
                     .try_unwrap()?
                     .get(&name)?
@@ -596,10 +605,10 @@ impl LanguageServer for Backend {
         let new_text = params.new_name;
         let mut edits = HashMap::new();
         for at in self
-            .usages
+            .references
             .try_get(&name.1)
             .try_unwrap()
-            .ok_or_else(|| error(line!(), "Failed to read usages"))?
+            .ok_or_else(|| error(line!(), "Failed to read references"))?
             .get(&name)
             .ok_or_else(|| error(line!(), "Unknown name - how did we get here?"))?
             .iter()
@@ -613,9 +622,7 @@ impl LanguageServer for Backend {
                 .try_unwrap()
                 .ok_or_else(|| error(line!(), "Unknown file - how did we get here?"))?
                 .clone();
-            let lo = pos_from_tup(at.lo());
-            let hi = pos_from_tup(at.hi());
-            let range = Range::new(lo, hi);
+            let range = span_to_range(&at);
             edits.entry(url).or_insert(Vec::new()).push(TextEdit {
                 range,
                 new_text: new_text.clone(),
@@ -630,12 +637,16 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        if let None = self.resolve_name(&params.text_document.uri, params.position) {
+        if let Some((name, range)) =
+            self.resolve_name_and_range(&params.text_document.uri, params.position)
+        {
+            Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+                range,
+                placeholder: self.name_(&name.name()),
+            }))
+        } else {
             return Ok(None);
         }
-        Ok(Some(PrepareRenameResponse::DefaultBehavior {
-            default_behavior: true,
-        }))
     }
 
     #[instrument(skip(self))]
@@ -983,12 +994,7 @@ impl LanguageServer for Backend {
             try_find_lines(&source, def_at.lo().0, def_at.hi().0).map(|x| {
                 writeln!(target, "```purescript").unwrap();
                 x.split("\n").for_each(|x| {
-                    writeln!(
-                        target,
-                        "{}",
-                        x.trim_end()
-                    )
-                    .unwrap();
+                    writeln!(target, "{}", x.trim_end()).unwrap();
                 });
                 writeln!(target, "```").unwrap();
             });
@@ -1003,20 +1009,19 @@ impl LanguageServer for Backend {
 
         (|| {
             let references = self
-                .usages
+                .references
                 .try_get(&name.module())
                 .try_unwrap()?
                 .get(&name)?
-                .clone()
-                ;
-            let num_references = references
-                .iter()
-                .count();
-            let num_usages = references
-                .iter()
-                .filter(|(_, x)| x.is_ref())
-                .count();
-            writeln!(target, "{} references\n{} usages", num_references, num_usages).unwrap();
+                .clone();
+            let num_references = references.iter().count();
+            let num_usages = references.iter().filter(|(_, x)| x.is_ref()).count();
+            writeln!(
+                target,
+                "{} references\n{} usages",
+                num_references, num_usages
+            )
+            .unwrap();
             Some(())
         })();
 
@@ -1299,13 +1304,9 @@ impl Backend {
         Some(self.names.try_get(ud).try_unwrap()?.value().clone())
     }
 
-    async fn log(&self, s: String) {
-        self.client.log_message(MessageType::INFO, s).await;
-    }
-
     #[instrument(skip(self))]
     async fn load_workspace(&self) -> Option<()> {
-        self.log("LOAD_WORKSPACE - START".into()).await;
+        tracing::info!("Load start");
         let folders = self.client.workspace_folders().await.ok()??;
 
         for folder in folders {
@@ -1362,7 +1363,7 @@ impl Backend {
                         .await;
                 }
             }
-            self.log("========".into()).await;
+            tracing::info!("=========");
 
             // NOTE: Not adding them to the name lookup
             fn h(s: &'static str) -> ast::Ud {
@@ -1409,7 +1410,7 @@ impl Backend {
                 done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
             }
         }
-        self.log("LOAD_WORKSPACE - DONE".into()).await;
+        tracing::info!("LOAD_WORKSPACE - DONE");
         Some(())
     }
 
@@ -1428,7 +1429,7 @@ impl Backend {
             me,
             errors,
             resolved,
-            usages,
+            references,
             defines,
             global_usages,
             exports,
@@ -1466,12 +1467,12 @@ impl Backend {
         self.resolved.insert(me, resolved);
 
         {
-            let mut us = self.usages.entry(me).or_insert(BTreeMap::new());
+            let mut us = self.references.entry(me).or_insert(BTreeMap::new());
             for (k, v) in us.iter_mut() {
                 v.retain(|(x, _)| x.fi() != Some(fi));
-                v.append(&mut usages.get(k).cloned().unwrap_or_default());
+                v.append(&mut references.get(k).cloned().unwrap_or_default());
             }
-            for (k, v) in usages.into_iter() {
+            for (k, v) in references.into_iter() {
                 if us.contains_key(&k) {
                     continue;
                 }
@@ -1517,7 +1518,7 @@ impl Backend {
                 .insert(fi, new.clone())
                 .unwrap_or_default();
             for (name, pos, sort) in old.difference(&new) {
-                if let Some(mut e) = self.usages.get_mut(&name.1) {
+                if let Some(mut e) = self.references.get_mut(&name.1) {
                     if let Some(e) = e.get_mut(name) {
                         e.remove(&(*pos, *sort));
                     }
@@ -1525,7 +1526,7 @@ impl Backend {
             }
 
             for (name, pos, sort) in new.difference(&old) {
-                let mut e = self.usages.entry(name.1).or_insert(BTreeMap::new());
+                let mut e = self.references.entry(name.1).or_insert(BTreeMap::new());
                 e.entry(*name)
                     .or_insert(BTreeSet::new())
                     .insert((*pos, *sort));
@@ -1598,19 +1599,22 @@ impl Backend {
             .copied()
             .collect();
         while let Some(x) = to_check.pop() {
+            if self.got_refresh(fi, version) {
+                tracing::info!("GOT REFRESH - ABORTING");
+                continue;
+            }
             if checked.contains(&x) {
                 continue;
             }
+            tracing::info!("TO CHECK {:?} {}", x, to_check.len());
             checked.insert(x);
             if let (Some(m), Some(fi), Some(version)) = (
                 self.modules.try_get(&x).try_unwrap(),
                 self.ud_to_fi.try_get(&x).try_unwrap(),
                 self.fi_to_version.try_get(&fi).try_unwrap(),
             ) {
+                tracing::info!("RESOLVING {:?} {}", x, to_check.len());
                 let _ = self.resolve_module(&m, *fi, *version);
-                if self.got_refresh(*fi, *version) {
-                    continue;
-                }
                 if self
                     .exports
                     .try_get(&x)
@@ -1618,6 +1622,7 @@ impl Backend {
                     .map(|ex| ex.iter().any(|x| x.contains(name)))
                     .unwrap_or(false)
                 {
+                    tracing::info!("REEXPORT {:?} {}", x, to_check.len());
                     // It's a re-export which means we need to check everything that imports this as well!
                     to_check.append(
                         &mut self
@@ -1631,6 +1636,7 @@ impl Backend {
                     );
                 }
             }
+            tracing::info!("DONE CHECK {:?}", x);
         }
     }
 
@@ -1717,16 +1723,13 @@ impl Backend {
                 .await;
             return;
         }
+
+        panic!("I AM A CRASH!");
         let uri = params.uri.clone();
         let source = params.text;
         let version = params.version;
 
-        self.log(format!(
-            "!! {:?} CHANGE! {:?}",
-            params.version,
-            params.uri.to_string()
-        ))
-        .await;
+        tracing::info!("{:?} A {:?}", params.version, params.uri.to_string());
 
         let fi = loop {
             if let Some(fi) = self.find_fi(uri.clone()) {
@@ -1753,50 +1756,38 @@ impl Backend {
             return;
         }
 
-        self.log(format!(
-            "!! {:?} AA! {:?}",
-            params.version,
-            params.uri.to_string()
-        ))
-        .await;
+        tracing::info!("!! {:?} B {:?}", params.version, params.uri.to_string());
 
         // I have to copy it! :(
         self.fi_to_source.insert(fi, source.to_string());
         self.fi_to_url.insert(fi, uri.clone());
         let (m, fi) = self.parse(fi, source);
 
-        self.log(format!(
-            "!! {:?} BB! {:?}",
-            params.version,
-            params.uri.to_string()
-        ))
-        .await;
+        tracing::info!("!! {:?} C {:?}", params.version, params.uri.to_string());
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         if let Some(m) = m {
-            self.log(format!(
-                "!! {:?} PRE RESOLVE! {:?}",
+            tracing::info!(
+                "!! {:?} PRE RESOLVE {:?}",
                 params.version,
                 params.uri.to_string()
-            ))
-            .await;
+            );
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
-                self.log(format!(
-                    "!! {:?} POST RESOLVE! {:?}",
+                tracing::info!(
+                    "!! {:?} POST RESOLVE {:?}",
                     params.version,
                     params.uri.to_string()
-                ))
-                .await;
+                );
 
                 if self.got_refresh(fi, version) {
                     return;
                 }
 
                 if exports_changed {
-                    self.log("CASCADE CHANGE - START".into()).await;
+                    tracing::info!("CASCADE CHANGE - START");
                     self.resolve_cascading(me, fi, params.version).await;
                     let _ = self.client.workspace_diagnostic_refresh().await;
-                    self.log("CASCADE CHANGE - END".into()).await;
+                    tracing::info!("CASCADE CHANGE - END");
                 }
                 self.show_errors(fi, params.version).await;
             } else {
@@ -1805,12 +1796,11 @@ impl Backend {
         } else {
             self.show_errors(fi, params.version).await;
         }
-        self.log(format!(
+        tracing::info!(
             "!! {:?} FINISHED! {:?}",
             params.version,
             params.uri.to_string()
-        ))
-        .await;
+        );
     }
 }
 
@@ -1854,12 +1844,28 @@ async fn main() {
         let log_file = File::create(&log_file_path).unwrap();
         eprintln!("Logging to {:?}", log_file_path);
 
-        let json = json_subscriber::layer()
-            .with_current_span(true)
-            .with_span_list(true)
-            .with_writer(log_file);
+        let layer = json_subscriber::layer()
+            .with_file(true)
+            .with_line_number(true)
+            .with_thread_ids(true)
+            .with_level(true)
+            .with_writer(log_file)
+            .with_filter(tracing::level_filters::LevelFilter::TRACE);
 
-        tracing_subscriber::registry().with(json).init();
+        std::panic::set_hook(Box::new(|panic| {
+            if let Some(location) = panic.location() {
+                tracing::error!(
+                    message= %panic,
+                    panic.file = location.file(),
+                    panic.line = location.line(),
+                    panic.column = location.column(),
+                );
+            } else {
+                tracing::error!(message= %panic);
+            }
+        }));
+
+        tracing_subscriber::registry().with(layer).init();
     } else {
         eprintln!("Logging is disabled");
     }
@@ -1895,7 +1901,7 @@ async fn main() {
         modules: DashMap::new(),
         resolved: DashMap::new(),
         defines: DashMap::new(),
-        usages: DashMap::new(),
+        references: DashMap::new(),
 
         syntax_errors: DashMap::new(),
         name_resolution_errors: DashMap::new(),

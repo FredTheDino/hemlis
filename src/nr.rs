@@ -1,7 +1,7 @@
 use crate::ast::{self, Ast, Pos};
 use dashmap::DashMap;
-use tracing::instrument;
 use std::collections::{BTreeMap, BTreeSet};
+use tracing::instrument;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
@@ -142,7 +142,7 @@ pub struct N<'s> {
     pub global_exports: &'s DashMap<ast::Ud, Vec<Export>>,
     pub global_usages: BTreeMap<Name, BTreeSet<(ast::Span, Sort)>>,
 
-    pub usages: BTreeMap<Name, BTreeSet<(ast::Span, Sort)>>,
+    pub references: BTreeMap<Name, BTreeSet<(ast::Span, Sort)>>,
 
     pub errors: Vec<NRerrors>,
 
@@ -160,7 +160,7 @@ impl<'s> N<'s> {
     pub fn new(me: ast::Ud, global_exports: &'s DashMap<ast::Ud, Vec<Export>>) -> Self {
         Self {
             me,
-            usages: BTreeMap::new(),
+            references: BTreeMap::new(),
 
             global_exports,
             global_usages: BTreeMap::new(),
@@ -177,7 +177,7 @@ impl<'s> N<'s> {
 
     #[instrument(skip(self))]
     fn is_used(&self, name: &Name) -> bool {
-        (if let Some(usages) = self.usages.get(name) {
+        (if let Some(usages) = self.references.get(name) {
             usages.iter().any(|(_, sort)| sort.is_ref())
         } else {
             false
@@ -209,7 +209,7 @@ impl<'s> N<'s> {
             let n = to.0 .0;
             let s = to.0 .1;
             let to_name = Name(Scope::Namespace, self.me, n, Visibility::Public);
-            if let Some(usages) = self.usages.get(&to_name) {
+            if let Some(usages) = self.references.get(&to_name) {
                 if usages.iter().any(|(_, sort)| sort == &Sort::Export) {
                     return;
                 }
@@ -334,7 +334,7 @@ impl<'s> N<'s> {
             if n.scope() != Scope::Type
                 && !n.name().starts_with_underscore()
                 && self
-                    .usages
+                    .references
                     .get(n)
                     .map(|x| {
                         x.iter()
@@ -355,47 +355,56 @@ impl<'s> N<'s> {
     }
 
     #[instrument(skip(self))]
-    fn def(&mut self, s: ast::Span, name: Name, ignore_error: bool) {
+    fn def(&mut self, word: ast::Span, entire: ast::Span, name: Name, ignore_error: bool) {
         match self.defines.entry(name) {
             std::collections::btree_map::Entry::Vacant(v) => {
-                v.insert((s, None));
+                v.insert((entire, None));
+                self.add_usage(name, word, Sort::Def);
             }
             std::collections::btree_map::Entry::Occupied(v) => {
                 if !ignore_error {
                     self.errors
-                        .push(NRerrors::MultipleDefinitions(*v.key(), v.get().0, s));
-                } else {
-                    self.add_usage(name, s, Sort::Def2);
+                        .push(NRerrors::MultipleDefinitions(*v.key(), v.get().0, word));
                 }
+                self.add_usage(name, word, Sort::Def2);
             }
         }
-        self.add_usage(name, s, Sort::Def);
     }
 
     #[instrument(skip(self))]
-    fn def_global(&mut self, scope: Scope, ud: ast::Ud, span: ast::Span, is_redecl: bool) {
+    fn def_global(
+        &mut self,
+        scope: Scope,
+        ud: ast::Ud,
+        word: ast::Span,
+        entire: ast::Span,
+        is_redecl: bool,
+    ) {
         let name = Name(scope, self.me, ud, Visibility::Public);
-        self.def(span, name, is_redecl)
+        self.def(word, entire, name, is_redecl)
     }
 
     #[instrument(skip(self))]
-    fn def_local(&mut self, scope: Scope, u: ast::Ud, s: ast::Span) {
-        let name = Name(scope, self.me, u, Visibility::Private(s.lo()));
+    fn def_local(&mut self, scope: Scope, u: ast::Ud, word: ast::Span, entire: ast::Span) {
+        let name = Name(scope, self.me, u, Visibility::Private(entire.lo()));
         self.locals.push(name);
 
-        self.def(s, name, false)
+        self.def(word, entire, name, false)
     }
 
     #[instrument(skip(self))]
-    fn add_usage(&mut self, name: Name, s: ast::Span, sort: Sort) {
-        self.resolved.insert((s.lo(), s.hi()), name);
+    fn add_usage(&mut self, name: Name, word: ast::Span, sort: Sort) {
+        self.resolved.insert((word.lo(), word.hi()), name);
         if name.1 == self.me {
-            self.usages.entry(name).or_default().insert((s, sort));
+            self.references
+                .entry(name)
+                .or_default()
+                .insert((word, sort));
         } else {
             self.global_usages
                 .entry(name)
                 .or_default()
-                .insert((s, sort));
+                .insert((word, sort));
         }
     }
 
@@ -631,7 +640,7 @@ impl<'s> N<'s> {
             .entry(from.0 .0)
             .or_default();
         if let Some(b) = to {
-            self.def_global(Namespace, b.0.0, b.0.1, true);
+            self.def_global(Namespace, b.0 .0, b.0 .1, b.0 .1, true);
         }
         if from.0 .0 == self.me {
             self.errors.push(NRerrors::CannotImportSelf(import.span()));
@@ -814,23 +823,23 @@ impl<'s> N<'s> {
         // requires more sophisticated checking. (Or just returning None if it's a catch-all?)
         match dec {
             ast::Decl::DataKind(d, _) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
             }
             ast::Decl::Data(d, _, cs) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
                 let mut cons = BTreeSet::new();
                 for c in cs {
-                    self.def_global(Term, c.0 .0.0, c.0.0.1, false);
+                    self.def_global(Term, c.0 .0 .0, c.0 .0 .1, c.0 .0 .1, false);
                     cons.insert(Name(Term, self.me, c.0 .0 .0, Visibility::Public));
                 }
                 self.constructors
                     .insert(Name(Type, self.me, d.0 .0, Visibility::Public), cons);
             }
             ast::Decl::TypeKind(d, _) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
             }
             ast::Decl::Type(d, _, _) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
                 // Bug compatible with the Purs-compiler
                 self.constructors.insert(
                     Name(Type, self.me, d.0 .0, Visibility::Public),
@@ -838,42 +847,42 @@ impl<'s> N<'s> {
                 );
             }
             ast::Decl::NewTypeKind(d, _) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
             }
             ast::Decl::NewType(d, _, c, _) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
-                self.def_global(Term, c.0.0, c.0.1, false);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
+                self.def_global(Term, c.0 .0, c.0 .1, c.0 .1, false);
                 self.constructors.insert(
                     Name(Type, self.me, d.0 .0, Visibility::Public),
                     [Name(Term, self.me, c.0 .0, Visibility::Public)].into(),
                 );
             }
             ast::Decl::ClassKind(d, _) => {
-                self.def_global(Type, d.0.0, dec.span(), is_redecl);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
             }
             ast::Decl::Class(_, d, _, _, mem) => {
-                self.def_global(Class, d.0.0, dec.span(), is_redecl);
-                for mem@ast::ClassMember(name, _) in mem.iter() {
-                    self.def_global(Term, name.0.0, mem.span(), false);
+                self.def_global(Class, d.0 .0, d.0 .1, dec.span(), is_redecl);
+                for mem @ ast::ClassMember(name, _) in mem.iter() {
+                    self.def_global(Term, name.0 .0, name.0 .1, mem.span(), false);
                 }
             }
             ast::Decl::Foreign(d, _) => {
-                self.def_global(Term, d.0.0, dec.span(), false);
+                self.def_global(Term, d.0 .0, d.0 .1, dec.span(), false);
             }
             ast::Decl::ForeignData(d, _) => {
-                self.def_global(Type, d.0.0, dec.span(), false);
+                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), false);
             }
             ast::Decl::Fixity(_, _, _, o) => {
-                self.def_global(Term, o.0.0, dec.span(), false);
+                self.def_global(Term, o.0 .0, o.0 .1, dec.span(), false);
             }
             ast::Decl::FixityTyp(_, _, _, o) => {
-                self.def_global(Type, o.0.0, dec.span(), false);
+                self.def_global(Type, o.0 .0, o.0 .1, dec.span(), false);
             }
             ast::Decl::Sig(d, _) => {
-                self.def_global(Term, d.0.0, dec.span(), false);
+                self.def_global(Term, d.0 .0, d.0 .1, dec.span(), false);
             }
             ast::Decl::Def(d, _, _) => {
-                self.def_global(Term, d.0.0, dec.span(), is_redecl);
+                self.def_global(Term, d.0 .0, d.0 .1, dec.span(), is_redecl);
             }
             ast::Decl::Instance(_, _, _) => (),
             ast::Decl::Derive(_, _) => (),
@@ -1252,11 +1261,11 @@ impl<'s> N<'s> {
             for v in vs {
                 match v {
                     ast::LetBinding::Sig(l, _) => {
-                        self.def_local(Term, l.0 .0, l.0 .1);
+                        self.def_local(Term, l.0 .0, l.0 .1, l.0 .1);
                         break;
                     }
                     ast::LetBinding::Name(l, _, _) => {
-                        self.def_local(Term, l.0 .0, l.0 .1);
+                        self.def_local(Term, l.0 .0, l.0 .1, l.0 .1);
                         break;
                     }
                     ast::LetBinding::Pattern(_, _) => {}
@@ -1324,10 +1333,10 @@ impl<'s> N<'s> {
             }
             ast::Binder::Wildcard(_) => (),
             ast::Binder::Var(name) => {
-                self.def_local(Term, name.0 .0, name.0 .1);
+                self.def_local(Term, name.0 .0, name.0 .1, name.0 .1);
             }
             ast::Binder::Named(name, b) => {
-                self.def_local(Term, name.0 .0, name.0 .1);
+                self.def_local(Term, name.0 .0, name.0 .1, name.0 .1);
                 self.binder(b);
             }
             ast::Binder::Constructor(c) => {
@@ -1347,7 +1356,7 @@ impl<'s> N<'s> {
                     match b {
                         ast::RecordLabelBinder::Pun(l) => {
                             self.label(ast::Label(l.0));
-                            self.def_local(Term, l.0 .0, l.0 .1);
+                            self.def_local(Term, l.0 .0, l.0 .1, l.0 .1);
                         }
                         ast::RecordLabelBinder::Field(l, b) => {
                             self.label(*l);
@@ -1385,7 +1394,7 @@ impl<'s> N<'s> {
 
             ast::Typ::Var(v) => {
                 if self.find_local(Type, v.0 .0).is_none() {
-                    self.def_local(Type, v.0 .0, v.0 .1);
+                    self.def_local(Type, v.0 .0, v.0 .1, v.0 .1);
                 } else {
                     self.resolve(Type, None, v.0);
                 }
@@ -1463,7 +1472,7 @@ impl<'s> N<'s> {
                 // Has to be handled by caller
                 // let sf = self.push();
                 for x in xs.iter() {
-                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1);
+                    self.def_local(Type, x.0 .0 .0, x.0 .0 .1, x.0 .0 .1);
                 }
                 self.typ(t);
                 // self.pop(sf);
@@ -1503,7 +1512,7 @@ impl<'s> N<'s> {
     #[instrument(skip(self, xs))]
     fn typ_var_bindings(&mut self, xs: &[ast::TypVarBinding]) {
         for ast::TypVarBinding(x, k, _) in xs {
-            self.def_local(Type, x.0 .0, x.0 .1);
+            self.def_local(Type, x.0 .0, x.0 .1, x.0 .1);
             if let Some(k) = k {
                 self.typ(k);
             }
@@ -1530,7 +1539,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
         n.me = name;
         n.exports
             .push(Export::Just(Name(Module, name, name, Visibility::Public)));
-        n.def_global(Module, h.0 .0.0, h.0.0.1, true);
+        n.def_global(Module, h.0 .0 .0, h.0 .0 .1, h.0 .0 .1, true);
         // Inject the Prim import
         n.import(&ast::ImportDecl {
             start: ast::Span::Zero,

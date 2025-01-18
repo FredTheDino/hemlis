@@ -244,7 +244,7 @@ fn parse_and_resolve_names(flags: BTreeSet<Flag>, files: Vec<String>) {
                         .insert((*span, *sort));
                 }
             }
-            usages.insert(*me, n.usages);
+            usages.insert(*me, n.references);
             resolved.insert(*me, n.resolved);
         }
         done.append(&mut todo.into_iter().map(|(_, me, _)| *me).collect());
