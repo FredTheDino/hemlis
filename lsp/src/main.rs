@@ -88,6 +88,11 @@ struct Backend {
     modules: DashMap<ast::Ud, ast::Module>,
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
     defines: DashMap<Name, ast::Span>,
+    // TODO: Fields are technically not memory managed here - they are just always appended. This
+    // should probably be fixed - but ATM computers are fast LOL.
+    //
+    // This can easily be fixed by stripping out the field names if we come accross them - but we
+    // can also like not do that.
     references: DashMap<ast::Ud, BTreeMap<Name, BTreeSet<(ast::Span, nr::Sort)>>>,
 
     syntax_errors: DashMap<ast::Fi, Vec<tower_lsp::lsp_types::Diagnostic>>,
@@ -547,15 +552,16 @@ impl LanguageServer for Backend {
                     .references
                     .try_get(&ast::Ud::zero())
                     .try_unwrap()?
-                    .keys()
-                    .filter_map(|k| {
-                        if k.scope() != nr::Scope::Label {
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        if k.scope() != nr::Scope::Label || v.is_empty() {
                             None
                         } else {
                             Some(*k)
                         }
                     })
                 .collect::<Vec<_>>();
+
                 for n in fields.iter() {
                     if maybe_first_letter.is_none()
                         || n.name().starts_with(maybe_first_letter.unwrap())
