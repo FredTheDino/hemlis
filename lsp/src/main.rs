@@ -1,7 +1,6 @@
 #![allow(clippy::type_complexity)]
 #![feature(btree_cursors)]
 
-use core::time;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -204,11 +203,11 @@ impl LanguageServer for Backend {
                     },
                 })),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
+                    resolve_provider: Some(true),
                     trigger_characters: Some(vec![".".to_string()]),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
-                    completion_item: None,
+                    completion_item: Some(CompletionOptionsCompletionItem { label_details_support: Some(true) }),
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["load_workspace".to_string(), "random_command".to_string()],
@@ -492,6 +491,7 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
+        tracing::info!("completion..");
         let completions = || -> Option<Vec<CompletionItem>> {
             let fi = *self.url_to_fi.try_get(&uri).try_unwrap()?;
             let me = *self.fi_to_ud.try_get(&fi).try_unwrap()?;
@@ -501,9 +501,14 @@ impl LanguageServer for Backend {
                 try_find_word(&source, line, position.character as usize)?.to_string();
             drop(source);
 
+            tracing::info!("completion for \"{:?}\"", to_complete);
             let maybe_first_letter = to_complete.chars().nth(0);
 
             let mut out = Vec::new();
+
+            // TODO: If the user has typed anything here - we can get an inference of the kind of
+            // symbol and narrow the search significantly. If we know it's a type we can ignore
+            // terms and vice versa.
 
             // Imported
             let (namespace, var) = if let Some(last) = to_complete.rfind('.') {
@@ -529,6 +534,38 @@ impl LanguageServer for Backend {
                         out.push(CompletionItem::new_simple(
                             name.to_string(),
                             format!("Imported {:?}", n.scope()),
+                        ));
+                    }
+                }
+            } else {
+                let maybe_field =to_complete.split(".").last();
+                tracing::info!("completion for field \"{:?}\"", maybe_field);
+                let maybe_first_letter = maybe_field .and_then(|x| x.chars().next());
+                // We're assuming it's a field we're looking at since there's not an imported
+                // namespace with this name.
+                let fields: Vec<_> = self
+                    .references
+                    .try_get(&ast::Ud::zero())
+                    .try_unwrap()?
+                    .keys()
+                    .filter_map(|k| {
+                        if k.scope() != nr::Scope::Label {
+                            None
+                        } else {
+                            Some(*k)
+                        }
+                    })
+                .collect::<Vec<_>>();
+                for n in fields.iter() {
+                    if maybe_first_letter.is_none()
+                        || n.name().starts_with(maybe_first_letter.unwrap())
+                    {
+                        // TODO: If this is nice - and people want more - I can add more info here when
+                        // they know what they want.
+                        let name = self.name_(&n.name());
+                        out.push(CompletionItem::new_simple(
+                            format!("{}", name),
+                            format!("Define {:?}", n.scope()),
                         ));
                     }
                 }
