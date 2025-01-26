@@ -603,7 +603,7 @@ impl LanguageServer for Backend {
                         // they know what they want.
                         let name = self.name_(&n.name());
                         out.push(CompletionItem::new_simple(
-                            format!("{}", name),
+                            name.to_string(),
                             format!("Define {:?}", n.scope()),
                         ));
                     }
@@ -656,7 +656,7 @@ impl LanguageServer for Backend {
                         // they know what they want.
                         let name = self.name_(&n.name());
                         out.push(CompletionItem::new_simple(
-                            format!("{}", name),
+                            name.to_string(),
                             format!("Define {:?}", n.scope()),
                         ));
                     }
@@ -818,7 +818,7 @@ impl LanguageServer for Backend {
                     };
 
                     for (m, xs) in imported.iter() {
-                        for export in xs.into_iter() {
+                        for export in xs.iter() {
                             match export {
                                 Export::ConstructorsSome(name, constructors)
                                 | Export::ConstructorsAll(name, constructors) => {
@@ -862,8 +862,8 @@ impl LanguageServer for Backend {
                                 ),
                                 kind: Some(CodeActionKind::QUICKFIX),
                                 is_preferred: Some(
-                                    ns_name.find(&name_name).is_some()
-                                        || name_name.find(&ns_name).is_some(),
+                                    ns_name.contains(&name_name)
+                                        || name_name.contains(&ns_name),
                                 ),
                                 edit: Some(WorkspaceEdit::new(
                                     [(
@@ -956,7 +956,7 @@ impl LanguageServer for Backend {
                         if *m == me {
                             continue;
                         }
-                        for export in xs.into_iter() {
+                        for export in xs.iter() {
                             match export {
                                 Export::ConstructorsSome(name, constructors)
                                 | Export::ConstructorsAll(name, constructors) => {
@@ -995,7 +995,7 @@ impl LanguageServer for Backend {
                     edit: Some(WorkspaceEdit::new(
                         [(
                             uri.clone(),
-                            vec![TextEdit::new(span_to_range(&at), "".into())],
+                            vec![TextEdit::new(span_to_range(at), "".into())],
                         )]
                         .into(),
                     )),
@@ -1069,8 +1069,8 @@ impl LanguageServer for Backend {
             let def_at = self.defines.try_get(&name).try_unwrap()?;
             let fi = *self.ud_to_fi.try_get(&name.module()).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-            try_find_comments_before(&source, def_at.lo().0).map(|x| {
-                writeln!(target, "").unwrap();
+            if let Some(x) = try_find_comments_before(&source, def_at.lo().0) {
+                writeln!(target).unwrap();
                 x.split("\n").for_each(|x| {
                     writeln!(
                         target,
@@ -1081,14 +1081,14 @@ impl LanguageServer for Backend {
                     )
                     .unwrap();
                 })
-            });
-            try_find_lines(&source, def_at.lo().0, def_at.hi().0).map(|x| {
+            }
+            if let Some(x) = try_find_lines(&source, def_at.lo().0, def_at.hi().0) {
                 writeln!(target, "```purescript").unwrap();
                 x.split("\n").for_each(|x| {
                     writeln!(target, "{}", x.trim_end()).unwrap();
                 });
                 writeln!(target, "```").unwrap();
-            });
+            }
             Some(())
         })();
 
@@ -1096,7 +1096,7 @@ impl LanguageServer for Backend {
         if let Some(module_name) = self.name(&name.module()) {
             write!(target, ", in {}", module_name).unwrap();
         }
-        write!(target, "\n").unwrap();
+        writeln!(target).unwrap();
 
         // (|| {
         //     let references = self
@@ -1689,7 +1689,7 @@ impl Backend {
                 let fi = *self.ud_to_fi.try_get(x).try_unwrap()?;
                 let version = *self.fi_to_version.try_get(&fi).try_unwrap()?;
                 tracing::info!("RESOLVING {:?} {}", x, to_check.len());
-                let _ = self.resolve_module(&m, fi, version);
+                let _ = self.resolve_module(m, fi, version);
                 Some((**x, if self
                     .exports
                     .try_get(x)
