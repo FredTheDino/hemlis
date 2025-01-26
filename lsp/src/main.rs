@@ -6,12 +6,16 @@ use std::fs::File;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Bound;
 use std::sync::RwLock;
+use std::thread::sleep;
+use std::time::Duration;
+// use tokio::sync::RwLock;
 
 use ast::{Ast, Pos};
 use dashmap::DashMap;
 use futures::future::join_all;
 use hemlis_lib::*;
 use nr::{Export, NRerrors, Name, Scope, Visibility};
+use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
@@ -144,7 +148,7 @@ fn try_find_word(source: &str, line: usize, offset: usize) -> Option<&str> {
     let mut it = source.match_indices("\n");
     let (line_start, _) = it.nth(line.saturating_sub(1))?;
     let (line_end, _) = it.next()?;
-    let at = (line_start + 1 + offset as usize).min(line_end);
+    let at = (line_start + 1 + offset).min(line_end);
     let start = source[..at].rfind(char::is_whitespace)?;
     let end = source[at..].find(char::is_whitespace)?;
     Some(&source[start + 1..end + at])
@@ -212,7 +216,9 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string()]),
                     work_done_progress_options: Default::default(),
                     all_commit_characters: None,
-                    completion_item: Some(CompletionOptionsCompletionItem { label_details_support: Some(true) }),
+                    completion_item: Some(CompletionOptionsCompletionItem {
+                        label_details_support: Some(true),
+                    }),
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["load_workspace".to_string(), "random_command".to_string()],
@@ -255,7 +261,8 @@ impl LanguageServer for Backend {
         {
             tracing::info!("version {}", hemlis_lib::version());
             tracing::info!("Scanning...");
-            self.load_workspace().await;
+            let folders = self.client.workspace_folders().await.ok().flatten().unwrap_or_default();
+            self.load_workspace(folders);
             tracing::info!("Done scanning");
             let mut futures = Vec::new();
             for i in self.fi_to_url.iter() {
@@ -275,22 +282,48 @@ impl LanguageServer for Backend {
 
     #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.on_change(TextDocumentItem {
-            uri: params.text_document.uri,
+        if let Some((fi, version, to_notify)) = self.on_change(TextDocumentItem {
             text: &params.text_document.text,
+            uri: params.text_document.uri.clone(),
             version: Some(params.text_document.version),
-        })
-        .await
+        }) {
+            self.show_errors(fi, version).await;
+            for (fi, v) in to_notify.iter() {
+                self.show_errors(*fi, *v).await;
+            }
+            if !to_notify.is_empty() {
+                let _ = self.client.workspace_diagnostic_refresh().await;
+            }
+        }
+
+        tracing::info!(
+            "!! {:?} FINISHED! {:?}",
+            params.text_document.version,
+            params.text_document.uri.to_string()
+        );
     }
 
     #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.on_change(TextDocumentItem {
+        if let Some((fi, version, to_notify)) = self.on_change(TextDocumentItem {
             text: &params.content_changes[0].text,
-            uri: params.text_document.uri,
+            uri: params.text_document.uri.clone(),
             version: Some(params.text_document.version),
-        })
-        .await
+        }) {
+            self.show_errors(fi, version).await;
+            for (fi, v) in to_notify.iter() {
+                self.show_errors(*fi, *v).await;
+            }
+            if !to_notify.is_empty() {
+                let _ = self.client.workspace_diagnostic_refresh().await;
+            }
+        }
+
+        tracing::info!(
+            "!! {:?} FINISHED! {:?}",
+            params.text_document.version,
+            params.text_document.uri.to_string()
+        );
     }
 
     #[instrument(skip(self))]
@@ -309,11 +342,11 @@ impl LanguageServer for Backend {
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
             ) {
-                let def_at = self.defines.try_get(&name).try_unwrap()?;
+                let def_at = *self.defines.try_get(&name).try_unwrap()?.value();
                 let uri = self.fi_to_url.try_get(&def_at.fi()?).try_unwrap()?.clone();
                 Some(GotoDefinitionResponse::Scalar(Location {
                     uri,
-                    range: span_to_range(def_at.value()),
+                    range: span_to_range(&def_at),
                 }))
             } else {
                 let fi = *self
@@ -543,9 +576,9 @@ impl LanguageServer for Backend {
                     }
                 }
             } else {
-                let maybe_field =to_complete.split(".").last();
+                let maybe_field = to_complete.split(".").last();
                 tracing::info!("completion for field \"{:?}\"", maybe_field);
-                let maybe_first_letter = maybe_field .and_then(|x| x.chars().next());
+                let maybe_first_letter = maybe_field.and_then(|x| x.chars().next());
                 // We're assuming it's a field we're looking at since there's not an imported
                 // namespace with this name.
                 let fields: Vec<_> = self
@@ -560,7 +593,7 @@ impl LanguageServer for Backend {
                             Some(*k)
                         }
                     })
-                .collect::<Vec<_>>();
+                    .collect::<Vec<_>>();
 
                 for n in fields.iter() {
                     if maybe_first_letter.is_none()
@@ -601,7 +634,6 @@ impl LanguageServer for Backend {
                 }
 
                 // Defines
-                let lock = self.locked.write();
                 let defines: Vec<_> = self
                     .defines
                     .iter()
@@ -613,7 +645,6 @@ impl LanguageServer for Backend {
                         Some(*k)
                     })
                     .collect();
-                drop(lock);
                 for n in defines.iter() {
                     if n.module() != me {
                         continue;
@@ -676,8 +707,8 @@ impl LanguageServer for Backend {
         // At least the neovim client is tricky when doing renames - it applies the edits one after
         // the other. This makes us validate EACH version of the document as the edits are applied.
         // If we want to keep the bandwith low the edits do make sense - but given the current
-        // state of the LSP this isn't how it works. 
-        // 
+        // state of the LSP this isn't how it works.
+        //
         // I tried adding a sleep to the sending of messages - but that doesn't really work
         // apparently.
         //
@@ -686,11 +717,10 @@ impl LanguageServer for Backend {
         //
         // The rust LSP waits a few seconds (or is just really slow).
 
-        tracing::info!("rename suggested with {:?} edits", edits.values().map(|x| x.len()).collect::<Vec<_>>());
-
-        let foo = 1;
-        println!("{foo}");
-
+        tracing::info!(
+            "rename suggested with {:?} edits",
+            edits.values().map(|x| x.len()).collect::<Vec<_>>()
+        );
 
         Ok(Some(WorkspaceEdit::new(edits)))
     }
@@ -764,30 +794,27 @@ impl LanguageServer for Backend {
                         .collect();
 
                     let handle = |ns: Option<ast::Ud>, name: &nr::Name, out: &mut Vec<_>| {
-                        out.push(
-                            CodeAction {
-                                title: format!(
-                                    "[QUSE {:?}] Qualified use {} ({})",
-                                    name.scope(),
-                                    format_name(ns, name.name(), &self.names),
-                                    self.name_(&name.module()),
-                                ),
-                                kind: Some(CodeActionKind::QUICKFIX),
-                                is_preferred: Some(true),
-                                edit: Some(WorkspaceEdit::new(
-                                    [(
-                                        uri.clone(),
-                                        vec![TextEdit::new(
-                                            range(at.lo(), at.hi()),
-                                            format_name(ns, name.name(), &self.names),
-                                        )],
-                                    )]
-                                    .into(),
-                                )),
-                                ..CodeAction::default()
-                            }
-                            .into(),
-                        );
+                        out.push(CodeAction {
+                            title: format!(
+                                "[QUSE {:?}] Qualified use {} ({})",
+                                name.scope(),
+                                format_name(ns, name.name(), &self.names),
+                                self.name_(&name.module()),
+                            ),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            is_preferred: Some(true),
+                            edit: Some(WorkspaceEdit::new(
+                                [(
+                                    uri.clone(),
+                                    vec![TextEdit::new(
+                                        range(at.lo(), at.hi()),
+                                        format_name(ns, name.name(), &self.names),
+                                    )],
+                                )]
+                                .into(),
+                            )),
+                            ..CodeAction::default()
+                        });
                     };
 
                     for (m, xs) in imported.iter() {
@@ -816,13 +843,11 @@ impl LanguageServer for Backend {
                         }
                     }
 
-                    let lock = self.locked.write();
                     let exports: BTreeMap<ast::Ud, Vec<nr::Export>> = self
                         .exports
                         .iter()
                         .map(|x| (*x.key(), x.value().clone()))
                         .collect();
-                    drop(lock);
 
                     let handle = |name: &nr::Name, _is_constructor: bool, out: &mut Vec<_>| {
                         if let Some(ns) = ns {
@@ -1007,7 +1032,9 @@ impl LanguageServer for Backend {
             self.client
                 .log_message(MessageType::INFO, "Loading entire workspace...".to_string())
                 .await;
-            self.load_workspace().await;
+
+            let folders = self.client.workspace_folders().await.ok().flatten().unwrap_or_default();
+            self.load_workspace(folders);
             self.client
                 .log_message(MessageType::INFO, "Done loading!".to_string())
                 .await;
@@ -1024,6 +1051,7 @@ impl LanguageServer for Backend {
 
     #[instrument(skip(self))]
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        tracing::info!("HOVER");
         let name = or_!(
             self.resolve_name(
                 &params.text_document_position_params.text_document.uri,
@@ -1070,23 +1098,23 @@ impl LanguageServer for Backend {
         }
         write!(target, "\n").unwrap();
 
-        (|| {
-            let references = self
-                .references
-                .try_get(&name.module())
-                .try_unwrap()?
-                .get(&name)?
-                .clone();
-            let num_references = references.iter().count();
-            let num_usages = references.iter().filter(|(_, x)| x.is_ref()).count();
-            writeln!(
-                target,
-                "{} references\n{} usages",
-                num_references, num_usages
-            )
-            .unwrap();
-            Some(())
-        })();
+        // (|| {
+        //     let references = self
+        //         .references
+        //         .try_get(&name.module())
+        //         .try_unwrap()?
+        //         .get(&name)?
+        //         .clone();
+        //     let num_references = references.iter().count();
+        //     let num_usages = references.iter().filter(|(_, x)| x.is_ref()).count();
+        //     writeln!(
+        //         target,
+        //         "{} references\n{} usages",
+        //         num_references, num_usages
+        //     )
+        //     .unwrap();
+        //     Some(())
+        // })();
 
         Ok(Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
@@ -1368,19 +1396,19 @@ impl Backend {
     }
 
     #[instrument(skip(self))]
-    async fn load_workspace(&self) -> Option<()> {
+    fn load_workspace(&self, folders: Vec<WorkspaceFolder>) -> Option<()> {
         tracing::info!("Load start");
-        let folders = self.client.workspace_folders().await.ok()??;
 
         for folder in folders {
             use glob::glob;
-            let mut deps: Vec<(ast::Ud, ast::Fi, BTreeSet<ast::Ud>, ast::Module)> = Vec::new();
-            for path in glob(&format!(
+            let deps = glob(&format!(
                 "{}/lib/**/*.purs",
                 folder.uri.to_string().strip_prefix("file://")?
             ))
             .ok()?
-            {
+            .collect::<Vec<_>>()
+            .par_iter()
+            .filter_map(|path| {
                 let path = path.as_ref().ok()?;
                 let x = (|| {
                     let source = std::fs::read_to_string(path.clone()).ok()?;
@@ -1389,7 +1417,12 @@ impl Backend {
                         &path.clone().into_os_string().into_string().ok()?
                     ))
                     .ok()?;
-                    let fi = self.find_fi(uri.clone()).unwrap();
+                    let fi = loop {
+                        if let Some(fi) = self.find_fi(uri.clone()) {
+                            break fi;
+                        }
+                        tracing::error!("FAILED TO GENERATE FI");
+                    };
                     self.fi_to_source.insert(fi, source.to_string());
                     self.fi_to_url.insert(fi, uri.clone());
                     self.fi_to_version.insert(fi, None);
@@ -1412,20 +1445,15 @@ impl Backend {
                     self.ud_to_fi.insert(me, fi);
                     Some((me, fi, imports, m))
                 })();
-                if let Some(x) = x {
-                    deps.push(x);
-                } else {
-                    self.client
-                        .log_message(
-                            MessageType::ERROR,
-                            &format!(
-                                "FAILED: {:?}",
-                                &path.clone().into_os_string().into_string().ok()?
-                            ),
-                        )
-                        .await;
+                if x.is_none() {
+                    tracing::error!(
+                        "FAILED: {:?}",
+                        &path.clone().into_os_string().into_string().ok()?
+                    );
                 }
-            }
+                x
+            })
+            .collect::<Vec<_>>();
             tracing::info!("=========");
 
             // NOTE: Not adding them to the name lookup
@@ -1454,23 +1482,16 @@ impl Backend {
                         .filter(|(m, _, _, _)| !done.contains(m))
                         .collect();
                     if !left.is_empty() {
-                        self.client
-                            .log_message(
-                                MessageType::ERROR,
-                                &format!("Dependency cycle detected: {}", left.len()),
-                            )
-                            .await;
+                        tracing::error!("Dependency cycle detected: {}", left.len());
                     }
                     break;
                 }
-                let mut futures = Vec::new();
-                for (_, fi, _, m) in todo.iter() {
-                    futures.push(async {
-                        self.resolve_module(m, *fi, None);
-                    });
-                }
-                join_all(futures).await;
-                done.append(&mut todo.into_iter().map(|(m, _, _, _)| *m).collect());
+                todo.par_iter().for_each(|(_, fi, _, m)| {
+                    self.resolve_module(m, *fi, None);
+                });
+                done.append(&mut todo.into_iter().map(|(me, _, _, _)| 
+                        *me
+                        ).collect());
             }
         }
         tracing::info!("LOAD_WORKSPACE - DONE");
@@ -1498,23 +1519,6 @@ impl Backend {
             exports,
             ..
         } = n;
-
-
-        if self.got_refresh(fi, version) {
-            tracing::info!("EARLY OUT 1 {:?} {:?}", fi, version);
-            return None;
-        }
-        tracing::info!("GETTING LOCK {:?} {:?}", fi, version);
-        let lock = self.locked.write();
-        if self.got_refresh(fi, version) {
-            tracing::info!("EARLY OUT 2 {:?} {:?}", fi, version);
-            return None;
-        }
-        tracing::info!("HOLDING LOCK {:?} {:?}", fi, version);
-
-        self.modules.insert(me, m.clone());
-        self.fi_to_ud.insert(fi, me);
-        self.ud_to_fi.insert(me, fi);
 
         self.fixables.insert(
             fi,
@@ -1608,7 +1612,12 @@ impl Backend {
             } else {
                 true
             };
-            tracing::info!("exports_changed={:?} {:?} {:?}", exports_changed, fi, new_hash);
+            tracing::info!(
+                "exports_changed={:?} {:?} {:?}",
+                exports_changed,
+                fi,
+                new_hash
+            );
             exports_changed
         };
 
@@ -1649,18 +1658,18 @@ impl Backend {
                     .insert(me);
             }
         }
-        drop(lock);
         Some((exports_changed, n.me))
     }
 
     #[instrument(skip(self))]
-    async fn resolve_cascading(&self, me: ast::Ud, fi: ast::Fi, version: Option<i32>) {
+    fn resolve_cascading(&self, me: ast::Ud, fi: ast::Fi, version: Option<i32>) -> Vec<(ast::Fi, Option<i32>)> {
         // TODO: This can be way way smarter, currently it only runs on changed exports.
         // Some exteions include: Lineage tracking - saying letting me know what parts actually
         // changed.
         let name = Name(Scope::Module, me, me, Visibility::Public);
+        let mut to_notify = Vec::new();
         let mut checked = BTreeSet::new();
-        let mut to_check: Vec<ast::Ud> = self
+        let mut to_check: BTreeSet<ast::Ud> = self
             .importers
             .try_get(&me)
             .try_unwrap()
@@ -1668,46 +1677,47 @@ impl Backend {
             .flat_map(|x| x.iter())
             .copied()
             .collect();
-        while let Some(x) = to_check.pop() {
-            if self.got_refresh(fi, version) {
-                tracing::info!("GOT REFRESH - ABORTING");
-                continue;
+        let mut size_last_iter = 0;
+        loop {
+            if size_last_iter == to_check.len() {
+                break
             }
-            if checked.contains(&x) {
-                continue;
-            }
-            tracing::info!("TO CHECK {:?} {}", x, to_check.len());
-            checked.insert(x);
-            if let (Some(m), Some(fi), Some(version)) = (
-                self.modules.try_get(&x).try_unwrap(),
-                self.ud_to_fi.try_get(&x).try_unwrap(),
-                self.fi_to_version.try_get(&fi).try_unwrap(),
-            ) {
+            tracing::info!("CASCADE ITER {:?} {:?}", size_last_iter, to_check.len());
+            size_last_iter = to_check.len();
+            let done = to_check.difference(&checked).collect::<Vec<_>>().par_iter().filter_map(|x| {
+                let m = &*self.modules.try_get(x).try_unwrap()?;
+                let fi = *self.ud_to_fi.try_get(x).try_unwrap()?;
+                let version = *self.fi_to_version.try_get(&fi).try_unwrap()?;
                 tracing::info!("RESOLVING {:?} {}", x, to_check.len());
-                let _ = self.resolve_module(&m, *fi, *version);
-                if self
+                let _ = self.resolve_module(&m, fi, version);
+                Some((**x, if self
                     .exports
-                    .try_get(&x)
+                    .try_get(x)
                     .try_unwrap()
                     .map(|ex| ex.iter().any(|x| x.contains(name)))
                     .unwrap_or(false)
                 {
                     tracing::info!("REEXPORT {:?} {}", x, to_check.len());
                     // It's a re-export which means we need to check everything that imports this as well!
-                    to_check.append(
-                        &mut self
+                        self
                             .importers
-                            .try_get(&x)
+                            .try_get(x)
                             .try_unwrap()
                             .iter()
-                            .flat_map(|x| x.iter())
-                            .copied()
-                            .collect::<Vec<_>>(),
-                    );
-                }
+                            .flat_map(|x| x.iter().copied())
+                            .collect::<BTreeSet<_>>()
+                } else {
+                    BTreeSet::new()
+                }, fi, version))
+            }).collect::<Vec<_>>();
+            for (x, mut extra, fi, version) in done.into_iter() {
+                tracing::info!("DONE CHECK {:?}", x);
+                checked.insert(x);
+                to_check.append(&mut extra);
+                to_notify.push((fi, version));
             }
-            tracing::info!("DONE CHECK {:?}", x);
         }
+        to_notify
     }
 
     #[instrument(skip(self))]
@@ -1715,32 +1725,31 @@ impl Backend {
         if self.got_refresh(fi, version) {
             return;
         }
-        if let Some(url) = self.fi_to_url.try_get(&fi).try_unwrap() {
-            tracing::info!("PRESENTING DIAGNOSTICS {:?}", url.to_string());
-            self.client
-                .publish_diagnostics(
-                    url.clone(),
-                    [
-                        if let Some(x) = self.syntax_errors.try_get(&fi).try_unwrap() {
-                            x.value().clone()
-                        } else {
-                            Vec::new()
-                        },
-                        if let Some(x) = self.name_resolution_errors.try_get(&fi).try_unwrap() {
-                            x.value().clone()
-                        } else {
-                            Vec::new()
-                        },
-                    ]
-                    .concat(),
-                    if let Some(v) = self.fi_to_version.try_get(&fi).try_unwrap() {
-                        *v
-                    } else {
-                        None
-                    },
-                )
-                .await
-        }
+        let url = if let Some(url) = self.fi_to_url.try_get(&fi).try_unwrap() {
+            url.value().clone()
+        } else {
+            return;
+        };
+
+        let se = if let Some(x) = self.syntax_errors.try_get(&fi).try_unwrap() {
+            x.value().clone()
+        } else {
+            Vec::new()
+        };
+        let re = if let Some(x) = self.name_resolution_errors.try_get(&fi).try_unwrap() {
+            x.value().clone()
+        } else {
+            Vec::new()
+        };
+        let v = if let Some(v) = self.fi_to_version.try_get(&fi).try_unwrap() {
+            *v
+        } else {
+            None
+        };
+        // tracing::info!("PRESENTING DIAGNOSTICS {:?}", url.to_string());
+        self.client
+            .publish_diagnostics(url.clone(), [se, re].concat(), v)
+            .await
     }
 
     #[instrument(skip(self, source))]
@@ -1787,87 +1796,85 @@ impl Backend {
     }
 
     #[instrument(skip(self, params))]
-    async fn on_change(&self, params: TextDocumentItem<'_>) {
+    fn on_change(&self, params: TextDocumentItem<'_>) -> Option<(ast::Fi, std::option::Option<i32>, Vec<(ast::Fi, std::option::Option<i32>)>)> {
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
-            self.client
-                .log_message(MessageType::INFO, "Blocking since not started")
-                .await;
-            return;
+            tracing::error!("Aborting since not started");
         }
 
         let uri = params.uri.clone();
         let source = params.text;
         let version = params.version;
 
-        tracing::info!("{:?} A {:?}", params.version, params.uri.to_string());
 
         let fi = loop {
             if let Some(fi) = self.find_fi(uri.clone()) {
                 break fi;
             }
-            self.client
-                .log_message(MessageType::ERROR, "FAILED TO GENERATE FI")
-                .await;
+            tracing::error!("FAILED TO GENERATE FI");
         };
 
         // TODO: How to handle two files with the same module name?
         match self.fi_to_version.try_entry(fi) {
             Some(dashmap::Entry::Occupied(mut o)) => {
                 if o.get().is_some() && o.get() > &version {
-                    return;
+                    return None;
                 }
                 o.insert(version);
             }
             Some(dashmap::Entry::Vacant(v)) => {
                 v.insert(version);
             }
-            None => return,
+            None => return None,
         }
+        sleep(Duration::from_millis(1));
+        let lock = self.locked.write().unwrap();
         if self.got_refresh(fi, version) {
-            return;
+            tracing::info!("!! {:?} ABORTED {:?}", version, uri.to_string());
+            return None
         }
-
-        tracing::info!("!! {:?} B {:?}", params.version, params.uri.to_string());
+        tracing::info!("!! {:?} GOT LOCK {:?}", version, uri.to_string());
 
         // I have to copy it! :(
         self.fi_to_source.insert(fi, source.to_string());
+        tracing::info!("!! {:?} A {:?}", version, uri.to_string());
         self.fi_to_url.insert(fi, uri.clone());
+        tracing::info!("!! {:?} B {:?}", version, uri.to_string());
         let (m, fi) = self.parse(fi, source);
 
-        tracing::info!("!! {:?} C {:?}", params.version, params.uri.to_string());
+        tracing::info!("!! {:?} PARSING DONE {:?}", version, uri.to_string());
 
         // TODO: We could exit earlier if we have the same syntactical structure here
-        if let Some(m) = m {
+        let to_notify = if let Some(m) = m {
             tracing::info!(
                 "!! {:?} PRE RESOLVE {:?}",
-                params.version,
-                params.uri.to_string()
+                version,
+                uri.to_string()
             );
-            if let Some((exports_changed, me)) = self.resolve_module(&m, fi, params.version) {
-                tracing::info!(
-                    "!! {:?} POST RESOLVE {:?}",
-                    params.version,
-                    params.uri.to_string()
-                );
-
-                if self.got_refresh(fi, version) {
-                    return;
-                }
+            if let Some((exports_changed, me)) = self.resolve_module(&m, fi, version) {
+                self.modules.insert(me, m);
+        tracing::info!("!! {:?} H {:?}", version, uri.to_string());
+                self.fi_to_ud.insert(fi, me);
+        tracing::info!("!! {:?} I {:?}", version, uri.to_string());
+                self.ud_to_fi.insert(me, fi);
+        tracing::info!("!! {:?} J {:?}", version, uri.to_string());
 
                 if exports_changed {
                     tracing::info!("CASCADE CHANGE - START");
-                    self.resolve_cascading(me, fi, params.version).await;
-                    let _ = self.client.workspace_diagnostic_refresh().await;
+                    let to_notify = self.resolve_cascading(me, fi, version);
                     tracing::info!("CASCADE CHANGE - END");
+                    to_notify
+                } else {
+                    Vec::new()
                 }
+            } else {
+                    Vec::new()
             }
-        }
-        tracing::info!(
-            "!! {:?} FINISHED! {:?}",
-            params.version,
-            params.uri.to_string()
-        );
-        self.show_errors(fi, params.version).await;
+        } else {
+            Vec::new()
+        };
+        tracing::info!("!! {:?} DROP LOCK {:?}", version, uri.to_string());
+        drop(lock);
+        Some((fi, version, to_notify))
     }
 }
 

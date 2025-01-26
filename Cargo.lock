@@ -406,6 +406,7 @@ dependencies = [
  "glob",
  "hemlis",
  "json-subscriber",
+ "rayon",
  "serde",
  "serde_json",
  "sungod",
