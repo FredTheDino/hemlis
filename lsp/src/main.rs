@@ -261,7 +261,13 @@ impl LanguageServer for Backend {
         {
             tracing::info!("version {}", hemlis_lib::version());
             tracing::info!("Scanning...");
-            let folders = self.client.workspace_folders().await.ok().flatten().unwrap_or_default();
+            let folders = self
+                .client
+                .workspace_folders()
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
             self.load_workspace(folders);
             tracing::info!("Done scanning");
             let mut futures = Vec::new();
@@ -862,8 +868,7 @@ impl LanguageServer for Backend {
                                 ),
                                 kind: Some(CodeActionKind::QUICKFIX),
                                 is_preferred: Some(
-                                    ns_name.contains(&name_name)
-                                        || name_name.contains(&ns_name),
+                                    ns_name.contains(&name_name) || name_name.contains(&ns_name),
                                 ),
                                 edit: Some(WorkspaceEdit::new(
                                     [(
@@ -1033,7 +1038,13 @@ impl LanguageServer for Backend {
                 .log_message(MessageType::INFO, "Loading entire workspace...".to_string())
                 .await;
 
-            let folders = self.client.workspace_folders().await.ok().flatten().unwrap_or_default();
+            let folders = self
+                .client
+                .workspace_folders()
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
             self.load_workspace(folders);
             self.client
                 .log_message(MessageType::INFO, "Done loading!".to_string())
@@ -1489,9 +1500,7 @@ impl Backend {
                 todo.par_iter().for_each(|(_, fi, _, m)| {
                     self.resolve_module(m, *fi, None);
                 });
-                done.append(&mut todo.into_iter().map(|(me, _, _, _)| 
-                        *me
-                        ).collect());
+                done.append(&mut todo.into_iter().map(|(me, _, _, _)| *me).collect());
             }
         }
         tracing::info!("LOAD_WORKSPACE - DONE");
@@ -1662,7 +1671,12 @@ impl Backend {
     }
 
     #[instrument(skip(self))]
-    fn resolve_cascading(&self, me: ast::Ud, fi: ast::Fi, version: Option<i32>) -> Vec<(ast::Fi, Option<i32>)> {
+    fn resolve_cascading(
+        &self,
+        me: ast::Ud,
+        fi: ast::Fi,
+        version: Option<i32>,
+    ) -> Vec<(ast::Fi, Option<i32>)> {
         // TODO: This can be way way smarter, currently it only runs on changed exports.
         // Some exteions include: Lineage tracking - saying letting me know what parts actually
         // changed.
@@ -1680,36 +1694,45 @@ impl Backend {
         let mut size_last_iter = 0;
         loop {
             if size_last_iter == to_check.len() {
-                break
+                break;
             }
             tracing::info!("CASCADE ITER {:?} {:?}", size_last_iter, to_check.len());
             size_last_iter = to_check.len();
-            let done = to_check.difference(&checked).collect::<Vec<_>>().par_iter().filter_map(|x| {
-                let m = &*self.modules.try_get(x).try_unwrap()?;
-                let fi = *self.ud_to_fi.try_get(x).try_unwrap()?;
-                let version = *self.fi_to_version.try_get(&fi).try_unwrap()?;
-                tracing::info!("RESOLVING {:?} {}", x, to_check.len());
-                let _ = self.resolve_module(m, fi, version);
-                Some((**x, if self
-                    .exports
-                    .try_get(x)
-                    .try_unwrap()
-                    .map(|ex| ex.iter().any(|x| x.contains(name)))
-                    .unwrap_or(false)
-                {
-                    tracing::info!("REEXPORT {:?} {}", x, to_check.len());
-                    // It's a re-export which means we need to check everything that imports this as well!
-                        self
-                            .importers
+            let done = to_check
+                .difference(&checked)
+                .collect::<Vec<_>>()
+                .par_iter()
+                .filter_map(|x| {
+                    let m = &*self.modules.try_get(x).try_unwrap()?;
+                    let fi = *self.ud_to_fi.try_get(x).try_unwrap()?;
+                    let version = *self.fi_to_version.try_get(&fi).try_unwrap()?;
+                    tracing::info!("RESOLVING {:?} {}", x, to_check.len());
+                    let _ = self.resolve_module(m, fi, version);
+                    Some((
+                        **x,
+                        if self
+                            .exports
                             .try_get(x)
                             .try_unwrap()
-                            .iter()
-                            .flat_map(|x| x.iter().copied())
-                            .collect::<BTreeSet<_>>()
-                } else {
-                    BTreeSet::new()
-                }, fi, version))
-            }).collect::<Vec<_>>();
+                            .map(|ex| ex.iter().any(|x| x.contains(name)))
+                            .unwrap_or(false)
+                        {
+                            tracing::info!("REEXPORT {:?} {}", x, to_check.len());
+                            // It's a re-export which means we need to check everything that imports this as well!
+                            self.importers
+                                .try_get(x)
+                                .try_unwrap()
+                                .iter()
+                                .flat_map(|x| x.iter().copied())
+                                .collect::<BTreeSet<_>>()
+                        } else {
+                            BTreeSet::new()
+                        },
+                        fi,
+                        version,
+                    ))
+                })
+                .collect::<Vec<_>>();
             for (x, mut extra, fi, version) in done.into_iter() {
                 tracing::info!("DONE CHECK {:?}", x);
                 checked.insert(x);
@@ -1796,7 +1819,14 @@ impl Backend {
     }
 
     #[instrument(skip(self, params))]
-    fn on_change(&self, params: TextDocumentItem<'_>) -> Option<(ast::Fi, std::option::Option<i32>, Vec<(ast::Fi, std::option::Option<i32>)>)> {
+    fn on_change(
+        &self,
+        params: TextDocumentItem<'_>,
+    ) -> Option<(
+        ast::Fi,
+        std::option::Option<i32>,
+        Vec<(ast::Fi, std::option::Option<i32>)>,
+    )> {
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             tracing::error!("Aborting since not started");
             return None;
@@ -1805,7 +1835,6 @@ impl Backend {
         let uri = params.uri.clone();
         let source = params.text;
         let version = params.version;
-
 
         let fi = loop {
             if let Some(fi) = self.find_fi(uri.clone()) {
@@ -1831,7 +1860,7 @@ impl Backend {
         let lock = self.locked.write().unwrap();
         if self.got_refresh(fi, version) {
             tracing::info!("!! {:?} ABORTED {:?}", version, uri.to_string());
-            return None
+            return None;
         }
         tracing::info!("!! {:?} GOT LOCK {:?}", version, uri.to_string());
 
@@ -1846,18 +1875,14 @@ impl Backend {
 
         // TODO: We could exit earlier if we have the same syntactical structure here
         let to_notify = if let Some(m) = m {
-            tracing::info!(
-                "!! {:?} PRE RESOLVE {:?}",
-                version,
-                uri.to_string()
-            );
+            tracing::info!("!! {:?} PRE RESOLVE {:?}", version, uri.to_string());
             if let Some((exports_changed, me)) = self.resolve_module(&m, fi, version) {
                 self.modules.insert(me, m);
-        tracing::info!("!! {:?} H {:?}", version, uri.to_string());
+                tracing::info!("!! {:?} H {:?}", version, uri.to_string());
                 self.fi_to_ud.insert(fi, me);
-        tracing::info!("!! {:?} I {:?}", version, uri.to_string());
+                tracing::info!("!! {:?} I {:?}", version, uri.to_string());
                 self.ud_to_fi.insert(me, fi);
-        tracing::info!("!! {:?} J {:?}", version, uri.to_string());
+                tracing::info!("!! {:?} J {:?}", version, uri.to_string());
 
                 if exports_changed {
                     tracing::info!("CASCADE CHANGE - START");
@@ -1868,7 +1893,7 @@ impl Backend {
                     Vec::new()
                 }
             } else {
-                    Vec::new()
+                Vec::new()
             }
         } else {
             Vec::new()
