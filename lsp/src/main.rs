@@ -1799,6 +1799,7 @@ impl Backend {
     fn on_change(&self, params: TextDocumentItem<'_>) -> Option<(ast::Fi, std::option::Option<i32>, Vec<(ast::Fi, std::option::Option<i32>)>)> {
         if !self.has_started.try_read().map(|x| *x).unwrap_or(false) {
             tracing::error!("Aborting since not started");
+            return None;
         }
 
         let uri = params.uri.clone();
