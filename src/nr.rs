@@ -1561,7 +1561,7 @@ impl<'s> N<'s> {
 
     fn check_names_for_unused(&mut self) {
         for (def, spans) in self.defines.iter() {
-            // NOTE[et]: This is strange... 
+            // NOTE[et]: This is strange...
             if def.scope() != Scope::Module && !self.is_used(def) {
                 self.errors
                     .push(NRerrors::UnusedDefinition(*def, spans.clone()));
@@ -1612,13 +1612,13 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
             for ex in exports.iter() {
                 n.export(ex);
             }
+            n.check_names_for_unused();
         } else {
             n.export_self();
         }
         for i in h.2.iter() {
             n.check_imports(i);
         }
-        n.check_names_for_unused();
 
         Some(h.0 .0 .0)
     } else {
