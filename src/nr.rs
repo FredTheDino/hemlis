@@ -118,7 +118,7 @@ pub enum NRerrors {
     UnusedImportedConstructor(ast::Ud, ast::Span),
     UnusedImportTypeAndConstructor(ast::Ud, Vec<Name>, ast::Span),
     UnusedLocal(Name, ast::Span),
-    UnusedDefinition(Name, ast::Span, Option<ast::Span>),
+    UnusedDefinition(Name, DefineSpans),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -140,6 +140,23 @@ impl Sort {
     }
 }
 
+#[derive(Debug, Clone, Ord, Eq, PartialEq, PartialOrd)]
+pub struct DefineSpans {
+    pub name: ast::Span,
+    pub sig: Option<ast::Span>,
+    pub body: Vec<ast::Span>,
+}
+
+impl DefineSpans {
+    fn new(name: ast::Span) -> Self {
+        Self {
+            name,
+            sig: None,
+            body: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct N<'s> {
     pub me: ast::Ud,
@@ -156,7 +173,7 @@ pub struct N<'s> {
 
     pub constructors: BTreeMap<Name, BTreeSet<Name>>,
 
-    pub defines: BTreeMap<Name, (ast::Span, Option<ast::Span>)>,
+    pub defines: BTreeMap<Name, DefineSpans>,
     pub locals: Vec<Name>,
     pub imports: BTreeMap<Option<ast::Ud>, BTreeMap<ast::Ud, Vec<Export>>>,
 }
@@ -356,9 +373,9 @@ impl<'s> N<'s> {
                     })
                     .unwrap_or(false)
             {
-                let at = self.defines.get(n).unwrap().0;
+                let at = self.defines.get(n).unwrap().name;
                 let out = self.defines.get_mut(n).unwrap();
-                *out = (at, Some(ast::Span::from_to(at, end)));
+                out.body.push(ast::Span::from_to(at, end));
                 self.errors.push(NRerrors::UnusedLocal(*n, at));
             }
         }
@@ -369,13 +386,16 @@ impl<'s> N<'s> {
     fn def(&mut self, word: ast::Span, entire: ast::Span, name: Name, ignore_error: bool) {
         match self.defines.entry(name) {
             std::collections::btree_map::Entry::Vacant(v) => {
-                v.insert((entire, None));
+                let mut s = DefineSpans::new(word);
+                s.sig = Some(entire);
+                v.insert(s);
                 self.add_usage(name, word, Sort::Def);
             }
-            std::collections::btree_map::Entry::Occupied(v) => {
+            std::collections::btree_map::Entry::Occupied(mut v) => {
+                v.get_mut().body.push(entire);
                 if !ignore_error {
                     self.errors
-                        .push(NRerrors::MultipleDefinitions(*v.key(), v.get().0, word));
+                        .push(NRerrors::MultipleDefinitions(*v.key(), v.get().name, word));
                 }
                 self.add_usage(name, word, Sort::Def2);
             }
@@ -1540,10 +1560,10 @@ impl<'s> N<'s> {
     }
 
     fn check_names_for_unused(&mut self) {
-        for (def, (at, source)) in self.defines.iter() {
+        for (def, spans) in self.defines.iter() {
             if !self.is_used(def) {
                 self.errors
-                    .push(NRerrors::UnusedDefinition(*def, *at, *source));
+                    .push(NRerrors::UnusedDefinition(*def, spans.clone()));
             }
         }
     }

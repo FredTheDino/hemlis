@@ -68,6 +68,20 @@ impl Span {
         }
     }
 
+    pub fn line_range(&self) -> usize {
+        let (lo, hi) = self.lines();
+        hi - lo + 1
+    }
+
+    pub fn area(&self) -> usize {
+        let (ll, lc) = self.lo();
+        let (hl, hc) = self.hi();
+        fn abs_diff(a: usize, b: usize) -> usize {
+            a.max(b) - a.min(b)
+        }
+        (abs_diff(ll, hl) + 1) * (abs_diff(lc, hc) + 1)
+    }
+
     pub fn from_to(lo: Span, hi: Span) -> Span {
         assert!(lo.fi() == hi.fi() && hi.fi().is_some());
         Span::Known(lo.fi().unwrap(), lo.lo(), hi.hi())
@@ -109,6 +123,10 @@ impl Ud {
 
     pub fn starts_with(&self, c: char) -> bool {
         self.1 == c
+    }
+
+    pub fn is_proper(&self) -> bool {
+        self.1.is_ascii_uppercase()
     }
 
     pub fn starts_with_underscore(&self) -> bool {

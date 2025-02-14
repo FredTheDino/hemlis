@@ -82,7 +82,9 @@ struct Backend {
     imports: DashMap<ast::Ud, BTreeMap<Option<ast::Ud>, Vec<Export>>>,
 
     previouse_global_usages: DashMap<ast::Fi, BTreeSet<(Name, ast::Span, nr::Sort)>>,
-    previouse_defines: DashMap<ast::Fi, BTreeSet<(Name, ast::Span)>>,
+    // NOTE: Maybe I should remove these clones - but maybe there are bigger fish to fry in this
+    // codebase.
+    previouse_defines: DashMap<ast::Fi, BTreeSet<(Name, nr::DefineSpans)>>,
 
     // The option here should always be Some - but `None` lets us do a better partition search
     // here.
@@ -91,7 +93,7 @@ struct Backend {
     exports: DashMap<ast::Ud, Vec<Export>>,
     modules: DashMap<ast::Ud, ast::Module>,
     resolved: DashMap<ast::Ud, BTreeMap<(Pos, Pos), Name>>,
-    defines: DashMap<Name, ast::Span>,
+    defines: DashMap<Name, nr::DefineSpans>,
     // TODO: Fields are technically not memory managed here - they are just always appended. This
     // should probably be fixed - but ATM computers are fast LOL.
     //
@@ -348,11 +350,15 @@ impl LanguageServer for Backend {
                 &params.text_document_position_params.text_document.uri,
                 params.text_document_position_params.position,
             ) {
-                let def_at = *self.defines.try_get(&name).try_unwrap()?.value();
-                let uri = self.fi_to_url.try_get(&def_at.fi()?).try_unwrap()?.clone();
+                let def_at = self.defines.try_get(&name).try_unwrap()?.value().clone();
+                let uri = self
+                    .fi_to_url
+                    .try_get(&def_at.name.fi()?)
+                    .try_unwrap()?
+                    .clone();
                 Some(GotoDefinitionResponse::Scalar(Location {
                     uri,
-                    range: span_to_range(&def_at),
+                    range: span_to_range(&def_at.name),
                 }))
             } else {
                 let fi = *self
@@ -425,7 +431,7 @@ impl LanguageServer for Backend {
                 }
                 let n = self.name_(n);
                 let ns = self.name_(ns);
-                if Some(fi) != at.fi().as_ref() {
+                if Some(fi) != at.name.fi().as_ref() {
                     continue;
                 };
                 if !(n.starts_with(&params.query)
@@ -459,7 +465,7 @@ impl LanguageServer for Backend {
 
                     location: {
                         let url = self.fi_to_url.try_get(fi).unwrap().clone();
-                        let range = span_to_range(at);
+                        let range = span_to_range(&at.name);
                         Location::new(url, range)
                     },
 
@@ -488,6 +494,7 @@ impl LanguageServer for Backend {
         };
         if let Some(names) = self.previouse_defines.try_get(&fi_inner).try_unwrap() {
             for (Name(scope, _, n, vis), at) in names.iter() {
+                let at = at.name;
                 if *vis != Visibility::Public {
                     continue;
                 }
@@ -519,7 +526,7 @@ impl LanguageServer for Backend {
 
                     location: {
                         let url = self.fi_to_url.try_get(&fi).unwrap().clone();
-                        let range = span_to_range(at);
+                        let range = span_to_range(&at);
                         Location::new(url, range)
                     },
 
@@ -1171,7 +1178,6 @@ impl LanguageServer for Backend {
 
     #[instrument(skip(self))]
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        tracing::info!("HOVER");
         let name = or_!(
             self.resolve_name(
                 &params.text_document_position_params.text_document.uri,
@@ -1189,14 +1195,48 @@ impl LanguageServer for Backend {
             let def_at = self.defines.try_get(&name).try_unwrap()?;
             let fi = *self.ud_to_fi.try_get(&name.module()).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
-            if let Some(x) = try_find_lines(&source, def_at.lo().0, def_at.hi().0) {
-                writeln!(target, "```purescript").unwrap();
-                x.split("\n").for_each(|x| {
-                    writeln!(target, "{}", x.trim_end()).unwrap();
-                });
-                writeln!(target, "```").unwrap();
+
+            // TODO: Fix this for real
+            let whole_thing = def_at
+                .body
+                .span()
+                .merge(def_at.name)
+                .merge(def_at.sig.unwrap_or(def_at.name));
+            if whole_thing.line_range() < 8
+                || (name.scope() != Scope::Module && name.name().is_proper())
+            {
+                if let Some(x) = try_find_lines(&source, whole_thing.lo().0,
+                // This is an artifact of the parser not kknowing where comments bellong - here it
+                // thinks the comments are part of the tail of the def - not the head of the
+                // next def.
+                whole_thing.hi().0.saturating_sub(1)
+                ) {
+                    writeln!(target, "```purescript").unwrap();
+                    x.split("\n")
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .skip_while(|x| x.trim().starts_with("--") || x.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .for_each(|x| {
+                            writeln!(target, "{}", x.trim_end()).unwrap();
+                        });
+                    writeln!(target, "```").unwrap();
+                }
+            } else {
+                if let Some(x) = try_find_lines(&source, def_at.name.lo().0, def_at.name.hi().0) {
+                    writeln!(target, "```purescript").unwrap();
+                    x.split("\n").for_each(|x| {
+                        writeln!(target, "{}", x.trim_end()).unwrap();
+                    });
+                    writeln!(target, "```").unwrap();
+                }
             }
-            if let Some(x) = try_find_comments_before(&source, def_at.lo().0) {
+            if let Some(x) =
+                try_find_comments_before(&source, def_at.sig.unwrap_or(def_at.name).lo().0)
+            {
                 writeln!(target).unwrap();
                 x.split("\n").for_each(|x| {
                     writeln!(
@@ -1336,7 +1376,7 @@ fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
         | NRerrors::UnusedImportedConstructor(_, _)
         | NRerrors::UnusedImportTypeAndConstructor(_, _, _)
         | NRerrors::UnusedLocal(_, _)
-        | NRerrors::UnusedDefinition(_, _, _) => Vec::new(),
+        | NRerrors::UnusedDefinition(_, _) => Vec::new(),
     }
 }
 
@@ -1540,8 +1580,8 @@ pub fn nrerror_turn_into_diagnostic(
             Vec::new(),
         ),
 
-        NRerrors::UnusedDefinition(name, s, _) => create_warning(
-            s,
+        NRerrors::UnusedDefinition(name, s) => create_warning(
+            s.name,
             "UnusedDefinition".into(),
             format!(
                 "Definition {:?} {} is unused",
@@ -1739,16 +1779,13 @@ impl Backend {
         {
             let defined_scopes = defines
                 .iter()
-                .filter_map(|(a, (_, available_in))| available_in.map(|x| (x.lines(), Some(*a))))
+                .filter_map(|(a, spans)| spans.body.iter().map(|x| (x.lines(), Some(*a))).min())
                 .collect::<BTreeSet<_>>();
             self.available_locals.insert(fi, defined_scopes);
         }
 
         {
-            let new = defines
-                .into_iter()
-                .map(|(a, (at, _))| (a, at))
-                .collect::<BTreeSet<_>>();
+            let new = defines.into_iter().collect::<BTreeSet<_>>();
             let old = self
                 .previouse_defines
                 .insert(fi, new.clone())
@@ -1760,7 +1797,7 @@ impl Backend {
                 self.defines.remove(name);
             }
             for (name, pos) in new.difference(&old) {
-                self.defines.insert(*name, *pos);
+                self.defines.insert(*name, pos.clone());
             }
         }
 
