@@ -1329,8 +1329,14 @@ fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
         | NRerrors::NotAConstructor(_, _)
         | NRerrors::NoConstructors(_, _)
         | NRerrors::NotExportedOrDoesNotExist(_, _, _, _)
-        | NRerrors::CouldNotFindImport(_, _)
-        | NRerrors::Unused(_, _) => Vec::new(),
+        | NRerrors::CouldNotFindImport(_, _) => Vec::new(),
+
+        NRerrors::UnusedImport(_, _, _)
+        | NRerrors::UnusedImportQualified(_, _)
+        | NRerrors::UnusedImportedConstructor(_, _)
+        | NRerrors::UnusedImportTypeAndConstructor(_, _, _)
+        | NRerrors::UnusedLocal(_, _)
+        | NRerrors::UnusedDefinition(_, _, _) => Vec::new(),
     }
 }
 
@@ -1474,7 +1480,7 @@ pub fn nrerror_turn_into_diagnostic(
             s,
             "CouldNotFindImport".into(),
             format!(
-                "Could not find this import {}",
+                "Could not find the import {}",
                 names
                     .try_get(&n)
                     .try_unwrap()
@@ -1483,7 +1489,67 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
-        NRerrors::Unused(info, s) => create_warning(s, "Unused".into(), info, Vec::new()),
+
+        NRerrors::UnusedImport(scope, ud, s) => create_warning(
+            s,
+            "UnusedImport".into(),
+            format!(
+                "Import of {:?} {} is unused",
+                scope,
+                format_name(None, ud, names),
+            ),
+            Vec::new(),
+        ),
+        NRerrors::UnusedImportQualified(ud, s) => create_warning(
+            s,
+            "UnusedImportQualified".into(),
+            format!(
+                "The qualified import {} is unused",
+                format_name(None, ud, names),
+            ),
+            Vec::new(),
+        ),
+        NRerrors::UnusedImportedConstructor(ud, s) => create_warning(
+            s,
+            "UnusedImportedConstructor".into(),
+            format!(
+                "The import constructor {} is unused",
+                format_name(None, ud, names),
+            ),
+            Vec::new(),
+        ),
+
+        NRerrors::UnusedImportTypeAndConstructor(ud, _, s) => create_warning(
+            s,
+            "UnusedImportTypeAndConstructor".into(),
+            format!(
+                "Both type and constructors for {} are unused",
+                format_name(None, ud, names),
+            ),
+            Vec::new(),
+        ),
+
+        NRerrors::UnusedLocal(name, s) => create_warning(
+            s,
+            "UnusedLocal".into(),
+            format!(
+                "Local {:?} {} is unused",
+                name.scope(),
+                format_name(None, name.name(), names),
+            ),
+            Vec::new(),
+        ),
+
+        NRerrors::UnusedDefinition(name, s, _) => create_warning(
+            s,
+            "UnusedDefinition".into(),
+            format!(
+                "Definition {:?} {} is unused",
+                name.scope(),
+                format_name(None, name.name(), names),
+            ),
+            Vec::new(),
+        ),
     }
 }
 

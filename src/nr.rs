@@ -113,7 +113,12 @@ pub enum NRerrors {
     CannotImportSelf(ast::Span),
     CouldNotFindImport(ast::Ud, ast::Span),
     //
-    Unused(String, ast::Span),
+    UnusedImport(Scope, ast::Ud, ast::Span),
+    UnusedImportQualified(ast::Ud, ast::Span),
+    UnusedImportedConstructor(ast::Ud, ast::Span),
+    UnusedImportTypeAndConstructor(ast::Ud, Vec<Name>, ast::Span),
+    UnusedLocal(Name, ast::Span),
+    UnusedDefinition(Name, ast::Span, Option<ast::Span>),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -214,8 +219,7 @@ impl<'s> N<'s> {
                     return;
                 }
                 if usages.iter().all(|(_, sort)| sort == &Sort::Import) {
-                    self.errors
-                        .push(NRerrors::Unused("Namespace is not used".into(), s));
+                    self.errors.push(NRerrors::UnusedImportQualified(n, s));
                 }
             }
         }
@@ -244,21 +248,18 @@ impl<'s> N<'s> {
                     ast::Import::Value(ast::Name(ast::S(x, s)))
                     | ast::Import::Symbol(ast::Symbol(ast::S(x, s))) => {
                         if !is_used(Term, *x) {
-                            self.errors
-                                .push(NRerrors::Unused("Term is unused".into(), *s));
+                            self.errors.push(NRerrors::UnusedImport(Term, *x, *s));
                         }
                     }
                     ast::Import::TypSymbol(ast::Symbol(ast::S(x, s)))
                     | ast::Import::Typ(ast::ProperName(ast::S(x, s))) => {
                         if !is_used(Type, *x) {
-                            self.errors
-                                .push(NRerrors::Unused("Type is unused".into(), *s));
+                            self.errors.push(NRerrors::UnusedImport(Type, *x, *s));
                         }
                     }
                     ast::Import::Class(ast::ProperName(ast::S(x, s))) => {
                         if !is_used(Class, *x) {
-                            self.errors
-                                .push(NRerrors::Unused("Class is unused".into(), *s));
+                            self.errors.push(NRerrors::UnusedImport(Class, *x, *s));
                         }
                     }
                     ast::Import::TypDat(proper_name, data_member) => {
@@ -286,32 +287,43 @@ impl<'s> N<'s> {
                                     //     ));
                                     // } else
                                     if all_unused && ty_unused {
-                                        self.errors.push(NRerrors::Unused(
-                                            "Type and constructors are unused".into(),
+                                        self.errors.push(NRerrors::UnusedImportTypeAndConstructor(
+                                            proper_name.0 .0,
+                                            fields.clone(),
                                             proper_name.0 .1.merge(*s),
                                         ));
                                     }
                                 }
                                 ast::DataMember::Some(mem) => {
-                                    let mut all_unused = true;
-                                    for m in mem {
-                                        if let Some(name) =
-                                            fields.iter().find(|name| name.name() == m.0 .0)
-                                        {
-                                            if self.is_used(name) {
-                                                all_unused = false;
-                                            } else {
-                                                self.errors.push(NRerrors::Unused(
-                                                    "Constructor is unused".into(),
-                                                    m.0 .1,
-                                                ));
+                                    let fields: Vec<Name> = mem
+                                        .iter()
+                                        .filter_map(|m| {
+                                            fields
+                                                .iter()
+                                                .find(|name| name.name() == m.0 .0)
+                                                .copied()
+                                        })
+                                        .collect();
+                                    let all_unused = fields.iter().all(|name| self.is_used(name));
+                                    if !all_unused {
+                                        for m in mem {
+                                            if let Some(name) =
+                                                fields.iter().find(|name| name.name() == m.0 .0)
+                                            {
+                                                if !self.is_used(name) {
+                                                    self.errors.push(
+                                                        NRerrors::UnusedImportedConstructor(
+                                                            m.0 .0, m.0 .1,
+                                                        ),
+                                                    );
+                                                }
                                             }
                                         }
-                                    }
-                                    if all_unused && ty_unused {
-                                        self.errors.push(NRerrors::Unused(
-                                            "Type and imported constructors are unused".into(),
-                                            proper_name.0 .1,
+                                    } else if all_unused && ty_unused {
+                                        self.errors.push(NRerrors::UnusedImportTypeAndConstructor(
+                                            proper_name.0 .0,
+                                            fields.clone(),
+                                            proper_name.0 .1.merge(mem.span()),
                                         ));
                                     }
                                 }
@@ -347,8 +359,7 @@ impl<'s> N<'s> {
                 let at = self.defines.get(n).unwrap().0;
                 let out = self.defines.get_mut(n).unwrap();
                 *out = (at, Some(ast::Span::from_to(at, end)));
-                self.errors
-                    .push(NRerrors::Unused("Local is unused".into(), at));
+                self.errors.push(NRerrors::UnusedLocal(*n, at));
             }
         }
         self.locals.truncate(l)
@@ -1527,6 +1538,15 @@ impl<'s> N<'s> {
             Sort::Ref,
         )
     }
+
+    fn check_names_for_unused(&mut self) {
+        for (def, (at, source)) in self.defines.iter() {
+            if !self.is_used(def) {
+                self.errors
+                    .push(NRerrors::UnusedDefinition(*def, *at, *source));
+            }
+        }
+    }
 }
 
 // Build a map of all source positions that have a name connected with them. We can then use
@@ -1577,6 +1597,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
         for i in h.2.iter() {
             n.check_imports(i);
         }
+        n.check_names_for_unused();
 
         Some(h.0 .0 .0)
     } else {
