@@ -1561,7 +1561,8 @@ impl<'s> N<'s> {
 
     fn check_names_for_unused(&mut self) {
         for (def, spans) in self.defines.iter() {
-            if !self.is_used(def) {
+            // NOTE[et]: This is strange... 
+            if def.scope() != Scope::Module && !self.is_used(def) {
                 self.errors
                     .push(NRerrors::UnusedDefinition(*def, spans.clone()));
             }
