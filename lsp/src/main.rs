@@ -1030,7 +1030,8 @@ impl LanguageServer for Backend {
             }
         }
         // Place the best matches at the top of the list
-        out.sort_by_key(|x| x.is_preferred);
+        out.sort_by_key(|x| (x.is_preferred, x.title.clone()));
+        out.dedup_by_key(|x| x.title.clone());
         out.reverse();
         Ok(Some(out.into_iter().map(|x| x.into()).collect()))
     }
