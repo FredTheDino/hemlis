@@ -1189,6 +1189,13 @@ impl LanguageServer for Backend {
             let def_at = self.defines.try_get(&name).try_unwrap()?;
             let fi = *self.ud_to_fi.try_get(&name.module()).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
+            if let Some(x) = try_find_lines(&source, def_at.lo().0, def_at.hi().0) {
+                writeln!(target, "```purescript").unwrap();
+                x.split("\n").for_each(|x| {
+                    writeln!(target, "{}", x.trim_end()).unwrap();
+                });
+                writeln!(target, "```").unwrap();
+            }
             if let Some(x) = try_find_comments_before(&source, def_at.lo().0) {
                 writeln!(target).unwrap();
                 x.split("\n").for_each(|x| {
@@ -1201,13 +1208,6 @@ impl LanguageServer for Backend {
                     )
                     .unwrap();
                 })
-            }
-            if let Some(x) = try_find_lines(&source, def_at.lo().0, def_at.hi().0) {
-                writeln!(target, "```purescript").unwrap();
-                x.split("\n").for_each(|x| {
-                    writeln!(target, "{}", x.trim_end()).unwrap();
-                });
-                writeln!(target, "```").unwrap();
             }
             Some(())
         })();
