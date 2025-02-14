@@ -1196,7 +1196,6 @@ impl LanguageServer for Backend {
             let fi = *self.ud_to_fi.try_get(&name.module()).try_unwrap()?;
             let source = self.fi_to_source.try_get(&fi).try_unwrap()?;
 
-            // TODO: Fix this for real
             let whole_thing = def_at
                 .body
                 .span()
@@ -1205,24 +1204,31 @@ impl LanguageServer for Backend {
             if whole_thing.line_range() < 8
                 || (name.scope() != Scope::Module && name.name().is_proper())
             {
-                if let Some(x) = try_find_lines(&source, whole_thing.lo().0,
                 // This is an artifact of the parser not kknowing where comments bellong - here it
                 // thinks the comments are part of the tail of the def - not the head of the
                 // next def.
-                whole_thing.hi().0.saturating_sub(1)
+                if let Some(x) = try_find_lines(&source, whole_thing.lo().0,
+                if whole_thing.hi().1 < 2 {
+                    whole_thing.hi().0.saturating_sub(1)
+                } else {
+                    whole_thing.hi().0
+                }
                 ) {
                     writeln!(target, "```purescript").unwrap();
                     x.split("\n")
                         .collect::<Vec<_>>()
                         .into_iter()
                         .rev()
-                        .skip_while(|x| x.trim().starts_with("--") || x.trim().is_empty())
+                        .skip_while(|x| {
+                            let xx = x.trim();
+                            xx.starts_with("--") || xx.is_empty()
+                        })
                         .collect::<Vec<_>>()
                         .into_iter()
                         .rev()
-                        .for_each(|x| {
-                            writeln!(target, "{}", x.trim_end()).unwrap();
-                        });
+                    .for_each(|x| {
+                        writeln!(target, "{}", x.trim_end()).unwrap();
+                    });
                     writeln!(target, "```").unwrap();
                 }
             } else {
