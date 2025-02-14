@@ -790,6 +790,26 @@ impl LanguageServer for Backend {
 
                     // 1. Find all possible imports with `n`
                     // 1a. Figure out what edits need to be done
+                    // TODO: Filter by first letter
+                    // TODO: Search with some kind of hemming distance, like everything 
+                    // TODO: Drop the assumptions about `n` being spelt correctly
+                    // TODO: Score each of these and limit the number of responses
+                    // TODO: Remove unused imports
+                    // TODO: Import ska funka på namespace för do-block
+                    //
+                    // TODO: Add `_` to unused variables
+                    //
+                    // TODO: Qualified imports to unqualified imports
+                    // TODO: Handle unqualified imports
+                    //
+                    // TODO: Parse operators with operators table
+                    // TODO: Report on unnessecary parens, and then fix them? :o
+                    //
+                    // Fun stuff:
+                    // TODO: # <-> $
+                    // TODO: <#> <-> <$>
+                    // TODO: (...) <-> $
+                    // TODO: >>> <-> \x -> x
 
                     let imported = or_!(self.imports.try_get(&me).try_unwrap(), { continue })
                         .value()
@@ -799,7 +819,7 @@ impl LanguageServer for Backend {
                         .flat_map(|x| x.iter().flat_map(|x| x.to_names()))
                         .collect();
 
-                    let handle = |ns: Option<ast::Ud>, name: &nr::Name, out: &mut Vec<_>| {
+                    let handle_quse = |ns: Option<ast::Ud>, name: &nr::Name, out: &mut Vec<_>| {
                         out.push(CodeAction {
                             title: format!(
                                 "[QUSE {:?}] Qualified use {} ({})",
@@ -829,20 +849,20 @@ impl LanguageServer for Backend {
                                 Export::ConstructorsSome(name, constructors)
                                 | Export::ConstructorsAll(name, constructors) => {
                                     if name.name() == *n && name.scope() == *s {
-                                        handle(*m, name, &mut out);
+                                        handle_quse(*m, name, &mut out);
                                     }
                                     for c in constructors.iter() {
                                         if c.name() == *n
                                             && c.scope() == *s
                                             && c.scope() == nr::Scope::Term
                                         {
-                                            handle(*m, name, &mut out);
+                                            handle_quse(*m, c, &mut out);
                                         }
                                     }
                                 }
                                 Export::Just(name) => {
                                     if name.name() == *n && name.scope() == *s {
-                                        handle(*m, name, &mut out);
+                                        handle_quse(*m, name, &mut out);
                                     }
                                 }
                             }
@@ -855,7 +875,7 @@ impl LanguageServer for Backend {
                         .map(|x| (*x.key(), x.value().clone()))
                         .collect();
 
-                    let handle = |name: &nr::Name, _is_constructor: bool, out: &mut Vec<_>| {
+                    let handle_qimport = |name: &nr::Name, _is_constructor: bool, out: &mut Vec<_>| {
                         if let Some(ns) = ns {
                             let ns_name = self.name_(ns);
                             let name_name = self.name_(&name.module());
@@ -969,7 +989,7 @@ impl LanguageServer for Backend {
                                         && name.scope() == *s
                                         && !seen.contains(name)
                                     {
-                                        handle(name, false, &mut out);
+                                        handle_qimport(name, false, &mut out);
                                     }
                                     for c in constructors.iter() {
                                         if c.name() == *n
@@ -977,7 +997,7 @@ impl LanguageServer for Backend {
                                             && c.scope() == nr::Scope::Term
                                             && !seen.contains(c)
                                         {
-                                            handle(name, true, &mut out);
+                                            handle_qimport(c, true, &mut out);
                                         }
                                     }
                                 }
@@ -986,7 +1006,7 @@ impl LanguageServer for Backend {
                                         && name.scope() == *s
                                         && !seen.contains(name)
                                     {
-                                        handle(name, false, &mut out);
+                                        handle_qimport(name, false, &mut out);
                                     }
                                 }
                             }
