@@ -136,7 +136,7 @@ impl Sort {
     }
 
     pub fn is_ref(&self) -> bool {
-        matches!(self, Sort::Ref)
+        matches!(self, Sort::Ref | Sort::Export)
     }
 }
 
@@ -176,6 +176,9 @@ pub struct N<'s> {
     pub defines: BTreeMap<Name, DefineSpans>,
     pub locals: Vec<Name>,
     pub imports: BTreeMap<Option<ast::Ud>, BTreeMap<ast::Ud, Vec<Export>>>,
+
+    // NOTE[et]: Do not like this flag - at all!
+    pub self_is_exported: bool,
 }
 
 impl<'s> N<'s> {
@@ -194,6 +197,8 @@ impl<'s> N<'s> {
             imports: BTreeMap::new(),
             defines: BTreeMap::new(),
             locals: Vec::new(),
+
+            self_is_exported: false,
         }
     }
 
@@ -362,6 +367,7 @@ impl<'s> N<'s> {
         for n in self.locals.iter().skip(l) {
             if n.scope() != Scope::Type
                 && !n.name().starts_with_underscore()
+                && !(n.name().is_proper() && n.scope() == Scope::Term)
                 && self
                     .references
                     .get(n)
@@ -627,6 +633,7 @@ impl<'s> N<'s> {
 
     #[instrument(skip(self))]
     fn export_self(&mut self) {
+        self.self_is_exported = true;
         let cs: BTreeSet<_> = self.constructors.values().flatten().collect();
         for name @ Name(s, m, _, v) in self.defines.keys() {
             if *v != Visibility::Public {
@@ -1562,10 +1569,17 @@ impl<'s> N<'s> {
     fn check_names_for_unused(&mut self) {
         for (def, spans) in self.defines.iter() {
             // NOTE[et]: This is strange...
-            if def.scope() != Scope::Module && !self.is_used(def) {
-                self.errors
-                    .push(NRerrors::UnusedDefinition(*def, spans.clone()));
+            if def.name().starts_with_underscore()
+                // Not really satisfied...
+                || (def.name().is_proper() && def.scope() == Scope::Term)
+                || (!def.name().is_proper() && def.scope() == Scope::Type)
+                || def.scope() == Scope::Module
+                || self.is_used(def)
+            {
+                continue;
             }
+            self.errors
+                .push(NRerrors::UnusedDefinition(*def, spans.clone()));
         }
     }
 }
@@ -1612,12 +1626,14 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
             for ex in exports.iter() {
                 n.export(ex);
             }
-            n.check_names_for_unused();
         } else {
             n.export_self();
         }
         for i in h.2.iter() {
             n.check_imports(i);
+        }
+        if !n.self_is_exported {
+            n.check_names_for_unused();
         }
 
         Some(h.0 .0 .0)

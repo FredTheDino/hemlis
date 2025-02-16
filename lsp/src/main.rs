@@ -1457,7 +1457,8 @@ fn format_name(ns: Option<ast::Ud>, n: ast::Ud, names: &DashMap<ast::Ud, String>
     ) {
         (None, Some(name)) => name,
         (Some(ns), Some(name)) => format!("{}.{}", ns, name),
-        (_, _) => "!! UNREACHABLE - PLEASE REPORT".into(),
+        // This case is reached in practice due to racey-ness
+        (_, _) => "?".into(),
     }
 }
 
