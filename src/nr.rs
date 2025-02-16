@@ -896,7 +896,7 @@ impl<'s> N<'s> {
                 );
             }
             ast::Decl::ClassKind(d, _) => {
-                self.def_global(Type, d.0 .0, d.0 .1, dec.span(), is_redecl);
+                self.def_global(Class, d.0 .0, d.0 .1, dec.span(), is_redecl);
             }
             ast::Decl::Class(_, d, _, _, mem) => {
                 self.def_global(Class, d.0 .0, d.0 .1, dec.span(), is_redecl);
