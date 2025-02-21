@@ -779,12 +779,41 @@ impl LanguageServer for Backend {
         .hi();
         let end_of_imports = (l, c + 1);
 
-        let mut out = Vec::new();
-        for (s, f) in or_!(self.fixables.try_get(&fi).try_unwrap(), {
+        let fixables = or_!(self.fixables.try_get(&fi).try_unwrap(), {
             return Err(error(line!(), "Module failed to load"));
-        })
-        .iter()
-        {
+        });
+
+        let mut out = Vec::new();
+
+        let mut delete_all = Vec::new();
+        for (_, f) in fixables.iter() {
+            match f {
+                Fixable::DeleteUnusedImport(at) => {
+                    delete_all.push(span_to_range(&at.and_one_more_char()))
+                }
+                _ => (),
+            }
+        }
+        if !delete_all.is_empty() {
+            out.push(CodeAction {
+                title: format!("BurnAllUnusedImport"),
+                kind: Some(CodeActionKind::SOURCE_FIX_ALL),
+                is_preferred: Some(false),
+                edit: Some(WorkspaceEdit::new(
+                    [(
+                        uri.clone(),
+                        delete_all
+                            .into_iter()
+                            .map(|r| TextEdit::new(r, "".into()))
+                            .collect(),
+                    )]
+                    .into(),
+                )),
+                ..CodeAction::default()
+            });
+        }
+
+        for (s, f) in fixables.iter() {
             if !s.contains((
                 params.range.start.line as usize,
                 params.range.start.character as usize,
@@ -1201,6 +1230,23 @@ impl LanguageServer for Backend {
                     is_preferred: Some(true),
                     ..CodeAction::default()
                 }),
+                Fixable::DeleteUnusedImport(at) => out.push(CodeAction {
+                    title: "DeleteUnusedImport".into(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: None,
+                    edit: Some(WorkspaceEdit::new(
+                        [(
+                            uri.clone(),
+                            vec![TextEdit::new(
+                                span_to_range(&at.and_one_more_char()),
+                                "".into(),
+                            )],
+                        )]
+                        .into(),
+                    )),
+                    is_preferred: Some(true),
+                    ..CodeAction::default()
+                }),
             }
         }
         // Place the best matches at the top of the list
@@ -1384,6 +1430,7 @@ fn error(code: u32, message: &str) -> Error {
 enum Fixable {
     GuessImports(nr::Scope, Option<ast::Ud>, ast::Ud, ast::Span),
     Delete(ast::Span),
+    DeleteUnusedImport(ast::Span),
     RenameWithUnderscore(ast::Span),
 }
 
@@ -1464,29 +1511,37 @@ fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
         }
 
         NRerrors::ImportDoesNothing(_, s) => {
-            vec![(s.span(), Fixable::Delete(s.span().entire_line()))]
+            vec![(
+                s.span(),
+                Fixable::DeleteUnusedImport(s.span().entire_line()),
+            )]
         }
 
         NRerrors::UnusedImport(_, _, s)
         | NRerrors::UnusedImportedConstructor(_, s)
         | NRerrors::UnusedImportTypeAndConstructor(_, _, s) => {
-            vec![(*s, Fixable::Delete(*s))]
+            vec![(*s, Fixable::DeleteUnusedImport(*s))]
         }
 
         NRerrors::UnusedImportQualified(_, s) | NRerrors::UnusedImportUnqualified(_, s) => {
-            vec![(*s, Fixable::Delete(s.entire_line()))]
+            vec![(*s, Fixable::DeleteUnusedImport(s.entire_line()))]
         }
 
         NRerrors::UnusedDefinition(n, s) if n.scope() == nr::Scope::Namespace => {
             vec![(
-                s.span().entire_line(),
-                Fixable::Delete(s.span().entire_line()),
+                s.name.entire_line(),
+                Fixable::DeleteUnusedImport(s.name.entire_line()),
             )]
         }
 
-        NRerrors::UnusedDefinition(_, s) => {
-            vec![(s.span().entire_line(), Fixable::Delete(s.span()))]
-        }
+        NRerrors::UnusedDefinition(_, _) => Vec::new(),
+        // Unsure about this
+        // NRerrors::UnusedDefinition(_, s) => {
+        //     vec![(
+        //         s.span().entire_line(),
+        //         Fixable::DeleteUnusedImport(s.span()),
+        //     )]
+        // }
     }
 }
 
