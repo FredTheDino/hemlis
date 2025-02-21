@@ -467,11 +467,31 @@ impl<'s> N<'s> {
 
     #[instrument(skip(self))]
     fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) -> Option<Name> {
-        let m = m.map(|x| {
-            self.resolve(Namespace, None, x.0);
-            x.0 .0
-        });
-        self.resolve(scope, m, n)
+        match m {
+            Some(x) => {
+                let s = n.1.merge(x.0 .1);
+                let unique_matches = self.resolve_inner(Namespace, None, x.0 .0);
+                for name in unique_matches.iter().copied() {
+                    self.add_usage(name, s, Sort::Ref);
+                }
+
+                match unique_matches.len() {
+                    1 => (),
+                    0 => {
+                        self.errors
+                            .push(NRerrors::Unknown(scope, Some(x.0 .0), n.0, s));
+                        return None;
+                    }
+                    _ => {
+                        self.errors
+                            .push(NRerrors::NameConflict(unique_matches.clone(), s));
+                        return None;
+                    }
+                }
+                self.resolve(scope, Some(x.0 .0), n)
+            }
+            None => self.resolve(scope, None, n),
+        }
     }
 
     #[instrument(skip(self))]

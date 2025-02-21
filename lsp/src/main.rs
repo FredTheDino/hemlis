@@ -1140,7 +1140,6 @@ impl LanguageServer for Backend {
                                     | Export::ConstructorsAll(name, constructors) => {
                                         if name.name() == *n
                                             && name.scope() == *s
-                                            && !seen.contains(name)
                                         {
                                             handle_qimport(name, &None, &mut out);
                                         }
@@ -1148,7 +1147,6 @@ impl LanguageServer for Backend {
                                             if c.name() == *n
                                                 && c.scope() == *s
                                                 && c.scope() == nr::Scope::Term
-                                                && !seen.contains(c)
                                             {
                                                 handle_qimport(name, &Some(*c), &mut out);
                                             }
