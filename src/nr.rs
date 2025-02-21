@@ -326,7 +326,7 @@ impl<'s> N<'s> {
                                                 .copied()
                                         })
                                         .collect();
-                                    let all_unused = fields.iter().all(|name| self.is_used(name));
+                                    let all_unused = fields.iter().all(|name| !self.is_used(name));
                                     if !all_unused {
                                         for m in mem {
                                             if let Some(name) =
