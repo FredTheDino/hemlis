@@ -112,9 +112,11 @@ pub enum NRerrors {
     NotExportedOrDoesNotExist(ast::Ud, Scope, ast::Ud, ast::Span),
     CannotImportSelf(ast::Span),
     CouldNotFindImport(ast::Ud, ast::Span),
+    ImportDoesNothing(ast::Ud, ast::Span),
     //
     UnusedImport(Scope, ast::Ud, ast::Span),
     UnusedImportQualified(ast::Ud, ast::Span),
+    UnusedImportUnqualified(ast::Ud, ast::Span),
     UnusedImportedConstructor(ast::Ud, ast::Span),
     UnusedImportTypeAndConstructor(ast::Ud, Vec<Name>, ast::Span),
     UnusedLocal(Name, ast::Span),
@@ -154,6 +156,10 @@ impl DefineSpans {
             sig: None,
             body: Vec::new(),
         }
+    }
+
+    pub fn span(&self) -> ast::Span {
+        self.name.merge(self.sig.span()).merge(self.body.span())
     }
 }
 
@@ -224,8 +230,12 @@ impl<'s> N<'s> {
             hiding: _,
             names,
             to,
+            end: _,
         }: &ast::ImportDecl,
     ) {
+        if from.0 .0 == ast::Ud::new("Prim") {
+            return;
+        }
         let from_name = Name(Scope::Module, from.0 .0, from.0 .0, Visibility::Public);
         if let Some(usages) = self.global_usages.get(&from_name) {
             if usages.iter().any(|(_, sort)| sort == &Sort::Export) {
@@ -241,7 +251,8 @@ impl<'s> N<'s> {
                     return;
                 }
                 if usages.iter().all(|(_, sort)| sort == &Sort::Import) {
-                    self.errors.push(NRerrors::UnusedImportQualified(n, s));
+                    self.errors
+                        .push(NRerrors::UnusedImportQualified(n, s.entire_line()));
                 }
             }
         }
@@ -253,6 +264,7 @@ impl<'s> N<'s> {
                 .map(|x| x.value().clone())
                 .unwrap_or_default();
 
+            let mut is_entire_thing_unused = true;
             for import in names {
                 let is_used = |scope: Scope, x: ast::Ud| -> bool {
                     valid.iter().any(|n| match n {
@@ -267,24 +279,30 @@ impl<'s> N<'s> {
                     })
                 };
                 match import {
-                    ast::Import::Value(ast::Name(ast::S(x, s)))
-                    | ast::Import::Symbol(ast::Symbol(ast::S(x, s))) => {
+                    ast::Import::Value(s, ast::Name(ast::S(x, _)))
+                    | ast::Import::Symbol(s, ast::Symbol(ast::S(x, _))) => {
                         if !is_used(Term, *x) {
                             self.errors.push(NRerrors::UnusedImport(Term, *x, *s));
+                        } else {
+                            is_entire_thing_unused = false;
                         }
                     }
-                    ast::Import::TypSymbol(ast::Symbol(ast::S(x, s)))
-                    | ast::Import::Typ(ast::ProperName(ast::S(x, s))) => {
+                    ast::Import::TypSymbol(s, ast::Symbol(ast::S(x, _)))
+                    | ast::Import::Typ(s, ast::ProperName(ast::S(x, _))) => {
                         if !is_used(Type, *x) {
                             self.errors.push(NRerrors::UnusedImport(Type, *x, *s));
+                        } else {
+                            is_entire_thing_unused = false;
                         }
                     }
-                    ast::Import::Class(ast::ProperName(ast::S(x, s))) => {
+                    ast::Import::Class(s, ast::ProperName(ast::S(x, _))) => {
                         if !is_used(Class, *x) {
                             self.errors.push(NRerrors::UnusedImport(Class, *x, *s));
+                        } else {
+                            is_entire_thing_unused = false;
                         }
                     }
-                    ast::Import::TypDat(proper_name, data_member) => {
+                    ast::Import::TypDat(s, proper_name, data_member) => {
                         if let Some((ty_unused, fields)) = valid.iter().find_map(|n| match n {
                             Export::ConstructorsSome(name, fields)
                             | Export::ConstructorsAll(name, fields)
@@ -312,7 +330,7 @@ impl<'s> N<'s> {
                                         self.errors.push(NRerrors::UnusedImportTypeAndConstructor(
                                             proper_name.0 .0,
                                             fields.clone(),
-                                            proper_name.0 .1.merge(*s),
+                                            *s,
                                         ));
                                     }
                                 }
@@ -328,6 +346,7 @@ impl<'s> N<'s> {
                                         .collect();
                                     let all_unused = fields.iter().all(|name| !self.is_used(name));
                                     if !all_unused {
+                                        is_entire_thing_unused = false;
                                         for m in mem {
                                             if let Some(name) =
                                                 fields.iter().find(|name| name.name() == m.0 .0)
@@ -345,14 +364,22 @@ impl<'s> N<'s> {
                                         self.errors.push(NRerrors::UnusedImportTypeAndConstructor(
                                             proper_name.0 .0,
                                             fields.clone(),
-                                            proper_name.0 .1.merge(mem.span()),
+                                            *s,
                                         ));
+                                    } else {
+                                        is_entire_thing_unused = false;
                                     }
                                 }
                             };
                         }
                     }
                 }
+            }
+            if is_entire_thing_unused {
+                self.errors.push(NRerrors::UnusedImportUnqualified(
+                    from.0 .0,
+                    names.span().merge(from.span()).entire_line(),
+                ));
             }
         }
     }
@@ -685,6 +712,7 @@ impl<'s> N<'s> {
             hiding,
             names,
             to,
+            end: _,
         }: &ast::ImportDecl,
     ) {
         // NOTE: I've decided the export isn't a usage - it's annoying to see references that
@@ -709,6 +737,15 @@ impl<'s> N<'s> {
                 .push(NRerrors::CouldNotFindImport(from.0 .0, from.0 .1));
             return;
         }
+        if names.is_empty() && to.is_none() {
+            if from.0 .0 != ast::Ud::new("Prim") {
+                self.errors.push(NRerrors::ImportDoesNothing(
+                    from.0 .0,
+                    from.0 .1.entire_line(),
+                ));
+            }
+            return;
+        }
         let exports: Vec<Export> = self
             .global_exports
             .get(&from.0 .0)
@@ -726,20 +763,20 @@ impl<'s> N<'s> {
                 .iter()
                 .filter_map(|x| {
                     let (s, u) = match x {
-                        ast::Import::Value(x) => (Term, x.0),
-                        ast::Import::Symbol(x) => (Term, x.0),
-                        ast::Import::Typ(x) => (Type, x.0),
+                        ast::Import::Value(_, x) => (Term, x.0),
+                        ast::Import::Symbol(_, x) => (Term, x.0),
+                        ast::Import::Typ(_, x) => (Type, x.0),
                         // NOTE[et]: It's bug compatible with purs to not hide the members
-                        ast::Import::TypDat(x, ast::DataMember::All(_)) => (Type, x.0),
+                        ast::Import::TypDat(_, x, ast::DataMember::All(_)) => (Type, x.0),
                         // These are not references in hiding since they don't do anything.
-                        ast::Import::TypDat(x, ast::DataMember::Some(_)) => (Type, x.0),
-                        ast::Import::TypSymbol(x) => (Type, x.0),
-                        ast::Import::Class(x) => (Class, x.0),
+                        ast::Import::TypDat(_, x, ast::DataMember::Some(_)) => (Type, x.0),
+                        ast::Import::TypSymbol(_, x) => (Type, x.0),
+                        ast::Import::Class(_, x) => (Class, x.0),
                     };
                     if let Some(n) = valid.get(&(s, u.0)) {
                         self.add_usage(*n, u.1, Sort::Import);
                         // NOTE[et]: This is bug-compatible with purs
-                        if matches!(x, ast::Import::TypDat(_, ast::DataMember::Some(_))) {
+                        if matches!(x, ast::Import::TypDat(_, _, ast::DataMember::Some(_))) {
                             return None;
                         }
                         Some((s, u.0))
@@ -803,12 +840,12 @@ impl<'s> N<'s> {
         };
 
         Some(match i {
-            ast::Import::Value(ast::Name(ast::S(x, s)))
-            | ast::Import::Symbol(ast::Symbol(ast::S(x, s))) => export_as(Term, *x, *s)?,
-            ast::Import::TypSymbol(ast::Symbol(ast::S(x, s)))
-            | ast::Import::Typ(ast::ProperName(ast::S(x, s))) => export_as(Type, *x, *s)?,
-            ast::Import::Class(ast::ProperName(ast::S(x, s))) => export_as(Class, *x, *s)?,
-            ast::Import::TypDat(x, ast::DataMember::All(_)) => {
+            ast::Import::Value(_, ast::Name(ast::S(x, s)))
+            | ast::Import::Symbol(_, ast::Symbol(ast::S(x, s))) => export_as(Term, *x, *s)?,
+            ast::Import::TypSymbol(_, ast::Symbol(ast::S(x, s)))
+            | ast::Import::Typ(_, ast::ProperName(ast::S(x, s))) => export_as(Type, *x, *s)?,
+            ast::Import::Class(_, ast::ProperName(ast::S(x, s))) => export_as(Class, *x, *s)?,
+            ast::Import::TypDat(_, x, ast::DataMember::All(_)) => {
                 if let Some(out) = valid.iter().find_map(|n| match n {
                     out
                     @ (Export::ConstructorsSome(name, _) | Export::ConstructorsAll(name, _))
@@ -827,7 +864,7 @@ impl<'s> N<'s> {
                     return None;
                 }
             }
-            ast::Import::TypDat(x, ast::DataMember::Some(cs)) => {
+            ast::Import::TypDat(_, x, ast::DataMember::Some(cs)) => {
                 if let Some((name, es)) = valid.iter().find_map(|n| match n {
                     Export::ConstructorsSome(name, cs) | Export::ConstructorsAll(name, cs)
                         if name.is(Type, x.0 .0) =>
@@ -1598,6 +1635,7 @@ impl<'s> N<'s> {
             {
                 continue;
             }
+
             self.errors
                 .push(NRerrors::UnusedDefinition(*def, spans.clone()));
         }
@@ -1622,6 +1660,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
             hiding: Vec::new(),
             names: Vec::new(),
             to: None,
+            end: ast::Span::Zero,
         });
         for i in h.2.iter() {
             n.import(i);

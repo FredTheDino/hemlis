@@ -993,7 +993,9 @@ impl LanguageServer for Backend {
                                                 format!(
                                                     "{}.{}",
                                                     self.name_(&name.module()),
-                                                    self.name_(&constructor.unwrap_or(*name).name())
+                                                    self.name_(
+                                                        &constructor.unwrap_or(*name).name()
+                                                    )
                                                 ),
                                             ),
                                         ],
@@ -1007,20 +1009,25 @@ impl LanguageServer for Backend {
                             if imported_unqualified_names.contains(&name.module()) {
                                 (|| -> Option<()> {
                                     // TODO: This won't work with re-exports
-                                    let (l, c) = self
-                                        .references
-                                        .try_get(&name.module())
-                                        .try_unwrap()?
-                                        .get(&nr::Name(nr::Scope::Module, name.module(), name.module(), nr::Visibility::Public))?
-                                        .iter()
-                                        .find_map(|(s, _): &(ast::Span, nr::Sort)| {
-                                            if s.fi() == Some(fi) {
-                                                Some(*s)
-                                            } else {
-                                                None
-                                            }
-                                        })?
-                                        .hi();
+                                    let (l, c) =
+                                        self.references
+                                            .try_get(&name.module())
+                                            .try_unwrap()?
+                                            .get(&nr::Name(
+                                                nr::Scope::Module,
+                                                name.module(),
+                                                name.module(),
+                                                nr::Visibility::Public,
+                                            ))?
+                                            .iter()
+                                            .find_map(|(s, _): &(ast::Span, nr::Sort)| {
+                                                if s.fi() == Some(fi) {
+                                                    Some(*s)
+                                                } else {
+                                                    None
+                                                }
+                                            })?
+                                            .hi();
                                     let c = c + 2;
                                     out.push(CodeAction {
                                         title: format!(
@@ -1038,12 +1045,12 @@ impl LanguageServer for Backend {
                                                     range((l, c), (l, c)),
                                                     format!(
                                                         "{}, ",
-                                                    as_import(
-                                                        name.scope(),
-                                                        constructor.is_some(),
-                                                        name.name(),
-                                                        &self.names
-                                                    )
+                                                        as_import(
+                                                            name.scope(),
+                                                            constructor.is_some(),
+                                                            name.name(),
+                                                            &self.names
+                                                        )
                                                     ),
                                                 )],
                                             )]
@@ -1138,9 +1145,7 @@ impl LanguageServer for Backend {
                                 match export {
                                     Export::ConstructorsSome(name, constructors)
                                     | Export::ConstructorsAll(name, constructors) => {
-                                        if name.name() == *n
-                                            && name.scope() == *s
-                                        {
+                                        if name.name() == *n && name.scope() == *s {
                                             handle_qimport(name, &None, &mut out);
                                         }
                                         for c in constructors.iter() {
@@ -1165,6 +1170,20 @@ impl LanguageServer for Backend {
                         }
                     }
                 }
+                Fixable::RenameWithUnderscore(at) => out.push(CodeAction {
+                    title: "Prefix `_` to mark unused".into(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: None,
+                    edit: Some(WorkspaceEdit::new(
+                        [(
+                            uri.clone(),
+                            vec![TextEdit::new(span_to_range(&at.right_before()), "_".into())],
+                        )]
+                        .into(),
+                    )),
+                    is_preferred: Some(true),
+                    ..CodeAction::default()
+                }),
                 Fixable::Delete(at) => out.push(CodeAction {
                     title: "Delete".into(),
                     kind: Some(CodeActionKind::QUICKFIX),
@@ -1172,7 +1191,10 @@ impl LanguageServer for Backend {
                     edit: Some(WorkspaceEdit::new(
                         [(
                             uri.clone(),
-                            vec![TextEdit::new(span_to_range(at), "".into())],
+                            vec![TextEdit::new(
+                                span_to_range(&at.and_one_more_char()),
+                                "".into(),
+                            )],
                         )]
                         .into(),
                     )),
@@ -1362,6 +1384,7 @@ fn error(code: u32, message: &str) -> Error {
 enum Fixable {
     GuessImports(nr::Scope, Option<ast::Ud>, ast::Ud, ast::Span),
     Delete(ast::Span),
+    RenameWithUnderscore(ast::Span),
 }
 
 fn create_error(
@@ -1436,12 +1459,34 @@ fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
         | NRerrors::NotExportedOrDoesNotExist(_, _, _, _)
         | NRerrors::CouldNotFindImport(_, _) => Vec::new(),
 
-        NRerrors::UnusedImport(_, _, _)
-        | NRerrors::UnusedImportQualified(_, _)
-        | NRerrors::UnusedImportedConstructor(_, _)
-        | NRerrors::UnusedImportTypeAndConstructor(_, _, _)
-        | NRerrors::UnusedLocal(_, _)
-        | NRerrors::UnusedDefinition(_, _) => Vec::new(),
+        NRerrors::UnusedLocal(_, s) => {
+            vec![(*s, Fixable::RenameWithUnderscore(*s))]
+        }
+
+        NRerrors::ImportDoesNothing(_, s) => {
+            vec![(s.span(), Fixable::Delete(s.span().entire_line()))]
+        }
+
+        NRerrors::UnusedImport(_, _, s)
+        | NRerrors::UnusedImportedConstructor(_, s)
+        | NRerrors::UnusedImportTypeAndConstructor(_, _, s) => {
+            vec![(*s, Fixable::Delete(*s))]
+        }
+
+        NRerrors::UnusedImportQualified(_, s) | NRerrors::UnusedImportUnqualified(_, s) => {
+            vec![(*s, Fixable::Delete(s.entire_line()))]
+        }
+
+        NRerrors::UnusedDefinition(n, s) if n.scope() == nr::Scope::Namespace => {
+            vec![(
+                s.span().entire_line(),
+                Fixable::Delete(s.span().entire_line()),
+            )]
+        }
+
+        NRerrors::UnusedDefinition(_, s) => {
+            vec![(s.span().entire_line(), Fixable::Delete(s.span()))]
+        }
     }
 }
 
@@ -1616,6 +1661,15 @@ pub fn nrerror_turn_into_diagnostic(
             ),
             Vec::new(),
         ),
+        NRerrors::UnusedImportUnqualified(ud, s) => create_warning(
+            s,
+            "UnusedImportQualified".into(),
+            format!(
+                "The unqualified import {} is unused",
+                format_name(None, ud, names),
+            ),
+            Vec::new(),
+        ),
         NRerrors::UnusedImportedConstructor(ud, s) => create_warning(
             s,
             "UnusedImportedConstructor".into(),
@@ -1647,6 +1701,16 @@ pub fn nrerror_turn_into_diagnostic(
             Vec::new(),
         ),
 
+        NRerrors::UnusedDefinition(name, s) if name.scope() == Scope::Namespace => create_warning(
+            s.span().entire_line(),
+            "UnusedDefinition".into(),
+            format!(
+                "Namespace {} is unused",
+                format_name(None, name.name(), names),
+            ),
+            Vec::new(),
+        ),
+
         NRerrors::UnusedDefinition(name, s) => create_warning(
             s.name,
             "UnusedDefinition".into(),
@@ -1654,6 +1718,15 @@ pub fn nrerror_turn_into_diagnostic(
                 "Definition {:?} {} is unused",
                 name.scope(),
                 format_name(None, name.name(), names),
+            ),
+            Vec::new(),
+        ),
+        NRerrors::ImportDoesNothing(u, s) => create_warning(
+            s,
+            "ImportDoesNothing".into(),
+            format!(
+                "Import {} can be safely removed",
+                format_name(None, u, names)
             ),
             Vec::new(),
         ),

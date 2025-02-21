@@ -473,7 +473,7 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
     kw_import(p)?;
     let from = mname(p)?;
     // NOTE: import A hiding (a) (a) - is a syntax error
-    let (hiding, names) = if next_is!(T::Lower("hiding"))(p) {
+    let (hiding, names, rp) = if next_is!(T::Lower("hiding"))(p) {
         kw_hiding(p)?;
         kw_lp(p)?;
         let hiding = sep_until(
@@ -484,14 +484,16 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
             next_is!(T::RightParen),
         );
         kw_rp(p)?;
-        (hiding, Vec::new())
+        let rp = p.prev().1;
+        (hiding, Vec::new(), rp)
     } else if next_is!(T::LeftParen)(p) {
         kw_lp(p)?;
         let names = sep_until(p, "imports", kw_comma, import, next_is!(T::RightParen));
         kw_rp(p)?;
-        (Vec::new(), names)
+        let rp = p.prev().1;
+        (Vec::new(), names, rp)
     } else {
-        (Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), Span::zero())
     };
     let to = if next_is!(T::Lower("as"))(p) {
         kw_as(p)?;
@@ -505,28 +507,51 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
         hiding,
         names,
         to,
+        end: rp.merge(to.span()),
     })
 }
 
 fn import<'t>(p: &mut P<'t>) -> Option<Import> {
+    // Ugly little hack to get the whole span of the item.
+    let s = match p.prev() {
+        (Some(T::Comma), s) => s,
+        _ => Span::zero(),
+    };
     alt!(
         p: Serror::Info(p.span(), "import"),
         |p: &mut _| {
             kw_type(p)?;
-            Some(Import::TypSymbol(symbol(p)?))
+            let x = symbol(p)?;
+            let s = s.merge(x.span());
+            Some(Import::TypSymbol(s, x))
         },
         |p: &mut _| {
             kw_class(p)?;
-            Some(Import::Class(proper(p)?))
+            let x = proper(p)?;
+            let s = s.merge(x.span());
+            Some(Import::Class(s, x))
         },
-        |p: &mut _| { Some(Import::Value(name(p)?)) },
-        |p: &mut _| { Some(Import::Symbol(symbol(p)?)) },
+        |p: &mut _| {
+            let x = name(p)?;
+            let s = s.merge(x.span());
+            Some(Import::Value(s, x))
+        },
+        |p: &mut _| {
+            let x = symbol(p)?;
+            let s = s.merge(x.span());
+            Some(Import::Symbol(s, x))
+        },
         |p: &mut _| {
             let n = proper(p)?;
             let ms = data_members(p)?;
-            Some(Import::TypDat(n, ms))
+            let s = s.merge(ms.span()).merge(n.span());
+            Some(Import::TypDat(s, n, ms))
         },
-        |p: &mut _| { Some(Import::Typ(proper(p)?)) }
+        |p: &mut _| {
+            let n = proper(p)?;
+            let s = s.merge(n.span());
+            Some(Import::Typ(s, n))
+        }
     )
 }
 
@@ -1750,6 +1775,13 @@ impl<'s> P<'s> {
         if *self.steps.borrow() > 1000 {
             panic!("Found loop in parser, {}\n{:?}", self.i, self.tokens)
         }
+    }
+
+    fn prev(&self) -> (Option<Token<'s>>, Span) {
+        (
+            self.tokens.get(self.i - 1).and_then(|x| x.0.ok()),
+            self.span(),
+        )
     }
 
     fn peek_(&self) -> (Option<Token<'s>>, Span) {

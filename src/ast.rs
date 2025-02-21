@@ -68,6 +68,27 @@ impl Span {
         }
     }
 
+    pub fn and_one_more_char(self) -> Self {
+        match self {
+            Span::Known(fi, lo, hi) => Span::Known(fi, lo, (hi.0, hi.1 + 1)),
+            Span::Zero => Span::Zero,
+        }
+    }
+
+    pub fn entire_line(&self) -> Self {
+        match self {
+            Span::Known(fi, lo, hi) => Span::Known(*fi, (lo.0, 0), (hi.0, hi.1 + 99999)),
+            Span::Zero => *self,
+        }
+    }
+
+    pub fn right_before(&self) -> Self {
+        match self {
+            Span::Known(fi, lo, _) => Span::Known(*fi, *lo, *lo),
+            Span::Zero => Span::Zero,
+        }
+    }
+
     pub fn line_range(&self) -> usize {
         let (lo, hi) = self.lines();
         hi - lo + 1
@@ -375,12 +396,12 @@ pub enum Export {
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Import {
-    Value(Name),
-    Symbol(Symbol),
-    Typ(ProperName),
-    TypDat(ProperName, DataMember),
-    TypSymbol(Symbol),
-    Class(ProperName),
+    Value(Span, Name),
+    Symbol(Span, Symbol),
+    Typ(Span, ProperName),
+    TypDat(Span, ProperName, DataMember),
+    TypSymbol(Span, Symbol),
+    Class(Span, ProperName),
 }
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
@@ -390,6 +411,7 @@ pub struct ImportDecl {
     pub hiding: Vec<Import>,
     pub names: Vec<Import>,
     pub to: Option<MName>,
+    pub end: Span,
 }
 
 #[derive(hemlis_macros::Ast, Clone, Debug, PartialEq, Eq, Hash)]
