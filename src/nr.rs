@@ -121,6 +121,7 @@ pub enum NRerrors {
     UnusedImportTypeAndConstructor(ast::Ud, Vec<Name>, ast::Span),
     UnusedLocal(Name, ast::Span),
     UnusedDefinition(Name, DefineSpans),
+    UnusedConstructor(Name, ast::Span),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
@@ -257,7 +258,7 @@ impl<'s> N<'s> {
             }
         }
 
-        if !names.is_empty() {
+        if !names.is_none() {
             let valid: Vec<Export> = self
                 .global_exports
                 .get(&from.0 .0)
@@ -265,7 +266,7 @@ impl<'s> N<'s> {
                 .unwrap_or_default();
 
             let mut is_entire_thing_unused = true;
-            for import in names {
+            for import in names.iter().flatten() {
                 let is_used = |scope: Scope, x: ast::Ud| -> bool {
                     valid.iter().any(|n| match n {
                         Export::Just(name)
@@ -332,6 +333,8 @@ impl<'s> N<'s> {
                                             fields.clone(),
                                             *s,
                                         ));
+                                    } else {
+                                        is_entire_thing_unused = false;
                                     }
                                 }
                                 ast::DataMember::Some(mem) => {
@@ -345,8 +348,10 @@ impl<'s> N<'s> {
                                         })
                                         .collect();
                                     let all_unused = fields.iter().all(|name| !self.is_used(name));
-                                    if !all_unused {
+                                    if ty_unused || !all_unused {
                                         is_entire_thing_unused = false;
+                                    }
+                                    if !all_unused {
                                         for m in mem {
                                             if let Some(name) =
                                                 fields.iter().find(|name| name.name() == m.0 .0)
@@ -366,8 +371,6 @@ impl<'s> N<'s> {
                                             fields.clone(),
                                             *s,
                                         ));
-                                    } else {
-                                        is_entire_thing_unused = false;
                                     }
                                 }
                             };
@@ -494,28 +497,24 @@ impl<'s> N<'s> {
 
     #[instrument(skip(self))]
     fn resolveq(&mut self, scope: Scope, m: Option<ast::Qual>, n: ast::S<ast::Ud>) -> Option<Name> {
+        let s = n.span().merge(m.span());
         match m {
-            Some(x) => {
-                let s = n.1.merge(x.0 .1);
-                let unique_matches = self.resolve_inner(Namespace, None, x.0 .0);
+            Some(m) => {
+                let unique_matches = self.resolve_inner(Namespace, None, m.0 .0);
                 for name in unique_matches.iter().copied() {
                     self.add_usage(name, s, Sort::Ref);
                 }
 
                 match unique_matches.len() {
-                    1 => (),
                     0 => {
                         self.errors
-                            .push(NRerrors::Unknown(scope, Some(x.0 .0), n.0, s));
+                            .push(NRerrors::Unknown(scope, Some(m.0 .0), n.0, s));
                         return None;
                     }
-                    _ => {
-                        self.errors
-                            .push(NRerrors::NameConflict(unique_matches.clone(), s));
-                        return None;
-                    }
+                    // Namespace conflicts aren't a problem
+                    _ => (),
                 }
-                self.resolve(scope, Some(x.0 .0), n)
+                self.resolve(scope, Some(m.0 .0), n)
             }
             None => self.resolve(scope, None, n),
         }
@@ -737,14 +736,13 @@ impl<'s> N<'s> {
                 .push(NRerrors::CouldNotFindImport(from.0 .0, from.0 .1));
             return;
         }
-        if names.is_empty() && to.is_none() {
+        if names.as_ref().map(|x| x.is_empty()).unwrap_or(false) && to.is_none() {
             if from.0 .0 != ast::Ud::new("Prim") {
                 self.errors.push(NRerrors::ImportDoesNothing(
                     from.0 .0,
                     from.0 .1.entire_line(),
                 ));
             }
-            return;
         }
         let exports: Vec<Export> = self
             .global_exports
@@ -758,7 +756,7 @@ impl<'s> N<'s> {
             .flat_map(|x| x.to_names())
             .map(|name @ Name(s, _, u, _)| ((s, u), name))
             .collect();
-        if names.is_empty() {
+        if names.is_none() {
             let hiding = hiding
                 .iter()
                 .filter_map(|x| {
@@ -806,6 +804,7 @@ impl<'s> N<'s> {
         } else {
             let mut to_export = names
                 .iter()
+                .flatten()
                 .filter_map(|i| self.import_part(i, from.0 .0, &exports))
                 .collect();
             self.imports
@@ -1636,6 +1635,20 @@ impl<'s> N<'s> {
                 continue;
             }
 
+            if let Some(cons) = self.constructors.get(def) {
+                let mut all_unused = true;
+                for c in cons.iter() {
+                    if self.is_used(c) {
+                        all_unused = false;
+                    } else {
+                        let s = self.defines.get(c).map(|x| x.name).unwrap_or(spans.name);
+                        self.errors.push(NRerrors::UnusedConstructor(*c, s));
+                    }
+                }
+                if !all_unused {
+                    continue;
+                }
+            }
             self.errors
                 .push(NRerrors::UnusedDefinition(*def, spans.clone()));
         }
@@ -1658,7 +1671,7 @@ pub fn resolve_names(n: &mut N, prim: ast::Ud, m: &ast::Module) -> Option<ast::U
             start: ast::Span::Zero,
             from: ast::MName(ast::S(prim, ast::Span::Zero)),
             hiding: Vec::new(),
-            names: Vec::new(),
+            names: None,
             to: None,
             end: ast::Span::Zero,
         });

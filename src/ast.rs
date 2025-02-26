@@ -75,6 +75,13 @@ impl Span {
         }
     }
 
+    pub fn next_line(self) -> Self {
+        match self {
+            Span::Known(fi, lo, hi) => Span::Known(fi, (hi.0 + 1, 0), (hi.0 + 1, 99999)),
+            Span::Zero => Span::Zero,
+        }
+    }
+
     pub fn entire_line(&self) -> Self {
         match self {
             Span::Known(fi, lo, hi) => Span::Known(*fi, (lo.0, 0), (hi.0, hi.1 + 99999)),
@@ -409,7 +416,7 @@ pub struct ImportDecl {
     pub start: Span,
     pub from: MName,
     pub hiding: Vec<Import>,
-    pub names: Vec<Import>,
+    pub names: Option<Vec<Import>>,
     pub to: Option<MName>,
     pub end: Span,
 }

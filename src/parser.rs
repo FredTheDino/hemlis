@@ -485,15 +485,15 @@ fn import_decl<'t>(p: &mut P<'t>) -> Option<ImportDecl> {
         );
         kw_rp(p)?;
         let rp = p.prev().1;
-        (hiding, Vec::new(), rp)
+        (hiding, None, rp)
     } else if next_is!(T::LeftParen)(p) {
         kw_lp(p)?;
         let names = sep_until(p, "imports", kw_comma, import, next_is!(T::RightParen));
         kw_rp(p)?;
         let rp = p.prev().1;
-        (Vec::new(), names, rp)
+        (Vec::new(), Some(names), rp)
     } else {
-        (Vec::new(), Vec::new(), Span::zero())
+        (Vec::new(), None, Span::zero())
     };
     let to = if next_is!(T::Lower("as"))(p) {
         kw_as(p)?;

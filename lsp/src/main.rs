@@ -765,8 +765,9 @@ impl LanguageServer for Backend {
             return Err(error(line!(), "File failed to load"));
         });
 
-        let (l, c) = or_!(
-            &or_!(&self.modules.try_get(&me).try_unwrap(), {
+        let qq = self.modules.try_get(&me).try_unwrap();
+        let head = or_!(
+            &or_!(&qq, {
                 return Err(error(line!(), "Module failed to load"));
             })
             .value()
@@ -774,10 +775,8 @@ impl LanguageServer for Backend {
             {
                 return Err(error(line!(), "Module failed to load"));
             }
-        )
-        .span()
-        .hi();
-        let end_of_imports = (l, c + 1);
+        );
+        let end_of_imports = head.2.last().map(|x| x.start.lo()).unwrap_or_else(|| head.4.next_line().lo());
 
         let fixables = or_!(self.fixables.try_get(&fi).try_unwrap(), {
             return Err(error(line!(), "Module failed to load"));
@@ -910,6 +909,9 @@ impl LanguageServer for Backend {
                             }) {
                                 let imported_as = self.name_(&m);
                                 let invalid_name = self.name_(&n);
+                                if similarity_score(&imported_as.to_lowercase(), &invalid_name.to_lowercase()) < 0.4 {
+                                    continue; 
+                                }
                                 out.push(CodeAction {
                                     title: format!(
                                         "[QUSE {:?}] Qualified use {} ({})",
@@ -986,7 +988,7 @@ impl LanguageServer for Backend {
                                             vec![TextEdit::new(
                                                 range(end_of_imports, end_of_imports),
                                                 format!(
-                                                    "\nimport {} as {}",
+                                                    "import {} as {}\n",
                                                     self.name_(&name.module()),
                                                     self.name_(ns)
                                                 ),
@@ -1012,7 +1014,7 @@ impl LanguageServer for Backend {
                                             TextEdit::new(
                                                 range(end_of_imports, end_of_imports),
                                                 format!(
-                                                    "\nimport {} as {}",
+                                                    "import {} as {}\n",
                                                     self.name_(&name.module()),
                                                     self.name_(&name.module())
                                                 ),
@@ -1104,7 +1106,7 @@ impl LanguageServer for Backend {
                                             vec![TextEdit::new(
                                                 range(end_of_imports, end_of_imports),
                                                 format!(
-                                                    "\nimport {} ({})",
+                                                    "import {} ({})\n",
                                                     self.name_(&name.module()),
                                                     as_import(
                                                         name.scope(),
@@ -1144,6 +1146,9 @@ impl LanguageServer for Backend {
                             }) {
                                 let module_name = self.name_(&m);
                                 let namespace_name = self.name_(&n);
+                                if similarity_score(&module_name.to_lowercase(), &namespace_name.to_lowercase()) < 0.4 {
+                                    continue; 
+                                }
                                 out.push(CodeAction {
                                     title: format!(
                                         "[QIMPORT {:?}] Qualified import {} as {}",
@@ -1159,7 +1164,7 @@ impl LanguageServer for Backend {
                                             vec![TextEdit::new(
                                                 range(end_of_imports, end_of_imports),
                                                 format!(
-                                                    "\nimport {} as {}",
+                                                    "import {} as {}\n",
                                                     module_name, namespace_name
                                                 ),
                                             )],
@@ -1420,6 +1425,32 @@ impl LanguageServer for Backend {
     }
 }
 
+fn similarity_score(ax: &str, bx: &str) -> f32 {
+    let ax: Vec<_> = ax.chars().collect();
+    let bx: Vec<_> = bx.chars().collect();
+    if ax.is_empty() {
+        return bx.len() as f32;
+    }
+    if bx.is_empty() {
+        return ax.len() as f32;
+    }
+    let mut distances: Vec<Vec<usize>> = Vec::new();
+    for _ in bx.iter().chain([' '].iter()) { distances.push(vec![0; 1 + ax.len()]); }
+
+    for i in 1..=ax.len() { distances[0][i] = i; }
+    for j in 1..=bx.len() { distances[j][0] = j; }
+
+    for (i, a) in ax.iter().enumerate() {
+        for (j, b) in bx.iter().enumerate() {
+            distances[j + 1][i + 1] =
+                (distances[j][i] + (if a != b { 0 } else { 1 }))
+                .min(distances[j][i + 1] + 1)
+                .min(distances[j + 1][i] + 1);
+        }
+    }
+    1.0 - (distances[bx.len() - 1][ax.len() - 1] as f32) / (bx.len().min(ax.len()) as f32)
+}
+
 fn error(code: u32, message: &str) -> Error {
     let mut err = Error::new(ErrorCode::ServerError(code.into()));
     err.message = message.to_string().into();
@@ -1535,6 +1566,7 @@ fn nrerror_turn_into_fixables(error: &NRerrors) -> Vec<(ast::Span, Fixable)> {
         }
 
         NRerrors::UnusedDefinition(_, _) => Vec::new(),
+        NRerrors::UnusedConstructor(_, _) => Vec::new(),
         // Unsure about this
         // NRerrors::UnusedDefinition(_, s) => {
         //     vec![(
@@ -1718,7 +1750,7 @@ pub fn nrerror_turn_into_diagnostic(
         ),
         NRerrors::UnusedImportUnqualified(ud, s) => create_warning(
             s,
-            "UnusedImportQualified".into(),
+            "UnusedImportUnqualified".into(),
             format!(
                 "The unqualified import {} is unused",
                 format_name(None, ud, names),
@@ -1762,6 +1794,15 @@ pub fn nrerror_turn_into_diagnostic(
             format!(
                 "Namespace {} is unused",
                 format_name(None, name.name(), names),
+            ),
+            Vec::new(),
+        ),
+        NRerrors::UnusedConstructor(u, s) => create_warning(
+            s,
+            "UnusedDefinition".into(),
+            format!(
+                "Constructor {} can be safely removed",
+                format_name(None, u.name(), names)
             ),
             Vec::new(),
         ),
