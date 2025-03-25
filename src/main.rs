@@ -153,6 +153,12 @@ pub fn build_builtins() -> (
         h(Type, "Prim.TypeError", "Beside"),
         h(Type, "Prim.TypeError", "Above"),
         //
+        h(Module, "Prim.Int", "Prim.Int"),
+        h(Class, "Prim.Int", "Add"),
+        h(Class, "Prim.Int", "Compare"),
+        h(Class, "Prim.Int", "Mul"),
+        h(Class, "Prim.Int", "ToString"),
+        //
     ];
 
     let exports = DashMap::new();

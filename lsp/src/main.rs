@@ -1931,6 +1931,7 @@ impl Backend {
                 h("Prim.Boolean"),
                 h("Prim.Coerce"),
                 h("Prim.Symbol"),
+                h("Prim.Int"),
             ]
             .into();
             loop {
