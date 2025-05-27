@@ -2,5 +2,5 @@
 source: src/lexer.rs
 expression: "p(\"\\\"\\\"\\\"\\\"\\\"\\\"\")"
 ---
-Ok(RawString("\"\"\"\"\"\""))
+Ok(RawString(""))
 Ok(LayTop)

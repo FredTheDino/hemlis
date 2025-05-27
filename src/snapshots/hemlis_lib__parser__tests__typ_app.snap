@@ -9,6 +9,8 @@ Module
   MName
    (0, 7)->(0, 10)
   NULL
+  (0, 0)->(0, 6)
+  (0, 11)->(0, 16)
   Decl::Sig
    Name
     (2, 0)->(2, 1)
@@ -17,7 +19,7 @@ Module
      Typ::Constructor
       QProperName
        Qual
-        (2, 5)->(2, 7)
+        (2, 5)->(2, 6)
        ProperName
         (2, 7)->(2, 8)
      Typ::Paren
@@ -32,7 +34,7 @@ Module
          Typ::Constructor
           QProperName
            Qual
-            (2, 13)->(2, 15)
+            (2, 13)->(2, 14)
            ProperName
             (2, 15)->(2, 16)
          Typ::Constructor

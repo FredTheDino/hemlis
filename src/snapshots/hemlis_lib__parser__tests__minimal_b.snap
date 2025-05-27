@@ -9,6 +9,8 @@ Module
   MName
    (1, 7)->(1, 8)
   NULL
+  (1, 0)->(1, 6)
+  (1, 9)->(1, 14)
   Decl::Sig
    Name
     (3, 0)->(3, 1)
@@ -106,13 +108,13 @@ Module
               Expr::Ident
                QName
                 Qual
-                 (17, 10)->(17, 12)
+                 (17, 10)->(17, 11)
                 Name
                  (17, 12)->(17, 13)
               Expr::Ident
                QName
                 Qual
-                 (17, 14)->(17, 16)
+                 (17, 14)->(17, 15)
                 Name
                  (17, 16)->(17, 17)
       Expr::Array

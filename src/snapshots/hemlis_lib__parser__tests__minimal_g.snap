@@ -8,6 +8,8 @@ Module
  Header
   MName
    (1, 7)->(1, 8)
+  (1, 0)->(1, 6)
+  (1, 12)->(1, 17)
   Decl::Sig
    Name
     (3, 0)->(3, 1)
@@ -16,7 +18,7 @@ Module
      Typ::Constructor
       QProperName
        Qual
-        (3, 5)->(3, 7)
+        (3, 5)->(3, 6)
        ProperName
         (3, 7)->(3, 8)
      Typ::Paren
@@ -25,7 +27,7 @@ Module
         Typ::Constructor
          QProperName
           Qual
-           (3, 10)->(3, 12)
+           (3, 10)->(3, 11)
           ProperName
            (3, 12)->(3, 13)
         Typ::Constructor
@@ -77,7 +79,7 @@ Module
        Expr::Ident
         QName
          Qual
-          (6, 8)->(6, 10)
+          (6, 8)->(6, 9)
          Name
           (6, 10)->(6, 11)
        Expr::Paren
@@ -120,7 +122,7 @@ Module
       Expr::Ident
        QName
         Qual
-         (7, 6)->(7, 8)
+         (7, 6)->(7, 7)
         Name
          (7, 8)->(7, 21)
 ===

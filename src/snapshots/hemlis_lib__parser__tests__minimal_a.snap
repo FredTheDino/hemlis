@@ -11,6 +11,8 @@ Module
    Export::Value
     Name
      (1, 12)->(1, 13)
+  (1, 0)->(1, 6)
+  (1, 15)->(1, 20)
   Decl::Sig
    Name
     (3, 0)->(3, 1)
@@ -27,7 +29,7 @@ Module
      Expr::Ident
       QName
        Qual
-        (5, 2)->(5, 4)
+        (5, 2)->(5, 3)
        Name
         (5, 4)->(5, 5)
      Expr::Array
@@ -36,7 +38,7 @@ Module
         Expr::Ident
          QName
           Qual
-           (6, 6)->(6, 8)
+           (6, 6)->(6, 7)
           Name
            (6, 8)->(6, 9)
         Expr::Let
