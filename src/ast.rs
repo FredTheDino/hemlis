@@ -186,6 +186,7 @@ ast!(str);
 ast!(&str);
 ast!(bool);
 ast!(i32);
+ast!(i64);
 
 impl Ast for Span {
     fn show(&self, indent: usize, w: &mut impl Write) -> ::std::io::Result<()> {
@@ -358,7 +359,7 @@ pub struct Op(pub S<Ud>);
 #[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Str(pub S<Ud>);
 #[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Int(pub S<i32>);
+pub struct Int(pub S<i64>);
 #[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Char(pub S<Ud>);
 #[derive(hemlis_macros::Ast, Clone, Copy, Debug, PartialEq, Eq, Hash)]

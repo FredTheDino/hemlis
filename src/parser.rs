@@ -571,10 +571,10 @@ fn typ_atom<'t>(p: &mut P<'t>, err: Option<&'static str>) -> Option<Typ> {
         }
 
         (Some(T::String(_) | T::RawString(_)), _) => Some(Typ::Str(string(p)?)),
-        (Some(T::Number(n)), _) if n.parse::<i32>().is_ok() => {
+        (Some(T::Number(n)), _) if n.parse::<i64>().is_ok() => {
             let span = p.span();
             number(p);
-            Some(Typ::Int(false, Int(S(n.parse::<i32>().unwrap(), span))))
+            Some(Typ::Int(false, Int(S(n.parse::<i64>().unwrap(), span))))
         }
         // (Some(T::_), _) => { Some(Typ::Int(int(p)?)) },
         (Some(T::Hole(_)), _) => Some(Typ::Hole(hole(p)?)),
@@ -2393,5 +2393,10 @@ module H () where
 h = A. B. C.
         "
         ))
+    }
+
+    #[test]
+    fn large_ints_in_type_sig() {
+        assert_snapshot!(p_typ("2147483648"))
     }
 }
